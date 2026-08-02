@@ -1,0 +1,54 @@
+# Secrets and machine-local configuration
+.env
+**/.env
+*.key
+*.pem
+*.p12
+
+# Python and JavaScript environments
+**/.venv/
+**/venv/
+**/__pycache__/
+**/.pytest_cache/
+**/*.py[cod]
+**/node_modules/
+**/dist/
+
+# Runtime data and generated evidence (kept on the analysis VM)
+fwgraph/data/
+.m8-inputs/
+repos/
+*.log
+*.pid
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+*.zst
+*.i64
+*.idb
+*.id0
+*.id1
+*.id2
+*.nam
+*.til
+*.asm
+
+# Firmware and extracted filesystem images
+*.bin
+*.img
+*.ubi
+*.ubifs
+*.squashfs
+*.px4
+
+# Generated FLIRT work directories
+fwgraph/libc-sigs/build/
+fwgraph/libc-sigs/out/
+
+# Editor and OS noise
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+desktop.ini

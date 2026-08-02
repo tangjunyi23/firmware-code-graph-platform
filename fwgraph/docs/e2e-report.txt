@@ -1,0 +1,26 @@
+== fwgraph e2e regression 2026-08-02T15:29:54+08:00
+workdir: /tmp/fwgraph_e2e.3cJE92
+-- restart orchestrator with AI_MAX_FUNCS_PER_BIN=20
+PASS  orchestrator healthz
+job: 6ebb9777d437
+PASS  upload accepted
+status after auto chain: decompiled
+PASS  extract+decompile chain
+PASS  manifest: 2 ELFs, mips+arm
+PASS  decompile success rate >95%
+status after ailift: ailifted
+PASS  ailift chain
+PASS  ailift tags done, no new names
+status after graph: routed
+PASS  graph+attack+routes chain
+PASS  graph nodes/edges/files >0
+PASS  attack paths generated
+PASS  route scan completed
+sample tagged function: sub_43E390
+PASS  functions endpoint has semantic tags
+PASS  graph search hits tagged function
+PASS  pseudocode source has // addr= header
+-- restore orchestrator (normal env)
+PASS  orchestrator restored
+
+== RESULT: PASS=15 FAIL=0 (job 6ebb9777d437 kept in data/)

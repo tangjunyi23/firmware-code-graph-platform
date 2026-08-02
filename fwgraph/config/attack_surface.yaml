@@ -1,0 +1,64 @@
+version: 1
+
+sources:
+  network:
+    weight: 3.0
+    calls: [accept, accept4, recv, recvfrom, recvmsg, readv]
+    tags: [network_facing]
+    strings: [http/, http://, https://, user-agent, content-length, soapaction]
+  fieldbus_ics:
+    weight: 3.0
+    strings: [modbus, dnp3, s7comm, bacnet, opcua, iec104, iec-104, profinet, ethercat, ethernet/ip]
+    code_patterns:
+      - '\b(?:htons|ntohs)\s*\(\s*(?:502|102|20000|44818|47808|2404)\s*\)'
+  serial:
+    weight: 2.0
+    calls: [tcgetattr, tcsetattr, cfsetispeed, cfsetospeed]
+    strings: [/dev/ttys, /dev/ttyusb, /dev/ttyacm, termios]
+  nvram:
+    weight: 2.0
+    calls: [nvram_get, nvram_safe_get, nvram_bufget, getnvram]
+    strings: [nvram]
+  env:
+    weight: 1.5
+    calls: [getenv, secure_getenv]
+  file:
+    weight: 1.0
+    calls: [read, fread, getline, getdelim]
+  argv:
+    weight: 1.0
+    names: [main, start]
+
+sinks:
+  cmdexec:
+    weight: 3.0
+    calls: [system, popen, execve, execl, execlp, execv, execvp, posix_spawn]
+    libc_equiv: [system, popen, execve, execl, execlp, execv, execvp, posix_spawn]
+  memunsafe:
+    weight: 2.5
+    calls: [strcpy, strcat, sprintf, vsprintf, gets, memcpy, memmove]
+    libc_equiv: [strcpy, strcat, sprintf, vsprintf, gets, memcpy, memmove]
+  fmt:
+    weight: 2.0
+    code_patterns:
+      - >-
+        \b(?:printf|vprintf)\s*\((?!\s*["'])\s*
+      - >-
+        \b(?:fprintf|sprintf|vfprintf|vsprintf|syslog)\s*\(\s*[^,\n()]+,(?!\s*["'])\s*
+      - >-
+        \b(?:snprintf|vsnprintf)\s*\(\s*[^,\n()]+,\s*[^,\n()]+,(?!\s*["'])\s*
+  filewrite:
+    weight: 1.5
+    calls: [write, fwrite, pwrite, writev]
+  fwupdate:
+    weight: 2.0
+    calls: [mtd_write, ubi_update, fw_write, flash_write]
+    strings: [/dev/mtd, /dev/ubi, mtdblock, firmware update, firmware upgrade]
+
+scoring:
+  max_depth: 8
+  path_limit: 50
+  candidate_limit: 5000
+  length_penalty: 0.22
+  sanitizer_penalty: 0.45
+  sanitizers: [strlen, strnlen, strncmp, memcmp, bounds_check, validate, sanitize]

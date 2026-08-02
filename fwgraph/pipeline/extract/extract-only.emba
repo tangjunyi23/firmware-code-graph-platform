@@ -1,0 +1,60 @@
+# EMBA - EMBEDDED LINUX ANALYZER
+#
+# fwgraph M1 profile: extract-only
+#
+# Description: Extraction-only profile for the fwgraph orchestrator.
+#              Based on scan-profiles/default-scan.emba, trimmed to the
+#              identification + extraction phase (P-modules always run).
+#              Every S*/L*/F*/Q*/D* module is disabled via MODULE_BLACKLIST
+#              (list generated from the modules/ directory of this repo).
+#              A copy of this file lives in fwgraph/pipeline/extract/.
+
+export FORMAT_LOG=1
+export THREADED=1
+export SHORT_PATH=1
+export HTML=0
+
+# no user-mode emulation / extended binary tests / VEX metrics needed for extraction
+export QEMULATION=0
+export BINARY_EXTENDED=0
+export VEX_METRICS=0
+
+# no AI connector modules
+export AI_OPTION=0
+
+# no EMBA binary map dependency generator
+EMBA_MAP_GENERATOR=0
+
+# silent, non-interactive friendly (started via subprocess by the orchestrator)
+export DISABLE_STATUS_BAR=1
+export SILENT=1
+
+# --- firmware diffing modules (only run in diff mode, blacklist anyway) ---
+export MODULE_BLACKLIST+=( "D02_firmware_diffing_bin_details" "D05_firmware_diffing_extractor" "D10_firmware_diffing" )
+
+# --- F reporting modules ---
+export MODULE_BLACKLIST+=( "F02_toolchain" "F05_qs_resolver" "F10_license_summary" "F14_tag_builder" "F15_cyclonedx_sbom" "F17_cve_bin_tool" "F50_base_aggregator" )
+
+# --- L emulation modules ---
+export MODULE_BLACKLIST+=( "L10_system_emulation" "L15_emulated_checks_nmap" "L20_snmp_checks" "L22_upnp_hnap_checks" "L23_vnc_checks" "L25_web_checks" "L35_metasploit_check" "L99_cleanup" )
+
+# --- Q AI-connector modules (run in the emba_quest container; run_modules honors the blacklist there too) ---
+export MODULE_BLACKLIST+=( "Q03_localai_connector" "Q20_dependency_track_connector" )
+
+# --- S static analysis modules ---
+export MODULE_BLACKLIST+=( "S02_UEFI_FwHunt" "S03_firmware_bin_base_analyzer" "S04_windows_basic_analysis" "S05_firmware_details" "S06_distribution_identification" "S07_bootloader_check" "S08_main_package_sbom" "S09_firmware_base_version_check" )
+export MODULE_BLACKLIST+=( "S10_binaries_basic_check" "S12_binary_protection" "S13_weak_func_check" "S14_weak_func_radare_check" "S15_radare_decompile_checks" "S16_ghidra_decompile_checks" "S17_cwe_checker" "S18_capa_checker" "S19_apk_check" )
+export MODULE_BLACKLIST+=( "S20_shell_check" "S21_python_check" "S22_php_check" "S23_lua_check" "S24_kernel_bin_identifier" "S25_kernel_check" "S26_kernel_vuln_verifier" "S27_perl_check" "S28_java_check" )
+export MODULE_BLACKLIST+=( "S35_http_file_check" "S36_lighttpd" "S40_weak_perm_check" "S45_pass_file_check" "S50_authentication_check" "S55_history_file_check" "S60_cert_file_check" "S65_config_file_check" )
+export MODULE_BLACKLIST+=( "S75_network_check" "S80_cronjob_check" "S85_ssh_check" "S90_mail_check" "S95_interesting_files_check" "S99_grepit" "S100_command_inj_check" )
+export MODULE_BLACKLIST+=( "S106_deep_key_search" "S107_deep_password_search" "S108_stacs_password_search" "S109_jtr_local_pw_cracking" "S110_yara_check" "S115_usermode_emulator" "S116_qemu_version_detection" "S118_busybox_verifier" "S130_binary_map_builder" )
+
+# we output the profile only at the beginning - outside the docker environment
+if [[ $IN_DOCKER -ne 1 ]] ; then
+  print_output "$(indent "$(orange "Extract-only profile (fwgraph M1): only P-modules (identification/extraction) are executed")")" "no_log"
+  print_output "$(indent "$(orange "Runs EMBA in docker container")")" "no_log"
+  for MODULE_ in "${MODULE_BLACKLIST[@]}"; do
+    print_output "$(indent "$(orange "Blacklisted module: $MODULE_")")" "no_log"
+  done
+  export USE_DOCKER=1
+fi

@@ -1,0 +1,85 @@
+# naming_spec.yaml — 全局命名规范（唯一事实来源）
+# 所有 AI 重命名请求、规则命名 pass、校验器、合并仲裁都以本文件为准。
+# 修改后需重新触发"全局一致性检查"。
+
+version: 1
+
+# 名称格式：<域>_<动作>_<对象>，全小写蛇形
+format:
+  pattern: "^[a-z][a-z0-9]*(_[a-z0-9]+){1,4}$"
+  max_length: 40
+  description: "<domain>_<verb>_<object>，如 http_parse_header；允许 2~5 段蛇形"
+
+# 域词表（封闭式枚举，禁止自造新域；确需新增时改本文件并全库改写）
+domains:
+  - http      # HTTP 解析/服务
+  - cgi       # CGI handler
+  - nvram     # NVRAM/配置读写
+  - auth      # 认证/会话/令牌
+  - net       # socket/网络收发
+  - crypto    # 加解密/哈希/随机数
+  - fw        # 固件升级/写闪存
+  - upnp      # UPnP/SOAP
+  - dns       # DNS 相关
+  - wifi      # 无线配置
+  - sys       # 系统调用封装/进程/文件
+  - util      # 通用工具（字符串/缓冲区/列表）
+  - db        # 存储/数据库
+  - log       # 日志
+  - proto     # 私有协议解析
+  - hal       # 硬件抽象/GPIO/LED
+  - misc      # 兜底域（尽量不用）
+
+# 常用动作词（推荐，非封闭；保持风格统一）
+verbs:
+  - init
+  - free
+  - open
+  - close
+  - read
+  - write
+  - send
+  - recv
+  - parse
+  - build
+  - get
+  - set
+  - check
+  - verify
+  - handle
+  - process
+  - start
+  - stop
+  - load
+  - save
+  - alloc
+  - copy
+  - cmp
+  - encode
+  - decode
+
+# 禁用项
+banned:
+  patterns:
+    - "^sub_"          # IDA/Ghidra 残留
+    - "^FUN_"          # Ghidra 残留
+    - "^j_"            # thunk 残留
+    - "thing|stuff|misc2|temp|tmp[0-9]*$"  # 无意义词
+    - "[A-Z]"          # 禁止大写（驼峰/全大写）
+  description: "禁止无信息名、工具残留名、大写、拼音"
+
+# 冲突与仲裁
+arbitration:
+  libc_conflict_suffix: "_impl"   # 与已有 libc/导入名冲突时加后缀
+  uniqueness_scope: "binary"      # 同二进制内唯一
+  confidence_min: 0.6             # 低于此置信度的 AI 建议直接丢弃
+  tie_breaker: "first_in"         # 同置信度：先入库者优先
+
+# 规则命名 pass（M2-5）使用的置信度标记
+rule_naming:
+  high_confidence: 0.85           # 达到即视为已命名，L1 跳过层不再送 AI
+  sources:
+    - string_xref      # 字符串交叉引用
+    - libc_combo       # 所调 libc 组合特征
+    - export_symbol    # 导出符号/段位置
+    - nvram_key        # NVRAM/环境变量键名
