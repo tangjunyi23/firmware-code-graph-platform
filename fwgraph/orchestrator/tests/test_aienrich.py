@@ -216,3 +216,77 @@ def test_source_endpoint_ai_overlay_missing(client):
     # original still reachable for the same function
     resp = c.get(f"/jobs/{JOB}/functions/{MD5}/0x3000/source")
     assert resp.status_code == 200
+
+
+def test_aienrich_list_endpoint_unknown_job(client):
+    c, _ = client
+    resp = c.get("/jobs/nope00/aienrich")
+    assert resp.status_code == 404
+
+
+def test_aienrich_list_endpoint_all_unenriched(client):
+    # no overlay *.json on disk: the directory still lists every function
+    # from symbols.json, plainly marked enriched=false
+    c, _ = client
+    resp = c.get(f"/jobs/{JOB}/aienrich")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["total"] == 0
+    assert body["total_functions"] == 3
+    assert len(body["binaries"]) == 1
+    binary = body["binaries"][0]
+    assert binary["count"] == 0
+    assert binary["total"] == 3
+    assert [f["addr"] for f in binary["functions"]] == [
+        "0x1000", "0x2000", "0x3000"]
+    assert all(f["enriched"] is False for f in binary["functions"])
+
+
+def test_aienrich_list_endpoint_populated(client):
+    c, _ = client
+    ai_dir = main.PSEUDOCODE_DIR / JOB / MD5 / "ai"
+    (ai_dir / "ai_enrich.json").write_text('{"status": "ok"}',
+                                           encoding="utf-8")
+    (ai_dir / "0x2000.json").write_text(json.dumps({
+        "addr": "0x2000", "name": "sub_2000", "source": "ai",
+        "has_c": True, "synthetic": False, "model": "m",
+        "renames": {"v1": "req", "v2": "len"},
+        "call_args": {"memcpy()": "memcpy(dst, src, 0x42)"},
+        "summary": "runs a command", "domain": "sys",
+        "confidence": 0.9}), encoding="utf-8")
+    # overlay without a symbols entry: still listed, appended by address
+    (ai_dir / "0x4000.json").write_text(json.dumps({
+        "addr": "0x4000", "source": "ai", "has_c": False,
+        "synthetic": True, "model": "m", "renames": {},
+        "call_args": {}, "summary": "asm stub", "domain": "unknown",
+        "confidence": 0.4}), encoding="utf-8")
+    resp = c.get(f"/jobs/{JOB}/aienrich")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["total"] == 2
+    assert body["total_functions"] == 4
+    assert len(body["binaries"]) == 1
+    binary = body["binaries"][0]
+    assert binary["md5"] == MD5
+    assert binary["path"] == "firmware/usr/sbin/sysapihttpd"
+    assert binary["count"] == 2
+    assert binary["total"] == 4
+    functions = binary["functions"]
+    assert [f["addr"] for f in functions] == [
+        "0x1000", "0x2000", "0x3000", "0x4000"]  # sorted by address
+    assert functions[0]["enriched"] is False
+    assert functions[0]["name"] == "main"
+    fn = functions[1]
+    assert fn["enriched"] is True
+    assert fn["name"] == "sub_2000"
+    assert fn["renames"] == 2
+    assert fn["call_args"] == 1
+    assert fn["confidence"] == 0.9
+    assert fn["has_original"] is True
+    assert fn["synthetic"] is False
+    assert functions[2]["enriched"] is False
+    syn = functions[3]
+    assert syn["enriched"] is True
+    assert syn["name"] == "0x4000"  # no name in meta or symbols -> addr
+    assert syn["synthetic"] is True
+    assert syn["has_original"] is False  # no functions/0x4000.c

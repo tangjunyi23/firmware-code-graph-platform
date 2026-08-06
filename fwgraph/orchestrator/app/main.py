@@ -421,6 +421,113 @@ def trigger_aienrich(job_id: str, payload: dict = Body(...)):
     return {"job_id": job_id, "binary_md5": md5, "status": "aienriching"}
 
 
+@app.get("/jobs/{job_id}/aienrich", dependencies=[Depends(require_token)])
+def list_aienrich(job_id: str):
+    """Full function directory grouped by binary, with AI-enrichment
+    overlays merged in as markers (M5 enrich diff view). The function
+    universe comes from symbols.json; overlays are read from the
+    ai/<addr>.json set itself because ai_enrich.json only records the
+    latest run's items (resumed skips are not in it). Non-enriched
+    functions are listed plainly ({addr, name, enriched:false}) so the
+    UI can show the whole directory; an empty binaries list (no
+    symbols, no overlays) is a valid state, not an error."""
+    job = _jobs.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="job not found")
+    symbols = {}
+    symbols_file = PSEUDOCODE_DIR / job_id / "symbols.json"
+    if symbols_file.is_file():
+        symbols = json.loads(symbols_file.read_text(encoding="utf-8"))
+    job_dir = PSEUDOCODE_DIR / job_id
+    overlays = {}  # md5 -> {addr: overlay meta}
+    if job_dir.is_dir():
+        for md5_dir in sorted(job_dir.iterdir()):
+            if not md5_dir.is_dir() or not _MD5_RE.match(md5_dir.name):
+                continue
+            ai_dir = md5_dir / "ai"
+            if not ai_dir.is_dir():
+                continue
+            per = {}
+            for meta_file in sorted(ai_dir.glob("*.json")):
+                if meta_file.name == "ai_enrich.json":
+                    continue
+                try:
+                    meta = json.loads(meta_file.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError):
+                    continue  # one bad overlay must not break the listing
+                addr = str(meta.get("addr") or meta_file.stem).lower()
+                # synthetic overlays are asm translations; no Hex-Rays .c
+                meta["has_original"] = (md5_dir / "functions"
+                                        / f"{addr}.c").is_file()
+                per[addr] = meta
+            if per:
+                overlays[md5_dir.name] = per
+    md5s = list(symbols.get("binaries", {}))
+    for md5 in sorted(overlays):
+        if md5 not in symbols.get("binaries", {}):
+            md5s.append(md5)  # overlay on disk but binary not in symbols
+    binaries = []
+    total = 0
+    total_functions = 0
+    for md5 in md5s:
+        info = symbols.get("binaries", {}).get(md5, {})
+        per = overlays.get(md5, {})
+        functions = []
+        seen = set()
+        for fn in info.get("functions", []):
+            addr = str(fn.get("addr") or "").lower()
+            if not addr:
+                continue
+            seen.add(addr)
+            meta = per.get(addr)
+            if meta is None:
+                functions.append({"addr": addr,
+                                  "name": fn.get("name") or addr,
+                                  "enriched": False})
+            else:
+                functions.append({
+                    "addr": addr,
+                    "name": fn.get("name") or meta.get("name") or addr,
+                    "enriched": True,
+                    "domain": meta.get("domain"),
+                    "confidence": meta.get("confidence"),
+                    "summary": meta.get("summary"),
+                    "synthetic": bool(meta.get("synthetic", False)),
+                    "renames": len(meta.get("renames") or {}),
+                    "call_args": len(meta.get("call_args") or {}),
+                    "has_original": bool(meta.get("has_original", True)),
+                })
+        for addr, meta in per.items():
+            if addr in seen:
+                continue
+            # overlay without a symbols entry (edge: symbols rebuilt later)
+            functions.append({
+                "addr": addr,
+                "name": meta.get("name") or addr,
+                "enriched": True,
+                "domain": meta.get("domain"),
+                "confidence": meta.get("confidence"),
+                "summary": meta.get("summary"),
+                "synthetic": bool(meta.get("synthetic", False)),
+                "renames": len(meta.get("renames") or {}),
+                "call_args": len(meta.get("call_args") or {}),
+                "has_original": bool(meta.get("has_original", True)),
+            })
+        if not functions:
+            continue
+        functions.sort(key=lambda f: int(f["addr"], 16)
+                       if f["addr"].startswith("0x") else 0)
+        enriched_n = sum(1 for f in functions if f["enriched"])
+        binaries.append({"md5": md5, "path": info.get("path"),
+                         "arch": info.get("arch"), "count": enriched_n,
+                         "total": len(functions), "functions": functions})
+        total += enriched_n
+        total_functions += len(functions)
+    binaries.sort(key=lambda b: b.get("path") or b["md5"])
+    return {"job_id": job_id, "total": total,
+            "total_functions": total_functions, "binaries": binaries}
+
+
 @app.get("/jobs/{job_id}/aienrich/{md5}", dependencies=[Depends(require_token)])
 def get_aienrich(job_id: str, md5: str):
     job = _jobs.get(job_id)

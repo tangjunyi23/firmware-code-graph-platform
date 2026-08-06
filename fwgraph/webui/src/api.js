@@ -27,7 +27,7 @@ export class ApiError extends Error {
   }
 }
 
-export async function api (path, { method = 'GET', body, formData } = {}) {
+export async function api (path, { method = 'GET', body, formData, signal } = {}) {
   const headers = {}
   const token = getToken()
   if (token) headers.Authorization = `Bearer ${token}`
@@ -35,6 +35,7 @@ export async function api (path, { method = 'GET', body, formData } = {}) {
   const resp = await fetch(path, {
     method,
     headers,
+    signal,
     body: formData || (body !== undefined ? JSON.stringify(body) : undefined)
   })
   if (resp.status === 401) {
