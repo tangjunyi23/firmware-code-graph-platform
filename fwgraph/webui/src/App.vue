@@ -33,6 +33,9 @@
         <el-tab-pane label="攻击面" name="attack" lazy>
           <AttackView />
         </el-tab-pane>
+        <el-tab-pane label="漏洞挖掘" name="vuln" lazy>
+          <VulnView />
+        </el-tab-pane>
         <el-tab-pane label="图谱" name="graph" lazy>
           <GraphView />
         </el-tab-pane>
@@ -48,6 +51,7 @@ import { getToken, setToken, clearToken, api } from './api'
 const JobsView = defineAsyncComponent(() => import('./views/JobsView.vue'))
 const FunctionsView = defineAsyncComponent(() => import('./views/FunctionsView.vue'))
 const AttackView = defineAsyncComponent(() => import('./views/AttackView.vue'))
+const VulnView = defineAsyncComponent(() => import('./views/VulnView.vue'))
 const GraphView = defineAsyncComponent(() => import('./views/GraphView.vue'))
 
 const token = ref(getToken())

@@ -47,11 +47,13 @@ from dotenv import load_dotenv
 from fastapi import Body, Depends, FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import PlainTextResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+import httpx
 
-from . import decompiler, extractor, webui
+from . import decompiler, extractor, vulnagent_api, webui
 from pipeline.ailift import registry as ailift_registry
 from pipeline.ailift import runner as ailift_runner
 from pipeline.attack import runner as attack_runner
+from pipeline.decompile import ai_enrich
 from pipeline.graph import ingest as graph_ingest
 from pipeline.graph import query as graph_query
 from pipeline.routes import runner as route_runner
@@ -153,11 +155,11 @@ def _manifest_summary(job_id: str):
     return manifest.get("stats")
 
 
-def _decompile_worker(job_id: str):
+def _decompile_worker(job_id: str, only_md5s=None):
     job = _jobs[job_id]
     try:
         _set_status(job, "decompiling")
-        summary = decompiler.run_job(job_id, DATA_DIR)
+        summary = decompiler.run_job(job_id, DATA_DIR, only_md5s=only_md5s)
         if summary["succeeded"] > 0:
             _set_status(job, "decompiled")
         else:
@@ -290,22 +292,43 @@ def upload_firmware(file: UploadFile = File(...)):
 
 
 @app.post("/jobs/{job_id}/decompile", status_code=202, dependencies=[Depends(require_token)])
-def trigger_decompile(job_id: str):
+def trigger_decompile(job_id: str, body: dict | None = Body(None)):
     job = _jobs.get(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="job not found")
+    only_md5s = None
+    if body:
+        raw = body.get("binary_md5s")
+        if raw is not None:
+            if (not isinstance(raw, list) or not raw
+                    or not all(isinstance(m, str) for m in raw)):
+                raise HTTPException(
+                    status_code=400,
+                    detail="binary_md5s must be a non-empty list of md5 strings")
+            only_md5s = set(raw)
     with _jobs_lock:
         if job["status"] in STATUS_RUNNING:
             raise HTTPException(status_code=409,
                                 detail=f"job is {job['status']}, wait for it to finish")
-        if not (EXTRACTED_DIR / job_id / "manifest.json").is_file():
+        manifest_path = EXTRACTED_DIR / job_id / "manifest.json"
+        if not manifest_path.is_file():
             raise HTTPException(status_code=409,
                                 detail="extraction not complete (no manifest.json)")
+        if only_md5s is not None:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            known = {b["md5"] for b in manifest.get("binaries", [])}
+            unknown = sorted(only_md5s - known)
+            if unknown:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"binary_md5s not in manifest: {', '.join(unknown)}")
         job["status"] = "decompiling"
         job["error"] = None
         _save_job(job)
-    threading.Thread(target=_decompile_worker, args=(job_id,), daemon=True).start()
-    return {"job_id": job_id, "status": "decompiling"}
+    threading.Thread(target=_decompile_worker, args=(job_id, only_md5s),
+                     daemon=True).start()
+    return {"job_id": job_id, "status": "decompiling",
+            "only_md5s": sorted(only_md5s) if only_md5s is not None else None}
 
 
 @app.post("/jobs/{job_id}/ailift", status_code=202, dependencies=[Depends(require_token)])
@@ -349,6 +372,66 @@ def get_ailift(job_id: str):
     return out
 
 
+def _aienrich_worker(job_id: str, md5: str, addrs, attack_only: bool,
+                     include_failed: bool, limit: int):
+    try:
+        ai_enrich.run_enrich(job_id, DATA_DIR, md5, addrs=addrs,
+                             attack_only=attack_only,
+                             include_failed=include_failed, limit=limit)
+    except Exception:  # noqa: BLE001 - run_enrich also records into its json
+        pass
+
+
+@app.post("/jobs/{job_id}/aienrich", status_code=202,
+          dependencies=[Depends(require_token)])
+def trigger_aienrich(job_id: str, payload: dict = Body(...)):
+    """AI pseudo-C enrichment overlay (argument recovery + readable names).
+
+    Body: {binary_md5, addrs?, attack_only=true, include_failed=true,
+    limit?}. With addrs omitted the attack-chain function set is used.
+    Writes <md5>/ai/<addr>.json|.c overlays; original IDA exports and the
+    job's main status are untouched (progress lives in ai/ai_enrich.json).
+    """
+    job = _jobs.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="job not found")
+    md5 = str(payload.get("binary_md5") or "")
+    if not _MD5_RE.match(md5):
+        raise HTTPException(status_code=400, detail="binary_md5 must be "
+                            "a 32-char lowercase md5")
+    addrs = payload.get("addrs")
+    if addrs is not None and (not isinstance(addrs, list)
+                              or not all(isinstance(a, str) for a in addrs)):
+        raise HTTPException(status_code=400,
+                            detail="addrs must be a list of hex addresses")
+    attack_only = bool(payload.get("attack_only", True))
+    include_failed = bool(payload.get("include_failed", True))
+    limit = int(payload.get("limit") or 0)
+    symbols_file = PSEUDOCODE_DIR / job_id / "symbols.json"
+    if not symbols_file.is_file():
+        raise HTTPException(status_code=409,
+                            detail="job not decompiled yet (no symbols.json)")
+    symbols = json.loads(symbols_file.read_text(encoding="utf-8"))
+    if md5 not in symbols.get("binaries", {}):
+        raise HTTPException(status_code=404,
+                            detail=f"binary {md5} not in symbols.json")
+    threading.Thread(target=_aienrich_worker,
+                     args=(job_id, md5, addrs, attack_only, include_failed,
+                           limit), daemon=True).start()
+    return {"job_id": job_id, "binary_md5": md5, "status": "aienriching"}
+
+
+@app.get("/jobs/{job_id}/aienrich/{md5}", dependencies=[Depends(require_token)])
+def get_aienrich(job_id: str, md5: str):
+    job = _jobs.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="job not found")
+    summary_file = PSEUDOCODE_DIR / job_id / md5 / "ai" / "ai_enrich.json"
+    if not summary_file.is_file():
+        raise HTTPException(status_code=404, detail="aienrich not run yet")
+    return json.loads(summary_file.read_text(encoding="utf-8"))
+
+
 @app.post("/jobs/{job_id}/graph", status_code=202, dependencies=[Depends(require_token)])
 def trigger_graph(job_id: str):
     job = _jobs.get(job_id)
@@ -381,6 +464,35 @@ def get_graph(job_id: str):
     if done_file.is_file():
         out["summary"] = json.loads(done_file.read_text(encoding="utf-8"))
     return out
+
+
+@app.get("/jobs/{job_id}/graph/layout", dependencies=[Depends(require_token)])
+def get_graph_layout(job_id: str):
+    """Node/edge layout for the SPA's own graph canvas (M5 native graph view).
+
+    Served by the orchestrator so the frontend never talks to the CBM daemon
+    directly; only the fields the canvas needs are passed through.
+    """
+    job = _jobs.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="job not found")
+    project = graph_ingest.project_name(job_id)
+    if not graph_ingest.db_path(project).is_file():
+        raise HTTPException(status_code=409, detail="job not graphed yet")
+    try:
+        resp = httpx.get(f"{webui.CBM_UI_URL}/api/layout",
+                         params={"project": project}, timeout=60.0)
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502,
+                            detail=f"layout upstream unreachable: {exc}") from exc
+    if resp.status_code != 200:
+        raise HTTPException(status_code=502,
+                            detail=f"layout upstream returned {resp.status_code}")
+    data = resp.json()
+    return {"job_id": job_id,
+            "total_nodes": data.get("total_nodes", 0),
+            "nodes": data.get("nodes", []),
+            "edges": data.get("edges", [])}
 
 
 @app.post("/jobs/{job_id}/attack", status_code=202,
@@ -495,6 +607,7 @@ def _trace_summary(trace: dict) -> dict:
         "binary_path": (trace.get("binary") or {}).get("path"),
         "argv": trace.get("argv"),
         "request": trace.get("request"),
+        "trigger_result": (trace.get("trigger") or {}).get("trigger_result"),
         "baseline_functions": (trace.get("baseline") or {}).get("functions"),
         "trigger_functions": (trace.get("trigger") or {}).get("functions"),
         "diff_functions": (trace.get("diff") or {}).get("function_count"),
@@ -828,13 +941,38 @@ def list_functions(job_id: str):
 
 @app.get("/jobs/{job_id}/functions/{md5}/{addr}/source",
          dependencies=[Depends(require_token)])
-def get_function_source(job_id: str, md5: str, addr: str):
-    """Decompiled pseudo-C for one function (M5 functions page viewer)."""
+def get_function_source(job_id: str, md5: str, addr: str, ai: int = 0,
+                        asm: int = 0):
+    """Decompiled pseudo-C for one function (M5 functions page viewer).
+
+    ai=1 returns the AI-enriched overlay (ai/<addr>.c, with recovered
+    call-site arguments and readable names); the default is always the
+    original Hex-Rays output, which is never modified. asm=1 returns the
+    function-level assembly (functions/<addr>.asm) — the ground truth for
+    call-site argument recovery when Hex-Rays collapses arguments."""
     job = _jobs.get(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="job not found")
     if not _MD5_RE.match(md5) or not _ADDR_RE.match(addr):
         raise HTTPException(status_code=400, detail="bad md5/addr format")
+    if asm:
+        asm_file = PSEUDOCODE_DIR / job_id / md5 / "functions" / f"{addr}.asm"
+        if not asm_file.is_file():
+            asm_file = PSEUDOCODE_DIR / job_id / md5 / "functions" / f"{addr.lower()}.asm"
+        if not asm_file.is_file():
+            raise HTTPException(status_code=404,
+                                detail="no assembly export for this function")
+        return PlainTextResponse(asm_file.read_text(encoding="utf-8",
+                                                    errors="replace"))
+    if ai:
+        ai_file = PSEUDOCODE_DIR / job_id / md5 / "ai" / f"{addr}.c"
+        if not ai_file.is_file():
+            ai_file = PSEUDOCODE_DIR / job_id / md5 / "ai" / f"{addr.lower()}.c"
+        if not ai_file.is_file():
+            raise HTTPException(status_code=404,
+                                detail="no AI overlay for this function")
+        return PlainTextResponse(ai_file.read_text(encoding="utf-8",
+                                                   errors="replace"))
     funcs_dir = PSEUDOCODE_DIR / job_id / md5 / "functions"
     src_file = funcs_dir / f"{addr}.c"
     if not src_file.is_file():
@@ -844,6 +982,10 @@ def get_function_source(job_id: str, md5: str, addr: str):
     return PlainTextResponse(src_file.read_text(encoding="utf-8",
                                                 errors="replace"))
 
+
+# Upstream vuln-mining agent API (Managed Agents harness in <repo>/vulnagent/).
+# Registered after the job/graph APIs, before the SPA catch-all.
+vulnagent_api.setup(app, require_token)
 
 # M5: CBM UI reverse proxy (/cbmui, /api, /rpc) + SPA static hosting at "/".
 # Registered last so every API route above wins over the catch-alls.

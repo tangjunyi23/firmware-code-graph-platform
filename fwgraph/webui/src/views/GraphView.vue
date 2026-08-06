@@ -37,19 +37,54 @@
     <el-card shadow="never" class="block">
       <template #header>
         <div class="row-between">
-          <span>CBM 图谱可视化（经 /cbmui 反代嵌入）</span>
-          <el-button size="small" text type="primary" @click="reloadFrame">重新加载</el-button>
+          <span>代码图谱</span>
+          <span class="muted" v-if="layout">{{ layout.total_nodes }} 节点 / {{ layout.edges.length }} 边</span>
         </div>
       </template>
-      <iframe :key="frameKey" src="/cbmui/" class="cbm-frame" title="CBM UI"></iframe>
+      <div class="toolbar">
+        <el-checkbox-group v-model="enabledTypes" size="small">
+          <el-checkbox v-for="t in typeOptions" :key="t.value" :value="t.value">
+            <span class="type-dot" :style="{ background: typeColor(t.value) }"></span>{{ t.label }}
+          </el-checkbox>
+        </el-checkbox-group>
+        <el-input v-model="highlight" placeholder="按名称高亮（如 sub_43785C）"
+                  style="width: 240px" clearable />
+        <el-button size="small" @click="fitSignal++">适应视图</el-button>
+        <el-button size="small" :loading="layoutLoading" @click="loadLayout">重新加载</el-button>
+        <span class="edge-legend muted">
+          <i class="edge-line" style="background: rgba(64,158,255,.6)"></i>调用
+          <i class="edge-line" style="background: rgba(140,140,140,.5)"></i>定义
+          <i class="edge-line" style="background: rgba(190,120,200,.5)"></i>其他
+        </span>
+      </div>
+      <CodeGraphCanvas
+        v-if="layout"
+        :nodes="layout.nodes"
+        :edges="layout.edges"
+        :types="enabledTypes"
+        :highlight="highlight"
+        :fitSignal="fitSignal"
+        @select="onNodeSelect"
+      />
+      <p v-else class="muted">{{ layoutLoading ? '图谱加载中…' : '选择任务后自动加载图谱；暂无数据' }}</p>
+      <div v-if="selectedNode" class="node-bar mono">
+        <el-tag size="small" effect="plain">
+          <span class="type-dot" :style="{ background: typeColor(selectedNode.label) }"></span>
+          {{ typeLabel(selectedNode.label) }}
+        </el-tag>
+        <span class="node-name">{{ selectedNode.name }}</span>
+        <span class="muted">{{ selectedNode.file_path }}</span>
+        <span class="muted" v-if="selectedNode.in_calls != null">被调 {{ selectedNode.in_calls }} 次</span>
+      </div>
     </el-card>
   </div>
 </template>
 
 <script setup>
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { api } from '../api'
+import CodeGraphCanvas from '../components/CodeGraphCanvas.vue'
 
 const jobs = ref([])
 const jobId = ref('')
@@ -59,9 +94,30 @@ const direction = ref('both')
 const querying = ref(false)
 const queried = ref(false)
 const resultText = ref('')
-const frameKey = ref(0)
 
-function reloadFrame () { frameKey.value += 1 }
+const layout = ref(null)
+const layoutLoading = ref(false)
+const enabledTypes = ref(['File', 'Module', 'Function', 'Project', 'Branch', 'Folder'])
+const highlight = ref('')
+const fitSignal = ref(0)
+const selectedNode = ref(null)
+
+const TYPE_NAMES = {
+  File: '文件', Module: '模块', Function: '函数',
+  Project: '项目', Branch: 'Branch', Folder: '目录',
+}
+const TYPE_COLORS = {
+  File: '#f78c6c', Module: '#82aaff', Function: '#c3e88d',
+  Project: '#c099ff', Branch: '#ffcb6b', Folder: '#89ddff',
+}
+function typeColor (value) { return TYPE_COLORS[value] || '#409eff' }
+const typeOptions = computed(() => {
+  const present = new Set((layout.value?.nodes || []).map(n => n.label))
+  return Object.entries(TYPE_NAMES)
+    .filter(([value]) => present.size === 0 || present.has(value))
+    .map(([value, label]) => ({ value, label }))
+})
+function typeLabel (value) { return TYPE_NAMES[value] || value }
 
 async function runQuery () {
   if (!jobId.value) {
@@ -100,6 +156,26 @@ async function runQuery () {
   }
 }
 
+async function loadLayout () {
+  if (!jobId.value) return
+  layoutLoading.value = true
+  try {
+    layout.value = await api(`/jobs/${jobId.value}/graph/layout`)
+  } catch (e) {
+    layout.value = null
+    ElMessage.error('图谱加载失败: ' + e.message)
+  } finally {
+    layoutLoading.value = false
+  }
+}
+
+function onNodeSelect (node) { selectedNode.value = node }
+
+watch(jobId, () => {
+  selectedNode.value = null
+  loadLayout()
+})
+
 onMounted(async () => {
   try {
     jobs.value = await api('/jobs')
@@ -113,11 +189,23 @@ onMounted(async () => {
 
 <style scoped>
 .block { margin-bottom: 14px; }
-.toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
 .row-between { display: flex; justify-content: space-between; align-items: center; }
 .result {
   background: #1d1e1f; color: #d4d4d4; padding: 12px; border-radius: 6px;
   font-size: 12px; overflow: auto; max-height: 46vh; margin-top: 12px;
 }
-.cbm-frame { width: 100%; height: 72vh; border: 1px solid #dcdfe6; border-radius: 6px; background: #0a0a10; }
+.node-bar {
+  margin-top: 10px; display: flex; gap: 12px; align-items: center;
+  padding: 8px 12px; background: #f5f7fa; border-radius: 6px; flex-wrap: wrap;
+}
+.node-name { font-weight: 600; }
+.type-dot {
+  display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+  margin-right: 5px; vertical-align: middle;
+}
+.edge-legend { margin-left: auto; font-size: 12px; display: flex; align-items: center; gap: 6px; }
+.edge-line { display: inline-block; width: 18px; height: 2px; margin: 0 2px 0 8px; vertical-align: middle; }
+.muted { color: #909399; }
+.mono { font-family: ui-monospace, monospace; }
 </style>

@@ -57,6 +57,9 @@ def client(tmp_path, monkeypatch):
                                              encoding="utf-8")
     (pseudo_job / MD5 / "functions" / "0x4000b4.c").write_text(
         "int __start(void) { return 0; }\n", encoding="utf-8")
+    (pseudo_job / MD5 / "functions" / "0x4000b4.asm").write_text(
+        "// addr=0x4000b4 name=.init_proc arch=mips32be size=44\n"
+        "lui $v0, 0x42\njr $ra\n", encoding="utf-8")
     with main._jobs_lock:
         main._jobs[JOB] = {"job_id": JOB, "firmware": "fw.bin",
                            "status": "graphed", "error": None,
@@ -67,7 +70,51 @@ def client(tmp_path, monkeypatch):
         main._jobs.pop(JOB, None)
 
 
-class TestListFunctions:
+class TestGraphLayout:
+    def test_ok(self, client, tmp_path, monkeypatch):
+        monkeypatch.setattr(main.graph_ingest, "db_path",
+                            lambda proj: tmp_path / f"{proj}.db")
+        (tmp_path / "fwgraph_webuijob0001.db").write_bytes(b"db")
+        layout = {"total_nodes": 2,
+                  "nodes": [{"id": 1, "x": 0.0, "y": 0.0, "label": "File",
+                             "name": "a.c"},
+                            {"id": 2, "x": 1.0, "y": 1.0, "label": "Function",
+                             "name": "sub_1"}],
+                  "edges": [{"source": 1, "target": 2, "type": "CONTAINS_FILE"}],
+                  "missed_graph": {"nodes": []}}
+
+        class FakeResp:
+            status_code = 200
+
+            @staticmethod
+            def json():
+                return layout
+
+        seen = {}
+
+        def fake_get(url, params=None, timeout=None):
+            seen.update(url=url, params=params)
+            return FakeResp()
+
+        monkeypatch.setattr(main.httpx, "get", fake_get)
+        resp = client.get(f"/jobs/{JOB}/graph/layout")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["total_nodes"] == 2
+        assert len(body["nodes"]) == 2
+        assert len(body["edges"]) == 1
+        assert "missed_graph" not in body
+        assert seen["params"] == {"project": "fwgraph_webuijob0001"}
+
+    def test_not_graphed_409(self, client, tmp_path, monkeypatch):
+        monkeypatch.setattr(main.graph_ingest, "db_path",
+                            lambda proj: tmp_path / "missing.db")
+        assert client.get(f"/jobs/{JOB}/graph/layout").status_code == 409
+
+    def test_unknown_job_404(self, client):
+        assert client.get("/jobs/nope/graph/layout").status_code == 404
+
+
     def test_flattened(self, client):
         resp = client.get(f"/jobs/{JOB}/functions")
         assert resp.status_code == 200
@@ -127,6 +174,17 @@ class TestFunctionSource:
         assert client.get(f"/jobs/{JOB}/functions/{MD5}/0xdeadbeef/source"
                           ).status_code == 404
 
+    def test_asm_ok(self, client):
+        resp = client.get(f"/jobs/{JOB}/functions/{MD5}/0x4000b4/source?asm=1")
+        assert resp.status_code == 200
+        assert "jr $ra" in resp.text
+        assert resp.headers["content-type"].startswith("text/plain")
+
+    def test_asm_missing_404(self, client):
+        # 0x401000 has pseudo-C exported but no .asm in this fixture
+        assert client.get(f"/jobs/{JOB}/functions/{MD5}/0x401000/source?asm=1"
+                          ).status_code == 404
+
     def test_unknown_job_404(self, client):
         assert client.get(f"/jobs/nope/functions/{MD5}/0x4000b4/source"
                           ).status_code == 404
@@ -151,7 +209,8 @@ def _fake_upstream_app(seen: dict):
         headers = {k.decode(): v.decode() for k, v in scope["headers"]}
         seen.update(path=scope["path"], query=scope["query_string"].decode(),
                     host=headers.get("host"), body=body,
-                    authorization=headers.get("authorization"))
+                    authorization=headers.get("authorization"),
+                    origin=headers.get("origin"))
         if scope["path"] == "/":
             payload = (b'<html><head>'
                        b'<script src="/assets/index-A.js"></script>'
@@ -197,6 +256,15 @@ class TestCbmUiProxy:
         csp = resp.headers["content-security-policy"]
         assert "frame-ancestors 'self'" in csp
         assert "'none'" not in csp
+
+    def test_origin_header_stripped(self, proxy_client):
+        # the public CBM nginx 403s any Origin that is not its own :9749;
+        # browser module/fetch requests always carry the SPA's :8000 Origin
+        http, seen = proxy_client
+        resp = http.get("/cbmui/assets/index-A.js",
+                        headers={"origin": "http://192.168.108.129:8000"})
+        assert resp.status_code == 200
+        assert seen["origin"] is None
 
     def test_cbmui_redirect(self, proxy_client):
         http, _ = proxy_client

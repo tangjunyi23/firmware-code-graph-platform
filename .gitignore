@@ -52,3 +52,7 @@ fwgraph/libc-sigs/out/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# vulnagent runtime data (sessions, findings live on the analysis VM)
+vulnagent/sessions/
+vulnagent/findings/

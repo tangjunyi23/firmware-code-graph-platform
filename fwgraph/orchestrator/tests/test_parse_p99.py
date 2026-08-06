@@ -125,6 +125,9 @@ def test_run_emba_keeps_sudo_password_out_of_command(tmp_path, monkeypatch):
         return captured["process"]
 
     monkeypatch.setattr(extractor.subprocess, "Popen", fake_popen)
+    # _chown_output shells out via subprocess.run; keep this test focused on
+    # the EMBA command line itself.
+    monkeypatch.setattr(extractor, "_chown_output", lambda log_dir: None)
     monkeypatch.setenv("EMBA_DIR", str(tmp_path))
     monkeypatch.setenv("EMBA_SUDO_PASSWORD", "unit-test-value")
 
@@ -149,6 +152,7 @@ def test_run_emba_uses_noninteractive_sudo_without_password(tmp_path, monkeypatc
         return _FinishedProcess()
 
     monkeypatch.setattr(extractor.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(extractor, "_chown_output", lambda log_dir: None)
     monkeypatch.setenv("EMBA_DIR", str(tmp_path))
     monkeypatch.delenv("EMBA_SUDO_PASSWORD", raising=False)
 

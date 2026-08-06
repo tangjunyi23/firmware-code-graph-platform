@@ -358,6 +358,9 @@ def run_coverage(rootfs, qemu_in_rootfs: str, argv_in_rootfs, run_id: str,
     finally:
         _kill_tree(proc, log_in_rootfs)
     elapsed = time.monotonic() - t0
+    # the chrooted qemu runs as root and writes the exec log with mode 600;
+    # the parse step runs as the service user
+    sudo_run(["chmod", "644", str(log_host)], check=False)
     if not log_host.is_file() or log_host.stat().st_size == 0:
         raise QemuError(f"empty coverage log (target rc={proc.poll()}); "
                         f"check qemu can run the binary")

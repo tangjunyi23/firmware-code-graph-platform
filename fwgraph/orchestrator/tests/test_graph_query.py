@@ -105,21 +105,38 @@ class TestCommands:
         query.search("p", "auth.*", label="Function", limit=10)
         assert cli.calls[0]["cmd"][2:] == [
             "search_graph", "--project", "p", "--name-pattern", "auth.*",
-            "--label", "Function", "--limit", "10"]
+            "--format", "json", "--label", "Function", "--limit", "10"]
+
+    def test_search_normalizes_tree_model(self, cli):
+        # CBM >=0.9 --format json tree model -> classic results list
+        cli.respond(stdout=json.dumps({
+            "total": 2, "count": 2, "cols": ["name", "label", "lines"],
+            "groups": [{"qn_prefix": "p.a", "file": "a.c",
+                        "rows": [["sub_1", "Function", "1-9"],
+                                 ["sub_2", "Function", "10-19"]]}],
+            "has_more": False}))
+        out = query.search("p", "sub_", label="Function")
+        assert out["results"] == [
+            {"name": "sub_1", "qualified_name": "p.a.sub_1",
+             "label": "Function"},
+            {"name": "sub_2", "qualified_name": "p.a.sub_2",
+             "label": "Function"}]
 
     def test_cypher_args(self, cli):
         cli.respond(stdout='{"columns": [], "rows": [], "total": 0}')
         query.cypher("p", "MATCH (f:Function) RETURN f.name LIMIT 1")
         assert cli.calls[0]["cmd"][2:] == [
-            "query_graph", "--project", "p",
-            "--query", "MATCH (f:Function) RETURN f.name LIMIT 1"]
+            "query_graph",
+            json.dumps({"project": "p",
+                        "query": "MATCH (f:Function) RETURN f.name LIMIT 1",
+                        "format": "json"})]
 
     def test_trace_args(self, cli):
         cli.respond(stdout='{"function": "f", "callers": [], "callees": []}')
         query.trace("p", "f", direction="inbound")
         assert cli.calls[0]["cmd"][2:] == [
             "trace_path", "--project", "p", "--function-name", "f",
-            "--direction", "inbound"]
+            "--direction", "inbound", "--format", "json"]
 
     def test_snippet_resolves_qualified_name(self, cli):
         cli.respond(stdout=json.dumps({"total": 2, "results": [
@@ -145,7 +162,7 @@ class TestCommands:
         cli.respond(stdout='{"columns": [], "rows": [], "total": 0}')
         query.dangerous_callsites("p", functions=["strcpy", "system"], limit=20)
         sent = cli.calls[0]["cmd"]
-        q = sent[sent.index("--query") + 1]
+        q = json.loads(sent[3])["query"]
         assert "g.name IN ['strcpy', 'system']" in q
         assert "g.libc_equiv IN ['strcpy', 'system']" in q  # dual match
         assert " OR " in q
@@ -156,6 +173,6 @@ class TestCommands:
         cli.respond(stdout='{"columns": [], "rows": [], "total": 0}')
         query.dangerous_callsites("p")
         sent = cli.calls[0]["cmd"]
-        q = sent[sent.index("--query") + 1]
+        q = json.loads(sent[3])["query"]
         for name in ("strcpy", "sprintf", "system", "popen"):
             assert f"'{name}'" in q

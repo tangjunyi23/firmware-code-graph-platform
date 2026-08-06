@@ -28,6 +28,8 @@ the export itself always proceeds.
 Writes (headless stdout is unreliable -> everything goes to files):
   <outdir>/functions/<addr>.c   pseudo-C per function; first line is
                                 // addr=0x.. name=.. arch=.. size=..
+  <outdir>/functions/<addr>.asm disassembly per function (same header);
+                                input for the AI enrichment overlay
   <outdir>/symbols_raw.json     {"meta": ..., "functions": [...]}
   <outdir>/export_done.json     run stats; also written (status=error) when
                                 the run dies with a fatal exception
@@ -269,6 +271,15 @@ def _export_function(ea, funcs_dir, meta, entries, hexrays_ok):
     calls, strings = _function_refs(func)
     rec["calls"] = sorted(calls.values())
     rec["strings"] = strings
+    # disassembly feeds the AI enrichment overlay (call-site argument
+    # recovery); exported for every function, including decompile failures
+    header = "// addr={} name={} arch={} size={}\n".format(
+        hex(ea), rec["name"], meta["arch_tag"], rec["size"])
+    with open(os.path.join(funcs_dir, hex(ea) + ".asm"), "w", encoding="utf-8") as fh:
+        fh.write(header)
+        for item in idautils.FuncItems(func.start_ea):
+            fh.write("{:08x}: {}\n".format(
+                item, idc.generate_disasm_line(item, 0) or ""))
     if not hexrays_ok:
         rec["decompile_error"] = "hexrays decompiler unavailable"
         return rec

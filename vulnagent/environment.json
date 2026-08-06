@@ -1,0 +1,19 @@
+{
+  "id": "env-local-node",
+  "name": "Local Windows + Node.js runtime",
+  "runtime": "node>=20 (uses built-in fetch, zero npm dependencies)",
+  "network": {
+    "policy": "allowlist",
+    "egress": [
+      "192.168.108.129:8000  (fwgraph platform API)",
+      "127.0.0.1:3456        (LLM Anthropic gateway)"
+    ]
+  },
+  "mounts": {
+    "sessions/": "read-write (session state, events.sse, report.md)",
+    "findings/": "read-write (vulnerability findings output)",
+    "agent.json / environment.json": "read-only manifests",
+    ".env": "read-only secrets"
+  },
+  "required_env": ["FWGRAPH_BASE_URL", "FWGRAPH_TOKEN", "FWGRAPH_JOB_ID", "LLM_BASE_URL", "LLM_API_KEY", "LLM_MODEL"]
+}

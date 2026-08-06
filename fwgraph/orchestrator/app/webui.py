@@ -68,8 +68,12 @@ def proxy_authorized(request: Request) -> bool:
 
 
 def _forward_headers(request: Request) -> dict:
+    # 'origin' must not reach the public CBM nginx: it 403s any Origin that
+    # is neither empty nor its own :9749 address, and browser module/fetch
+    # requests always carry the SPA's :8000 Origin (bug found via CDP).
     return {k: v for k, v in request.headers.items()
-            if k.lower() not in _HOP_BY_HOP and k.lower() != "authorization"}
+            if k.lower() not in _HOP_BY_HOP and k.lower() != "authorization"
+            and k.lower() != "origin"}
 
 
 def _rewrite_csp(value: str) -> str:

@@ -161,7 +161,29 @@ def _binary_priority(entry, funnel_result):
     return score
 
 
-def _plan_job_candidates(symbols, pseudo_root, max_funcs, noise_ratio, max_job):
+def _attack_chain_addrs(symbols, pseudo_root, config_path=None):
+    """Map md5 -> {addr} for every function on a computed attack path.
+
+    Only these functions carry attack-surface call-chain evidence, so only
+    they are worth an LLM tag (AI_ATTACK_CHAINS_ONLY=1).
+    """
+    from pipeline.attack import paths as attack_paths
+    from pipeline.attack import surface
+    config = surface.load_config(config_path)
+    analysis = surface.analyze(symbols, Path(pseudo_root), config)
+    result = attack_paths.compute(analysis, config)
+    allowed = {}
+    for path in result["paths"]:
+        addrs = allowed.setdefault(path["binary_md5"], set())
+        for node in path["chain"]:
+            addr = str(node.get("addr") or "").lower()
+            if addr:
+                addrs.add(addr)
+    return allowed
+
+
+def _plan_job_candidates(symbols, pseudo_root, max_funcs, noise_ratio, max_job,
+                         attack_only=False):
     """Build one deterministic, resumable candidate budget for the job."""
     plans = {}
     ranked = []
@@ -181,6 +203,10 @@ def _plan_job_candidates(symbols, pseudo_root, max_funcs, noise_ratio, max_job):
                 -candidate["caller_count"], path, md5, candidate["addr"],
             ))
     ranked.sort()
+    if attack_only:
+        allowed = _attack_chain_addrs(symbols, pseudo_root)
+        ranked = [row for row in ranked
+                  if row[5].lower() in allowed.get(row[4], set())]
     selected = {}
     for _priority, _binary_priority_value, _callers, _path, md5, addr in ranked[:max_job]:
         selected.setdefault(md5, set()).add(addr)
@@ -189,6 +215,7 @@ def _plan_job_candidates(symbols, pseudo_root, max_funcs, noise_ratio, max_job):
         "selected": min(len(ranked), max_job),
         "truncated": max(0, len(ranked) - max_job),
         "selected_binaries": len(selected),
+        "attack_chains_only": attack_only,
     }
 
 
@@ -205,15 +232,17 @@ def run_job(job_id, data_dir):
     max_funcs = int(_cfg("AI_MAX_FUNCS_PER_BIN", "150"))
     max_job = max(0, int(_cfg("AI_MAX_FUNCS_PER_JOB", "300")))
     noise_ratio = float(_cfg("AI_NOISE_RATIO", "0.2"))
+    attack_only = _cfg("AI_ATTACK_CHAINS_ONLY", "1") != "0"
     registry = Registry(pseudo_root / "name_registry.db")
     client = llm.LLMClient.from_env(usage_path=pseudo_root / "llm_usage.json")
     summary = {"job_id": job_id, "mode": mode, "started_at": _now(),
                "finished_at": None, "max_funcs_per_bin": max_funcs,
-               "max_funcs_per_job": max_job,
+               "max_funcs_per_job": max_job, "attack_chains_only": attack_only,
                "binaries": {}, "elapsed_seconds": 0.0}
     try:
         plans, selected, plan_stats = _plan_job_candidates(
-            symbols, pseudo_root, max_funcs, noise_ratio, max_job)
+            symbols, pseudo_root, max_funcs, noise_ratio, max_job,
+            attack_only=attack_only)
         summary["job_budget"] = plan_stats
         for md5 in sorted(symbols.get("binaries", {})):
             entry = symbols["binaries"][md5]

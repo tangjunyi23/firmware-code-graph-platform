@@ -15,6 +15,38 @@ from pipeline.ailift.registry import Registry, SpecValidator
 from pipeline.decompile.annotate import load_spec
 
 
+def test_anthropic_style_chat(monkeypatch):
+    """LLMClient(style="anthropic") posts Messages-API shape and parses
+    text blocks (skipping thinking) plus input/output token usage."""
+    import asyncio
+
+    client = llm.LLMClient("http://gw/v1", "k", "deepseek-v4-flash",
+                           style="anthropic")
+    seen = {}
+
+    async def fake_post(payload):
+        seen.update(payload)
+        return {
+            "content": [
+                {"type": "thinking", "thinking": "chain"},
+                {"type": "text", "text": '{"domain": "http", "confidence": 0.9,'
+                                         ' "reason": "serves http"}'},
+            ],
+            "usage": {"input_tokens": 10, "output_tokens": 5},
+        }
+
+    monkeypatch.setattr(client, "_post", fake_post)
+    out = asyncio.run(client.chat("sys prompt", "user prompt"))
+    assert seen["system"] == "sys prompt"
+    assert seen["messages"] == [{"role": "user", "content": "user prompt"}]
+    assert "response_format" not in seen
+    assert out["domain"] == "http"
+    assert out["confidence"] == 0.9
+    assert client.usage["prompt_tokens"] == 10
+    assert client.usage["completion_tokens"] == 5
+    assert client.usage["total_tokens"] == 15
+
+
 def make_func(addr="0x1000", name="sub_1000", size=100, lines=50, calls=None,
               strings=None, tags=None, decompile_ok=True, rule_name=None,
               rule_confidence=None):
@@ -455,7 +487,33 @@ class TestRunnerPhaseA:
         assert selected == {"web": {"0x2000"}}
         assert stats == {
             "eligible": 2, "selected": 1, "truncated": 1,
-            "selected_binaries": 1}
+            "selected_binaries": 1, "attack_chains_only": False}
+
+    def test_attack_chains_only_filters_candidates(self, tmp_path):
+        md5 = "abc123"
+        symbols = {"binaries": {md5: {
+            "path": "firmware/usr/sbin/sysapihttpd",
+            "functions": [
+                make_func(addr="0x1000", name="main", calls=["sub_2000"]),
+                make_func(addr="0x2000", name="sub_2000",
+                          tags=["calls_dangerous"], calls=["system"]),
+                make_func(addr="0x3000", name="sub_3000",
+                          tags=["network_facing"]),
+            ]}}}
+        _plans, selected, stats = runner._plan_job_candidates(
+            symbols, tmp_path, max_funcs=150, noise_ratio=0.2, max_job=10,
+            attack_only=True)
+        # main -> sub_2000(system) is the only attack chain; the
+        # network_facing sub_3000 stays off-chain and is not tagged.
+        assert selected == {md5: {"0x2000"}}
+        assert stats["eligible"] == 1
+        assert stats["attack_chains_only"] is True
+
+        _plans, selected, stats = runner._plan_job_candidates(
+            symbols, tmp_path, max_funcs=150, noise_ratio=0.2, max_job=10,
+            attack_only=False)
+        assert selected == {md5: {"0x2000", "0x3000"}}
+        assert stats["eligible"] == 2
 
     def test_zero_job_budget_selects_no_candidates(self, tmp_path):
         symbols = {"binaries": {"main": {
@@ -470,6 +528,7 @@ class TestRunnerPhaseA:
         assert stats["truncated"] == 1
 
     def test_phase_a_mocked_llm(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("AI_ATTACK_CHAINS_ONLY", "0")
         job_id, md5, pseudo_root = self._make_job(tmp_path)
 
         def fake_suggest_batch(client, items):
@@ -514,6 +573,7 @@ class TestRunnerPhaseA:
         runner.run_job(job_id, tmp_path)
 
     def test_llm_error_is_resumable(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("AI_ATTACK_CHAINS_ONLY", "0")
         job_id, md5, pseudo_root = self._make_job(tmp_path)
 
         monkeypatch.setattr(llm, "suggest_batch", lambda client, items: [
@@ -536,6 +596,7 @@ class TestRunnerPhaseA:
 
     def test_libc_equiv_flows_to_registry_and_symbols(self, tmp_path,
                                                       monkeypatch):
+        monkeypatch.setenv("AI_ATTACK_CHAINS_ONLY", "0")
         job_id, md5, pseudo_root = self._make_job(tmp_path)
         symbols_path = pseudo_root / "symbols.json"
         symbols = json.loads(symbols_path.read_text())

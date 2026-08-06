@@ -117,23 +117,49 @@ def index_repository(repo_path, project: str, timeout: int | None = None,
 
 def search(project: str, pattern: str, label: str | None = None,
            limit: int | None = None, timeout: int | None = None):
-    args = ["search_graph", "--project", project, "--name-pattern", pattern]
+    args = ["search_graph", "--project", project, "--name-pattern", pattern,
+            "--format", "json"]
     if label:
         args += ["--label", label]
     if limit:
         args += ["--limit", str(limit)]
-    return _run_cli(args, timeout=timeout or query_timeout())
+    out = _run_cli(args, timeout=timeout or query_timeout())
+    if "results" not in out and isinstance(out.get("groups"), list):
+        # CBM >=0.9 tree model: groups of column-ordered rows; flatten to the
+        # classic results list (qn = group prefix + "." + name)
+        cols = out.get("cols") or []
+        name_idx = cols.index("name") if "name" in cols else 0
+        label_idx = cols.index("label") if "label" in cols else None
+        results = []
+        for group in out["groups"]:
+            prefix = group.get("qn_prefix", "")
+            for row in group.get("rows", []):
+                name = row[name_idx] if len(row) > name_idx else ""
+                results.append({
+                    "name": name,
+                    "qualified_name": f"{prefix}.{name}",
+                    "label": row[label_idx]
+                    if label_idx is not None and len(row) > label_idx else None,
+                })
+        out["results"] = results
+    return out
 
 
 def cypher(project: str, query: str, timeout: int | None = None):
-    return _run_cli(["query_graph", "--project", project, "--query", query],
+    # CBM >=0.9 defaults query_graph to a TOON text table; the legacy
+    # columns/rows JSON is restored by format:"json", which the CLI only
+    # accepts inside the raw-JSON args form (no --format flag here).
+    raw_args = json.dumps({"project": project, "query": query,
+                           "format": "json"})
+    return _run_cli(["query_graph", raw_args],
                     timeout=timeout or query_timeout())
 
 
 def trace(project: str, name: str, direction: str = "both",
           timeout: int | None = None):
     return _run_cli(["trace_path", "--project", project,
-                     "--function-name", name, "--direction", direction],
+                     "--function-name", name, "--direction", direction,
+                     "--format", "json"],
                     timeout=timeout or query_timeout())
 
 

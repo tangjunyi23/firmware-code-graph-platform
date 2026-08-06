@@ -26,7 +26,7 @@
       <template #header>
         <div class="row-between">
           <span>攻击路径</span>
-          <span class="muted">{{ paths.length }} 条</span>
+          <span class="muted">{{ paths.length }} 条 · 点击行查看详情</span>
         </div>
       </template>
       <div class="toolbar filters">
@@ -40,33 +40,22 @@
         <el-switch v-model="verifiedOnly" @change="loadPaths" />
         <el-button type="primary" :icon="Search" :loading="loadingPaths" @click="loadPaths">查询</el-button>
       </div>
-      <el-table :data="paths" size="small" v-loading="loadingPaths">
-        <el-table-column type="expand">
+      <el-table :data="paths" size="small" v-loading="loadingPaths"
+        highlight-current-row @row-click="openPath" class="path-table">
+        <el-table-column label="评分" prop="score" width="90" sortable>
           <template #default="{ row }">
-            <div class="chain">
-              <template v-for="(node, index) in row.chain" :key="`${node.addr}-${index}`">
-                <div class="chain-node">
-                  <span class="mono">{{ node.name || node.addr }}</span>
-                  <span class="mono muted">{{ node.addr }}</span>
-                  <el-tag v-for="tag in node.asrc || []" :key="`s-${tag}`" size="small" type="warning">{{ tag }}</el-tag>
-                  <el-tag v-for="tag in node.asink || []" :key="`k-${tag}`" size="small" type="danger">{{ tag }}</el-tag>
-                  <el-tag v-if="node.libc_equiv" size="small" type="danger" effect="plain">{{ node.libc_equiv }}</el-tag>
-                </div>
-                <ArrowRight v-if="index < row.chain.length - 1" :size="16" class="chain-arrow" />
-              </template>
-            </div>
+            <span class="score-cell" :style="{ color: scoreColor(row.score) }">{{ row.score.toFixed(2) }}</span>
           </template>
         </el-table-column>
-        <el-table-column label="评分" prop="score" width="80" sortable />
         <el-table-column label="输入源" min-width="190">
           <template #default="{ row }">
-            <span class="mono">{{ row.source.name || row.source.addr }}</span>
+            <span class="mono">{{ displayName(row.source) }}</span>
             <el-tag v-for="tag in row.source.asrc || []" :key="tag" size="small" type="warning" class="tag-gap">{{ tag }}</el-tag>
           </template>
         </el-table-column>
         <el-table-column label="候选汇" min-width="190">
           <template #default="{ row }">
-            <span class="mono">{{ row.sink.name || row.sink.addr }}</span>
+            <span class="mono">{{ displayName(row.sink) }}</span>
             <el-tag v-for="tag in row.sink.asink || []" :key="tag" size="small" type="danger" class="tag-gap">{{ tag }}</el-tag>
           </template>
         </el-table-column>
@@ -78,9 +67,102 @@
             <span v-else class="muted">未观测</span>
           </template>
         </el-table-column>
+        <el-table-column label="" width="86" align="center">
+          <template #default="{ row }">
+            <el-button size="small" text type="primary" @click.stop="openPath(row)">详情</el-button>
+          </template>
+        </el-table-column>
       </el-table>
       <el-empty v-if="!loadingPaths && jobId && paths.length === 0" description="无匹配攻击路径" />
     </el-card>
+
+    <!-- path detail drawer -->
+    <el-drawer v-model="drawerVisible" :size="drawerSize" destroy-on-close>
+      <template #header>
+        <div class="drawer-head">
+          <span class="drawer-title">攻击路径详情</span>
+          <span v-if="activePath" class="mono muted">{{ activePath.path_id }}</span>
+        </div>
+      </template>
+      <div v-if="activePath" class="path-detail">
+        <!-- score block -->
+        <div class="score-panel">
+          <div class="score-left">
+            <div class="score-num" :style="{ color: scoreColor(activePath.score) }">{{ activePath.score.toFixed(2) }}</div>
+            <el-progress :percentage="scorePct(activePath.score)" :stroke-width="8"
+              :show-text="false" :color="scoreColor(activePath.score)" class="score-bar" />
+          </div>
+          <div class="score-facts">
+            <div>跳数 <b>{{ activePath.edge_count }}</b>（每跳 −0.22）</div>
+            <div>消毒函数 <b>{{ (activePath.sanitizers || []).length }}</b>（每个 −0.45）</div>
+            <div>二进制 <span class="mono">{{ (activePath.binary_md5 || '').slice(0, 8) }}</span></div>
+          </div>
+        </div>
+
+        <!-- dynamic evidence -->
+        <el-alert v-if="activePath.verified_reachable" type="success" :closable="false" class="trace-alert">
+          <template #title>
+            完整链被同一次覆盖运行观测
+            <el-tag v-for="t in activePath.trace_ids || []" :key="t" size="small" effect="plain" class="trace-tag mono">{{ t }}</el-tag>
+          </template>
+        </el-alert>
+        <el-alert v-else-if="activePath.observed_node_count" type="warning" :closable="false" class="trace-alert">
+          <template #title>
+            部分节点被观测（{{ activePath.observed_node_count }} 个）
+            <el-tag v-for="t in activePath.observed_trace_ids || []" :key="t" size="small" effect="plain" class="trace-tag mono">{{ t }}</el-tag>
+          </template>
+        </el-alert>
+        <el-alert v-else type="info" :closable="false" class="trace-alert" title="无运行时覆盖证据（static-only）" />
+
+        <!-- chain timeline -->
+        <div class="chain-v">
+          <div v-for="(node, index) in activePath.chain" :key="`${node.addr}-${index}`" class="step">
+            <div class="rail">
+              <div class="dot" :class="dotClass(node)" />
+              <div v-if="index < activePath.chain.length - 1" class="line" />
+            </div>
+            <div class="node-card" :class="{ source: (node.asrc || []).length, sink: (node.asink || []).length }">
+              <div class="node-head">
+                <span class="mono node-name">{{ displayName(node) }}</span>
+                <span class="mono muted">{{ node.addr }}</span>
+                <el-button size="small" text type="primary" :icon="FileCode"
+                  @click="showSource(activePath.binary_md5, node)">源码</el-button>
+              </div>
+              <div class="node-tags">
+                <el-tag v-for="tag in node.asrc || []" :key="`s-${tag}`" size="small" type="warning">source: {{ tag }}</el-tag>
+                <el-tag v-for="tag in node.asink || []" :key="`k-${tag}`" size="small" type="danger">sink: {{ tag }}</el-tag>
+                <el-tag v-if="node.libc_equiv" size="small" type="danger" effect="plain">libc: {{ node.libc_equiv }}</el-tag>
+                <template v-if="nodeExtra(node)">
+                  <el-tag v-if="nodeExtra(node).verified_reachable" size="small" type="success">完整链观测</el-tag>
+                  <el-tag v-else-if="nodeExtra(node).observed_in_trace" size="small" type="success" effect="plain">trace 命中</el-tag>
+                  <el-tag v-if="nodeExtra(node).domain" size="small" type="info" effect="plain">{{ nodeExtra(node).domain }}</el-tag>
+                  <el-tag v-for="tag in nodeExtra(node).tags || []" :key="tag" size="small" effect="plain">{{ tag }}</el-tag>
+                </template>
+              </div>
+              <div v-if="nodeExtra(node) && nodeExtra(node).ai_reason" class="node-sub muted">
+                {{ nodeExtra(node).ai_reason }}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </el-drawer>
+
+    <!-- function source dialog -->
+    <el-dialog v-model="srcVisible" width="880px" append-to-body>
+      <template #header>
+        <div class="src-head">
+          <span class="mono">{{ srcNode ? displayName(srcNode) : '' }}</span>
+          <span class="mono muted">{{ srcNode ? srcNode.addr : '' }}</span>
+          <el-radio-group v-model="srcKind" size="small" @change="loadSource">
+            <el-radio-button value="hexrays">伪代码</el-radio-button>
+            <el-radio-button value="ai">AI 增强</el-radio-button>
+            <el-radio-button value="asm">汇编</el-radio-button>
+          </el-radio-group>
+        </div>
+      </template>
+      <CodeViewer :code="srcCode" :loading="srcLoading" />
+    </el-dialog>
 
     <el-card shadow="never" class="block">
       <template #header>
@@ -117,8 +199,12 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { ArrowRight, Radar, RefreshCw, Route, Search } from '@lucide/vue'
+import { FileCode, Radar, RefreshCw, Route, Search } from '@lucide/vue'
 import { api } from '../api'
+import CodeViewer from '../components/CodeViewer.vue'
+import { useNarrowViewport } from '../useNarrowViewport'
+
+const isNarrow = useNarrowViewport()
 
 const jobs = ref([])
 const jobId = ref('')
@@ -137,8 +223,85 @@ const sinkFilter = ref('')
 const verifiedOnly = ref(false)
 const routePattern = ref('')
 
+// path detail drawer
+const drawerVisible = ref(false)
+const activePath = ref(null)
+const funcMap = ref(new Map())
+
+// function source dialog
+const srcVisible = ref(false)
+const srcLoading = ref(false)
+const srcNode = ref(null)
+const srcMd5 = ref('')
+const srcKind = ref('ai')
+const srcCode = ref('')
+
+const drawerSize = computed(() => (isNarrow.value ? '96%' : '660px'))
+
 const sourceKinds = computed(() => Object.keys(attackSummary.value?.source_counts || {}))
 const sinkKinds = computed(() => Object.keys(attackSummary.value?.sink_counts || {}))
+
+function displayName (node) {
+  return node.ai_name || node.name || node.addr
+}
+function scorePct (score) {
+  return Math.max(4, Math.min(100, Math.round((score / 5.5) * 100)))
+}
+function scoreColor (score) {
+  if (score >= 5) return '#f56c6c'
+  if (score >= 4) return '#e6a23c'
+  return '#67c23a'
+}
+function dotClass (node) {
+  const isSrc = (node.asrc || []).length > 0
+  const isSink = (node.asink || []).length > 0
+  if (isSrc && isSink) return 'dot-both'
+  if (isSrc) return 'dot-src'
+  if (isSink) return 'dot-sink'
+  return 'dot-mid'
+}
+function nodeExtra (node) {
+  if (!activePath.value) return null
+  const key = `${activePath.value.binary_md5}:${String(node.addr).toLowerCase()}`
+  return funcMap.value.get(key) || null
+}
+
+function openPath (row) {
+  activePath.value = row
+  drawerVisible.value = true
+}
+
+async function showSource (md5, node) {
+  srcMd5.value = md5
+  srcNode.value = node
+  srcKind.value = 'ai'
+  srcVisible.value = true
+  await loadSource()
+}
+
+async function loadSource () {
+  if (!srcNode.value) return
+  srcLoading.value = true
+  const base = `/jobs/${jobId.value}/functions/${srcMd5.value}/${srcNode.value.addr}/source`
+  const query = srcKind.value === 'ai' ? '?ai=1' : srcKind.value === 'asm' ? '?asm=1' : ''
+  try {
+    srcCode.value = await api(base + query)
+  } catch (error) {
+    if (error.status === 404 && srcKind.value !== 'hexrays') {
+      // no AI overlay / no asm export for this function: fall back to Hex-Rays
+      srcKind.value = 'hexrays'
+      try {
+        srcCode.value = await api(base)
+      } catch (error2) {
+        srcCode.value = `（源码加载失败：${error2.message}）`
+      }
+    } else {
+      srcCode.value = `（源码加载失败：${error.message}）`
+    }
+  } finally {
+    srcLoading.value = false
+  }
+}
 
 async function loadPaths () {
   if (!jobId.value) return
@@ -155,6 +318,18 @@ async function loadPaths () {
   } finally {
     loadingPaths.value = false
   }
+}
+
+async function loadFunctions () {
+  if (!jobId.value) return
+  try {
+    const data = await api(`/jobs/${jobId.value}/functions`)
+    const map = new Map()
+    for (const fn of data.functions || []) {
+      map.set(`${fn.binary}:${String(fn.addr).toLowerCase()}`, fn)
+    }
+    funcMap.value = map
+  } catch { /* functions page data is optional enrichment */ }
 }
 
 async function loadRoutes () {
@@ -187,7 +362,7 @@ async function loadAll () {
     cross.value = {}
     if (error.status !== 404) ElMessage.error('攻击面摘要加载失败: ' + error.message)
   }
-  await Promise.all([loadPaths(), loadRoutes()])
+  await Promise.all([loadPaths(), loadRoutes(), loadFunctions()])
   loading.value = false
 }
 
@@ -254,12 +429,48 @@ onMounted(async () => {
 .filter-select { width: 180px; }
 .route-search { width: min(360px, 100%); }
 .switch-label { color: #606266; font-size: 13px; }
-.chain { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 4px 16px; }
-.chain-node { display: flex; align-items: center; gap: 6px; min-height: 32px; }
-.chain-arrow { color: #909399; flex: none; }
+.path-table :deep(.el-table__row) { cursor: pointer; }
+.score-cell { font-weight: 700; font-family: 'JetBrains Mono', Consolas, monospace; }
 .tag-gap { margin-left: 6px; }
+
+/* path detail drawer */
+.drawer-head { display: flex; align-items: baseline; gap: 10px; }
+.drawer-title { font-weight: 600; font-size: 15px; }
+.path-detail { padding-bottom: 24px; }
+.score-panel { display: flex; gap: 18px; align-items: center; padding: 4px 0 12px; }
+.score-left { flex: 0 0 180px; }
+.score-num { font-size: 28px; font-weight: 700; font-family: 'JetBrains Mono', Consolas, monospace; line-height: 1.1; }
+.score-bar { margin-top: 8px; }
+.score-facts { font-size: 12px; color: #606266; display: flex; flex-direction: column; gap: 4px; }
+.trace-alert { margin-bottom: 12px; }
+.trace-tag { margin-left: 6px; }
+
+.chain-v { padding-top: 4px; }
+.step { display: flex; align-items: stretch; }
+.rail { display: flex; flex-direction: column; align-items: center; width: 20px; flex: none; }
+.dot { width: 10px; height: 10px; border-radius: 50%; margin-top: 10px; flex: none; border: 2px solid #fff; box-shadow: 0 0 0 1px #dcdfe6; }
+.dot-src { background: #e6a23c; box-shadow: 0 0 0 1px #e6a23c; }
+.dot-sink { background: #f56c6c; box-shadow: 0 0 0 1px #f56c6c; }
+.dot-both { background: linear-gradient(135deg, #e6a23c 50%, #f56c6c 50%); box-shadow: 0 0 0 1px #d3745f; }
+.dot-mid { background: #a8abb2; }
+.line { width: 2px; flex: 1 1 auto; background: #e4e7ed; margin: 2px 0; }
+.node-card { flex: 1 1 auto; min-width: 0; margin: 0 0 10px 10px; padding: 8px 10px; border: 1px solid #ebeef5; border-radius: 8px; background: #fff; }
+.node-card.source { border-left: 3px solid #e6a23c; }
+.node-card.sink { border-left: 3px solid #f56c6c; }
+.node-card.source.sink { border-left: 3px solid #d3745f; }
+.node-head { display: flex; align-items: center; gap: 8px; }
+.node-name { font-weight: 600; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.node-head .el-button { margin-left: auto; flex: none; }
+.node-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.node-sub { margin-top: 6px; font-size: 12px; }
+
+/* source dialog */
+.src-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.src-head .el-radio-group { margin-left: auto; }
 @media (max-width: 720px) {
   .job-select, .filter-select, .route-search { width: 100%; }
   .summary :deep(.el-descriptions__body) { overflow-x: auto; }
+  .score-panel { flex-direction: column; align-items: stretch; }
+  .score-left { flex: none; }
 }
 </style>

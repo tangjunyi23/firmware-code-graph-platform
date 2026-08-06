@@ -119,8 +119,8 @@ def parse_libc_equiv(value):
     return text
 
 
-def parse_json_object(content):
-    """Parse one semantic-tag response; null labels are valid."""
+def _extract_json(content):
+    """Leniently parse a completion into a dict (accepts fenced JSON)."""
     if not content:
         raise ValueError("empty content")
     text = content.strip()
@@ -133,6 +133,12 @@ def parse_json_object(content):
         data = json.loads(match.group(0))
     if not isinstance(data, dict):
         raise ValueError("response is not a JSON object")
+    return data
+
+
+def parse_json_object(content):
+    """Parse one semantic-tag response; null labels are valid."""
+    data = _extract_json(content)
     raw_conf = data.get("confidence", data.get("score", 0.0))
     try:
         confidence = float(raw_conf)
@@ -159,12 +165,13 @@ def _is_retryable(exc):
 
 class LLMClient:
     def __init__(self, base_url, api_key, model, concurrency=16,
-                 usage_path=None, timeout=120.0):
+                 usage_path=None, timeout=120.0, style="openai"):
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
         self.model = model
         self.timeout = timeout
         self.concurrency = max(1, int(concurrency))
+        self.style = style
         self.usage_path = Path(usage_path) if usage_path else None
         self._json_mode = True  # until the backend proves otherwise
         self.usage = {"model": model, "requests": 0, "errors": 0,
@@ -187,22 +194,34 @@ class LLMClient:
             model=os.getenv("LLM_MODEL", "deepseek-ai/DeepSeek-V4-Flash"),
             concurrency=int(os.getenv("LLM_MAX_CONCURRENCY", "16")),
             usage_path=usage_path,
+            style=os.getenv("LLM_API_STYLE", "openai"),
         )
 
-    async def chat(self, system, user, sem=None):
+    async def chat(self, system, user, sem=None, max_tokens=240, raw=False):
         """One completion -> parsed semantic tags.
         Raises on failure after retries. `sem` bounds concurrency; callers
         running a batch should share one semaphore created inside their event
-        loop."""
+        loop. raw=True returns the unnormalized JSON dict (used by the
+        ai_enrich overlay, which has its own schema)."""
         if sem is None:
             sem = asyncio.Semaphore(self.concurrency)
         async with sem:
-            messages = [{"role": "system", "content": system},
-                        {"role": "user", "content": user}]
-            payload = {"model": self.model, "messages": messages,
-                       "temperature": 0.1, "max_tokens": 240}
-            if self._json_mode:
-                payload["response_format"] = {"type": "json_object"}
+            if self.style == "anthropic":
+                payload = {"model": self.model, "system": system,
+                           "messages": [{"role": "user", "content": user}],
+                           "temperature": 0.1, "max_tokens": max_tokens}
+                # reasoning models spend the (capped) output budget on the
+                # thinking block and leave no room for the answer; batch
+                # tagging/enrichment wants the answer, not the chain
+                if os.getenv("LLM_THINKING", "0") != "1":
+                    payload["thinking"] = {"type": "disabled"}
+            else:
+                messages = [{"role": "system", "content": system},
+                            {"role": "user", "content": user}]
+                payload = {"model": self.model, "messages": messages,
+                           "temperature": 0.1, "max_tokens": max_tokens}
+                if self._json_mode:
+                    payload["response_format"] = {"type": "json_object"}
             try:
                 data = await self._post(payload)
             except JsonModeUnsupported:
@@ -210,7 +229,15 @@ class LLMClient:
                 payload.pop("response_format", None)
                 data = await self._post(payload)
             self._track(data)
-            content = data["choices"][0]["message"]["content"]
+            if self.style == "anthropic":
+                content = "".join(
+                    block.get("text", "")
+                    for block in data.get("content", [])
+                    if block.get("type") == "text")
+            else:
+                content = data["choices"][0]["message"]["content"]
+            if raw:
+                return _extract_json(content)
             return parse_json_object(content)
 
     @retry(stop=stop_after_attempt(4),
@@ -220,8 +247,12 @@ class LLMClient:
     async def _post(self, payload):
         headers = {"Authorization": f"Bearer {self.api_key}",
                    "Content-Type": "application/json"}
+        path = "/chat/completions"
+        if self.style == "anthropic":
+            path = "/messages"
+            headers["anthropic-version"] = "2023-06-01"
         async with httpx.AsyncClient(timeout=self.timeout) as client:
-            resp = await client.post(f"{self.base_url}/chat/completions",
+            resp = await client.post(f"{self.base_url}{path}",
                                      json=payload, headers=headers)
         if resp.status_code == 400 and "response_format" in resp.text:
             raise JsonModeUnsupported(resp.text[:200])
@@ -231,9 +262,16 @@ class LLMClient:
     def _track(self, data):
         usage = data.get("usage") or {}
         self.usage["requests"] += 1
-        self.usage["prompt_tokens"] += int(usage.get("prompt_tokens", 0))
-        self.usage["completion_tokens"] += int(usage.get("completion_tokens", 0))
-        self.usage["total_tokens"] += int(usage.get("total_tokens", 0))
+        if self.style == "anthropic":
+            in_tok = int(usage.get("input_tokens", 0))
+            out_tok = int(usage.get("output_tokens", 0))
+            self.usage["prompt_tokens"] += in_tok
+            self.usage["completion_tokens"] += out_tok
+            self.usage["total_tokens"] += in_tok + out_tok
+        else:
+            self.usage["prompt_tokens"] += int(usage.get("prompt_tokens", 0))
+            self.usage["completion_tokens"] += int(usage.get("completion_tokens", 0))
+            self.usage["total_tokens"] += int(usage.get("total_tokens", 0))
         self.usage["updated_at"] = _now()
 
     def flush(self):
@@ -252,7 +290,9 @@ async def _gather(client, items):
 
     async def one(item):
         try:
-            result = await client.chat(item["system"], item["user"], sem)
+            result = await client.chat(item["system"], item["user"], sem,
+                                       item.get("max_tokens", 240),
+                                       item.get("raw", False))
             return (item, result, None)
         except Exception as exc:  # noqa: BLE001 - per-function isolation
             return (item, None, f"{type(exc).__name__}: {exc}")

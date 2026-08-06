@@ -158,8 +158,13 @@ def _decompile_binary(job_id: str, binary: dict, data_dir: Path, timeout: int) -
         result["elapsed_seconds"] = round(time.time() - t0, 2)
 
 
-def run_job(job_id: str, data_dir) -> dict:
-    """Decompile every binary of a job, merge + annotate, write summary."""
+def run_job(job_id: str, data_dir, only_md5s=None) -> dict:
+    """Decompile binaries of a job, merge + annotate, write summary.
+
+    With only_md5s (targeted mode) only manifest binaries with those md5s are
+    decompiled and their entries are merged into any existing symbols.json;
+    without it every binary is decompiled and symbols.json is rewritten.
+    """
     data_dir = Path(data_dir)
     t0 = time.time()
     manifest_path = data_dir / "extracted" / job_id / "manifest.json"
@@ -170,9 +175,15 @@ def run_job(job_id: str, data_dir) -> dict:
     timeout = int(_cfg("IDA_TIMEOUT", "1800"))
     workers = max(1, int(_cfg("IDA_WORKERS", "3")))
 
+    manifest_binaries = manifest.get("binaries", [])
+    if only_md5s is not None:
+        only_md5s = set(only_md5s)
+        manifest_binaries = [b for b in manifest_binaries
+                             if b["md5"] in only_md5s]
+
     # one idat run per md5: identical binaries share the IDB and the export
     binaries, seen, aliases = [], set(), {}
-    for b in manifest.get("binaries", []):
+    for b in manifest_binaries:
         if b["md5"] in seen:
             aliases.setdefault(b["md5"], []).append(b["path"])
             continue
@@ -187,6 +198,15 @@ def run_job(job_id: str, data_dir) -> dict:
             results.append(fut.result())
 
     symbols = {"job_id": job_id, "created_at": _now(), "binaries": {}}
+    symbols_path = out_root / "symbols.json"
+    if only_md5s is not None and symbols_path.is_file():
+        # targeted run: keep entries of binaries outside this run
+        try:
+            prev = json.loads(symbols_path.read_text(encoding="utf-8"))
+            if isinstance(prev.get("binaries"), dict):
+                symbols["binaries"] = prev["binaries"]
+        except (OSError, json.JSONDecodeError):
+            pass
     for b in binaries:
         md5 = b["md5"]
         raw_path = out_root / md5 / "symbols_raw.json"
@@ -199,6 +219,7 @@ def run_job(job_id: str, data_dir) -> dict:
             "bits": b.get("bits"),
             "endianness": b.get("endianness"),
             "sha256": b.get("sha256"),
+            "checksec": b.get("checksec"),
             "file_format": b.get("file_format", "elf"),
             "rtos": b.get("rtos"),
             "board_id": b.get("board_id"),
@@ -210,7 +231,6 @@ def run_job(job_id: str, data_dir) -> dict:
             "meta": raw.get("meta", {}),
             "functions": raw.get("functions", []),
         }
-    symbols_path = out_root / "symbols.json"
     symbols_path.write_text(json.dumps(symbols, indent=1), encoding="utf-8")
     annotate_stats = annotate.annotate_file(symbols_path)
 
@@ -218,6 +238,7 @@ def run_job(job_id: str, data_dir) -> dict:
     summary = {
         "job_id": job_id,
         "created_at": _now(),
+        "only_md5s": sorted(only_md5s) if only_md5s is not None else None,
         "total_binaries": len(results),
         "succeeded": len(ok),
         "failed": sum(1 for r in results if r["status"] == "failed"),

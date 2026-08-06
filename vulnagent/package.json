@@ -1,0 +1,12 @@
+{
+  "name": "vulnagent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Upstream vulnerability-mining agent over the fwgraph attack-surface platform (Managed Agents style: Agent / Environment / Session / Events)",
+  "main": "src/cli.js",
+  "scripts": {
+    "info": "node src/cli.js info",
+    "list": "node src/cli.js list"
+  }
+}

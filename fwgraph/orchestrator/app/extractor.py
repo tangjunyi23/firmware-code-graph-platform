@@ -168,9 +168,25 @@ def run_emba(firmware_path, log_dir, stdout_log_path, timeout=None):
         while proc.poll() is None:
             if time.monotonic() > deadline:
                 _kill_emba(proc, logf)
+                _chown_output(log_dir)
                 return -signal.SIGKILL, True
             time.sleep(5)
+        _chown_output(log_dir)
         return proc.returncode, False
+
+
+def _chown_output(log_dir):
+    """Make root-owned EMBA container output readable by the worker user."""
+    owner = f"{os.getuid()}:{os.getgid()}"
+    proc = subprocess.run(
+        ["sudo", "-n", "chown", "-R", owner, str(log_dir)],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    if proc.returncode != 0:
+        detail = (proc.stderr or proc.stdout or "").strip()[-300:]
+        raise RuntimeError(f"cannot take ownership of EMBA output: {detail}")
 
 
 def _kill_emba(proc, logf):
@@ -190,6 +206,15 @@ def build_manifest(job_id: str, firmware_name: str, log_dir) -> dict:
     log_dir = Path(log_dir)
     csv_path = log_dir / "csv_logs" / "p99_prepare_analyzer.csv"
     binaries = parse_p99_csv(csv_path, log_dir)
+
+    # hardening profile per binary (native parser, works on sstripped ELFs);
+    # a failure here must never break manifest generation
+    from pipeline.extract.checksec import checksec
+    for b in binaries:
+        try:
+            b["checksec"] = checksec(log_dir / b["path"])
+        except Exception:  # noqa: BLE001
+            b["checksec"] = None
 
     fw_root = log_dir / "firmware"
     extracted_files = (
