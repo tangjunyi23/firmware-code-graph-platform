@@ -3,9 +3,9 @@
   "name": "Firmware Vulnerability Miner (upstream of fwgraph)",
   "model": {
     "provider": "anthropic-gateway",
-    "name": "deepseek-v4-flash",
+    "name": "deepseek-v4-pro",
     "temperature": 0.2,
-    "max_tokens": 4096
+    "max_tokens": 8192
   },
   "skills": ["firmware-vuln-mining"],
   "tools": [

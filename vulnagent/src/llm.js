@@ -1,9 +1,11 @@
 /**
  * llm.js — Anthropic Messages client (gateway-compatible).
  *
- * The gateway (deepseek-v4-flash behind an Anthropic-style proxy) supports
- * native tool_use. Thinking is disabled by default because the gateway caps
- * output at ~4096 tokens and a thinking block would eat that budget.
+ * The gateway (routatic-proxy on host:3456) supports native tool_use.
+ * Output cap is per-model in the proxy config: deepseek-v4-flash is
+ * clamped at 4096 (and ignores thinking:disabled on hard prompts —
+ * observed 2026-08-06), deepseek-v4-pro allows 8192. Model/max_tokens
+ * come from .env (LLM_MODEL / LLM_MAX_TOKENS).
  * Retries 429/5xx/network errors with exponential backoff.
  */
 export class LLMError extends Error {

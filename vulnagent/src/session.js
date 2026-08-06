@@ -19,6 +19,14 @@ function atomicWrite(file, text) {
   renameSync(tmp, file);
 }
 
+// The gateway ignores thinking:disabled on hard prompts, so a long thinking
+// block can burn the whole 4096-token output cap before any tool_use is
+// emitted (observed 2026-08-06, session s-msh8j3c9-3d5b). Instead of going
+// idle, nudge the model to continue — bounded, to avoid an infinite loop.
+const MAX_TOK_NUDGES = 2;
+const TRUNC_NUDGE = "你的上一条输出达到 token 上限被截断，且没有产生任何工具调用。请收敛推理，立即给出下一步：工具调用，或不超过 200 字的结论。";
+const RESUME_NUDGE = "会话从中断处恢复。请继续推进任务：工具调用，或不超过 200 字的结论。";
+
 export class Session {
   static create({ config, agent, environment, task, sessionId, quiet }) {
     const id = sessionId ?? `s-${Date.now().toString(36)}-${randomBytes(2).toString("hex")}`;
@@ -51,7 +59,9 @@ export class Session {
     session.state = JSON.parse(readFileSync(path.join(dir, "state.json"), "utf8"));
     session.messages = JSON.parse(readFileSync(path.join(dir, "messages.json"), "utf8"));
     session.task = session.state.task;
-    session.findings = []; // re-collected from this run's record_finding calls
+    // NOTE: do NOT reassign session.findings here — the constructor already
+    // created the array and toolCtx.findings aliases it; reassigning would
+    // silently drop this run's record_finding entries from state.json.
     session.events.emit("session_start", { session_id: sessionId, agent_id: agent.id, task: `(resume) ${session.task}` });
     return session;
   }
@@ -67,6 +77,7 @@ export class Session {
     this.findings = [];
     this.finished = false;
     this.finishSummary = "";
+    this._maxTokNudges = 0;
     // Tool execution context handed to every tool. Tools mutate session
     // state through `session` (finish) and collect output via `findings`.
     this.toolCtx = { config, sessionId: id, findings: this.findings, session: this };
@@ -94,6 +105,12 @@ export class Session {
     const system = this.agent.system_prompt;
     const tools = this.enabledTools;
     try {
+      // Resuming an idled session leaves an assistant message on top; the
+      // Messages API expects a user turn, so append a continuation nudge.
+      const tailMsg = this.messages[this.messages.length - 1];
+      if (tailMsg && tailMsg.role === "assistant") {
+        this.messages.push({ role: "user", content: [{ type: "text", text: RESUME_NUDGE }] });
+      }
       for (let turn = this.state.turns; turn < maxTurns; turn++) {
         this.state.turns = turn + 1;
         const resp = await this.llm.messages({ system, messages: this.messages, tools });
@@ -116,10 +133,21 @@ export class Session {
 
         const calls = content.filter((b) => b.type === "tool_use");
         if (!calls.length) {
+          // Output hit the token cap without a single tool call (typically
+          // an over-long thinking block). Nudge and continue instead of
+          // going idle, up to MAX_TOK_NUDGES times in a row.
+          if (resp.stop_reason === "max_tokens" && this._maxTokNudges < MAX_TOK_NUDGES) {
+            this._maxTokNudges += 1;
+            this.events.emit("text", { text: `[harness] 输出达 token 上限被截断且无工具调用，自动催促继续（${this._maxTokNudges}/${MAX_TOK_NUDGES}）` });
+            this.messages.push({ role: "user", content: [{ type: "text", text: TRUNC_NUDGE }] });
+            this.persist();
+            continue;
+          }
           this.persist();
           this.events.emit("session_idle", { session_id: this.id, reason: `stop_reason=${resp.stop_reason ?? "end_turn"}, no tool calls` });
           break;
         }
+        this._maxTokNudges = 0;
 
         const results = [];
         for (const call of calls) {
