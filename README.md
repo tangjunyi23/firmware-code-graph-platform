@@ -98,6 +98,11 @@
 cd fwgraph && ./setup.sh                 # 建 venv、装依赖（详见脚本）
 cp .env.example .env                     # 配置 ORCH_TOKEN / IDA_DIR / EMBA_* / LLM_*
 
+# 1a. EMBA 独立克隆（不随本仓库分发，约 3.8G，含 Docker 镜像拉取）
+git clone https://github.com/e-m-b-a/emba ~/emba
+# 按 EMBA 官方文档安装（installer.sh -d 默认模式），然后把 .env 里的
+# EMBA_DIR 指向该克隆路径（示例值是开发机的绝对路径，必须改成实际路径）
+
 # 2. 启动编排服务（API + 前端托管，:8000）
 ./scripts/run_orchestrator.sh            # 或 systemctl --user start fwgraph.service
 
