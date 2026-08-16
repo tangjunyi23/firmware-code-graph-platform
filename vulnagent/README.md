@@ -31,7 +31,7 @@ src/cli.js ──► Session（src/session.js：agent loop，逐步持久化）
        │                                  findings/ 仅保留本地缓存副本）
        │                 finish         → 结束 session，生成 report.md
        ▼
-fwgraph 平台 (192.168.108.129:8000)  ← 攻击面识别 / 函数检索 / 反编译 / 覆盖率
+fwgraph 平台 (https://192.168.141.135:8000)  ← 攻击面识别 / 函数检索 / 反编译 / 覆盖率 / fuzz
 ```
 
 ## 用法
@@ -71,6 +71,12 @@ node src/cli.js run "对 verified 路径做漏洞挖掘" --engine dsh
 - `sessions/<id>/events.sse` — 完整执行链路（Debug 面板等价物）
 - `sessions/hunt-*/` — 六阶段打法产物（attack-surface.md、phase2_round*.md、vuln_hunt_output.md、challenge_verdict_round*.md、context_snapshot.json、**FINAL.md**）
 
+## 上下文预算
+
+- **brief-first 分级检索**：批量筛查函数先 `brief`（约 1KB），疑点再拉全文；`attack_surface brief=true`、`cfg/ast max_nodes/max_depth` 同理——图谱预计算把 6.7 万函数收敛成可翻页的摘要，而不是全文吞吐
+- **会话历史压缩**（builtin 引擎）：`session.js` 每轮调 LLM 前把超 `VULNAGENT_COMPACT_THRESHOLD`（默认 1200 字符）的旧 tool_result 换成首尾摘录占位（最近 6 条与任务不动，幂等，压缩动作进事件流）；dsh 引擎自带 compaction-basic + tool-result-pruner
+- 实测（MX12 案例）：裸函数清单 28.7MB vs `attack_surface` top20 全量 12KB / brief 7.1KB
+
 测试（零依赖、离线 mock fetch）：
 
 ```bash
@@ -100,9 +106,9 @@ node dsh/verify_tools.mjs      # 实boot fwgraph profile 打印注册工具清�
 ## 挖掘方法论（写进 system prompt）
 
 0. `fw_get_identification` 取外部输入清单（IN-xxx，公网可达、零遗漏）→ `fw_list_surfaces` / `fw_get_surface` 按面推进
-1. `fw_attack_surface` 取评分路径（verified 优先）+ `fw_get_manifest` 看 checksec 加固画像
-2. 逐条路径用 `fw_get_function_source` 取 AI 增强伪代码，沿 source→sink 追攻击者可控数据流（栈溢出/命令注入/格式化字符串/路径穿越/整数溢出）
-3. `fw_routes` 定位触发路由、`fw_trace_flow` 拿运行时证据、`fw_call_trace` 沿调用链确认入口与 sink
+1. `fw_attack_surface` 取评分路径（verified 优先；大范围扫描用 `brief=true` 只取分诊字段）+ `fw_get_manifest` 看 checksec 加固画像
+2. 逐条路径筛查：**先 `fw_get_function_source brief=true`**（约 1KB 分诊卡：攻击面元数据 + 伪代码头 + 危险调用行号 + callees），命中疑点再拉全文（Hex-Rays 原始伪代码是唯一可引用证据；`kind=ai` 的增强 overlay 只做调用链/攻击面理解辅助，**其重命名符号禁止引用**），沿 source→sink 追攻击者可控数据流（栈溢出/命令注入/格式化字符串/路径穿越/整数溢出）
+3. `fw_routes` 定位触发路由、`fw_trace_flow` 拿运行时证据、`fw_call_trace` 沿调用链确认入口与 sink；`fw_get_cfg/fw_get_ast`（可加 `max_nodes/max_depth` 截断）做精确控制流/数据流推理
 4. `fw_dangerous_callsites` / `fw_cypher` 扩大同类模式审查
 5. 每个确认的漏洞 `record_finding`（证据必须具体到函数地址、伪代码行、路径评分、trace_id）
 
@@ -115,15 +121,17 @@ node dsh/verify_tools.mjs      # 实boot fwgraph profile 打印注册工具清�
 ## 配置（`.env`，不入库）
 
 ```ini
-FWGRAPH_BASE_URL=http://192.168.108.129:8000
-FWGRAPH_TOKEN=<ORCH_TOKEN>
+FWGRAPH_BASE_URL=https://127.0.0.1:8000   # 平台默认 HTTPS 自签
+FWGRAPH_TOKEN=<ORCH_TOKEN 或 fws- 会话 token>
 FWGRAPH_JOB_ID=<默认固件任务>
-LLM_BASE_URL=http://127.0.0.1:3456/v1
+LLM_BASE_URL=https://opencode.ai/zen/go/v1
 LLM_API_STYLE=anthropic
 LLM_MODEL=deepseek-v4-flash
 LLM_API_KEY=<key>
-LLM_THINKING=0        # 网关输出上限 4096 tokens，开 thinking 会挤占正文额度
+LLM_THINKING=0        # 推理模型 reasoning 会先烧输出额度；aienrich 侧已提至 16384
+NODE_EXTRA_CA_CERTS=../fwgraph/data/tls/cert.pem   # Node fetch 信任自签证书
 # FWGRAPH_EXTRACTED_ROOT=<固件解包根>   # 默认 ../fwgraph/data/extracted；fw_browse_firmware（dsh）监禁于 <root>/<job_id>/
+# VULNAGENT_COMPACT_THRESHOLD=1200 / VULNAGENT_COMPACT_KEEP_RECENT=6  # 历史压缩可调
 ```
 
 切换分析目标：改 `FWGRAPH_JOB_ID`，或在工具参数里显式传 `job_id`。

@@ -5,11 +5,15 @@
 ```
 固件.bin ─▶ [S1 解包]      EMBA docker（unblob/binwalk/厂商解密）→ rootfs + 架构清单
          ─▶ [S2 反编译]    IDA Pro 9.1 无头批处理（FLIRT 签名 + 规则命名）→ 伪 C + symbols.json
-         ─▶ [S3 可选标签]  DeepSeek-V4-Flash → libc_equiv/domain（兼容能力；不改函数名）
+         ─▶ [S3 可选标签]  LLM（opencode go / deepseek-v4-flash）→ libc_equiv/domain（兼容能力；不改函数名）
          ─▶ [S4 图谱]      伪 C 文件树 → codebase-memory-mcp 索引 → SQLite 图（节点/边/向量/元数据）
-                              └─▶ 上游分析 AI（POST /graph/query 或 CBM MCP stdio）
+         │                     └─▶ 上游分析 AI（POST /graph/query 或 CBM MCP stdio）
+         ─▶ [S4b 图谱扩展] 函数级 CFG（含跳表 indirect_jump 建模）+ AST（tree-sitter）→ cfg/ast op
          ─▶ [S5 动态追踪]  qemu-user + chroot 单二进制覆盖率（baseline/trigger 差分）→ 请求处理路径函数
          ─▶ [AS 攻击面]    source/sink + ≤8 跳 Top50 + trace 交叉验证 + URL→handler ROUTE 边
+         ─▶ [M6a/b]        外部输入识别（identification.json，证据四级分级）→ 逐输入攻击面导出（AS-*.json）
+         ─▶ [DYN 动态]     x86=frida hook（本机/远程）；ARM/MIPS=AFL++ qemu persistent 函数级 fuzz
+         ─▶ [ICS 协议]     协议模板变异 fuzz（Modbus/S7/OPC UA/DNP3/MQTT/HTTP）→ 故障确认+复播复现 → 报告
 ```
 
 ## 1. 部署
@@ -24,12 +28,16 @@
 | qemu-user（M7） | `apt-get install qemu-user-binfmt`（提供 `/usr/bin/qemu-mips` 等，static-pie 可直接进 chroot） |
 | Python venv | `fwgraph/.venv`（`bash setup.sh` 可重建） |
 | FLIRT 签名资产 | `fwgraph/libc-sigs/`（`build_sig.sh` 制作，装到 `<ida>/sig/<proc>/`） |
+| AFL++（可选，ARM/MIPS fuzz） | 按架构构建 `afl-qemu-trace-<arch>`（`~/AFLplusplus`），runner 自动建 per-arch 链接目录 |
+| frida（可选，x86 hook） | venv 内 `pip install frida`（≥17）；远程目标需 `frida-server` :27042 |
+| LibreOffice（可选） | `apt-get install libreoffice-writer`（报告导出 PDF；缺了只影响 PDF，DOCX 不受影响） |
+| Node.js | ≥ 20（webui 构建 / vulnagent）；dsh 引擎需 Node 22 + pnpm（`vulnagent/dsh/setup.sh` 一键装） |
 
 环境变量（`fwgraph/.env`，模板见 `.env.example`）：
 
 | 键 | 含义 |
 |---|---|
-| `LLM_BASE_URL` / `LLM_MODEL` / `LLM_API_KEY` | SiliconFlow 端点 / `deepseek-ai/DeepSeek-V4-Flash` / key |
+| `LLM_BASE_URL` / `LLM_MODEL` / `LLM_API_KEY` | OpenAI 兼容网关（开发环境用 opencode go `https://opencode.ai/zen/go/v1`）/ `deepseek-v4-flash` / key |
 | `LLM_MAX_CONCURRENCY` | AI 请求并发（默认 16） |
 | `AILIFT_MODE` | 可选 AILIFT 兼容接口固定为 `tag`：只写语义标签，不回写 IDB、不二次反编译；建图无需运行 |
 | `AI_MAX_FUNCS_PER_BIN` | 每二进制送 AI 函数上限（默认 150，成本闸门） |
@@ -42,6 +50,13 @@
 | `FLIRT_SIGS` | `1`=应用全部 `fwgraph_*.sig`；逗号列表=指定 |
 | `LUMINA_ENABLED` | 保持 `0`（当前 license 被 Lumina 服务器拒绝） |
 | `CBM_FULL_INDEX_MAX_FILES` | FULL 索引最大伪 C 文件数（默认 50000）；超过后使用 FAST，保留结构节点/调用/usage，省略相似性与语义边 |
+| `ORCH_SSL` | 默认 `1`：HTTPS 自签（`data/tls/{cert,key}.pem`，SAN 含主机 IP/127.0.0.1/localhost）；`0` 退回明文 |
+| `AUTO_INPUTS` / `AUTO_SURFACES` / `AUTO_GRAPHEXT` / `AUTO_FULL` | 自动链开关：输入识别 / 攻击面导出 / CFG·AST / 上传即全自动（默认见 .env 注释） |
+| `AI_ENRICH_MAX_TOKENS` | AI 增强单函数输出预算（默认 16384；推理模型 reasoning 会先烧额度，勿调低） |
+| `TRACE_DAILY_PER_JOB` / `FUZZ_DAILY_PER_JOB` / `FRIDA_DAILY_PER_JOB` / `AIENRICH_DAILY_PER_JOB` / `PROTOFUZZ_DAILY` | 按 job×日配额（默认 10/6/6/6/8，429 中文 detail） |
+| `PROTOFUZZ_ALLOW_PUBLIC` | 默认禁 fuzz 公网目标；`1` 解锁（授权自担） |
+| `FUZZ_SECONDS` / `FRIDA_*` | 函数级 fuzz 时长 / frida 远程 host:port 等（见 .env 注释） |
+| `VULNAGENT_COMPACT_THRESHOLD` / `VULNAGENT_COMPACT_KEEP_RECENT` | builtin 挖掘会话历史压缩：旧工具结果超阈值换首尾摘录（默认 1200 字符 / 保最近 6 条） |
 
 PX4/NuttX raw 镜像会使用 manifest 中经过校验的 ARM loader profile：IDA 命令采用 `-pARM:ARMv7-M`，`-b` 传 16-byte paragraph（真实镜像基址除以 16），并从向量表验证的 reset entry bootstrap 函数。raw 输入若导出 0 个函数会被标记为失败；旧完成标记不会在重试中复用。这样保留的是可审计的真实反编译证据，而不是空图谱成功状态。
 
@@ -53,14 +68,15 @@ bash fwgraph/scripts/run_cbm_ui.sh         # CBM UI 127.0.0.1:9749（被 /cbmui 
 # 停止：kill $(cat fwgraph/data/orchestrator.pid) / $(cat fwgraph/data/cbm_ui.pid)
 ```
 
-前端入口：`http://192.168.141.135:8000/`（输入 `ORCH_TOKEN` 登录）。
+前端入口：`https://192.168.141.135:8000/`（默认 HTTPS 自签，浏览器确认证书即可；账号密码登录，初始 `admin/admin123`，**首登强制改密**；主 token 仅 Bearer header，`?token=` 只收 fws- 会话 token）。
 回归测试：`bash fwgraph/scripts/e2e_regression.sh`（约 15~20 分钟，报告落 `docs/e2e-report.txt`）。
-单测：`fwgraph/.venv/bin/python -m pytest orchestrator/tests -q`（当前 270 个，269 通过 + 1 个已知测试间污染项；M0~M7 历史基线 193 个）。
+单测：`fwgraph/.venv/bin/python -m pytest orchestrator/tests -q`（当前 482 个，481 通过 + 1 个已知测试间污染项）；vulnagent `npm test` 29 个全过。
 
 ## 3. 使用流程（curl 示例）
 
 ```bash
-TOKEN=changeme-local-token; H="Authorization: Bearer $TOKEN"; B=http://192.168.141.135:8000
+TOKEN=<fws- 会话 token 或主 token>; H="Authorization: Bearer $TOKEN"; B=https://192.168.141.135:8000
+# HTTPS 自签：curl 统一加 -k（示例从略）
 # 1. 上传固件（提取+反编译自动接力）
 JOB=$(curl -s -X POST -H "$H" -F "file=@firmware.bin" $B/firmware | python3 -c 'import json,sys;print(json.load(sys.stdin)["job_id"])')
 # 2. 轮询状态到 decompiled；无需打标签，可直接建图
@@ -94,6 +110,8 @@ M7 说明：tracer 把对应架构的 qemu-user 拷进 rootfs，`chroot` 内以 
 
 ### 方式 A：HTTP（推荐）`POST /graph/query`
 
+函数级证据优先走 `GET /jobs/{id}/functions/{md5}/{addr}/brief`（约 1KB 分诊卡：攻击面元数据 + 伪代码头 8 行 + 危险调用行号 + callees），命中疑点再拉 `/source` 全文——批量筛查别把每个函数的全文都灌进上下文。
+
 请求体：`{"job_id": "...", "op": "search|cypher|trace|snippet|dangerous|trace_flow|attack_surface|routes", ...}`
 
 | op | 额外参数 | 说明 |
@@ -104,8 +122,9 @@ M7 说明：tracer 把对应架构的 qemu-user 拷进 rootfs，`chroot` 内以 
 | `snippet` | `name` 或 `qualified_name` | 取函数伪 C 全文 |
 | `dangerous` | `functions=["strcpy",...]` | 查候选敏感函数的全部调用点（同时匹配节点名与 `libc_equiv`） |
 | `trace_flow` | `trace_id` | M7：该 trace 差分出的有序函数路径 + 敏感 libc_equiv 高亮 |
-| `attack_surface` | `source?`, `sink?`, `verified_only?`, `limit?` | 排序后的 source→sink 静态候选路径及 trace 覆盖状态 |
+| `attack_surface` | `source?`, `sink?`, `verified_only?`, `limit?`, `brief?` | 排序后的 source→sink 静态候选路径及 trace 覆盖状态；`brief=true` 掉链节点只留分诊字段（广扫用） |
 | `routes` | `pattern?`, `method?`, `binary_md5?`, `min_confidence?` | IDA 数据段恢复的 URL→handler 映射 |
+| `cfg` / `ast` | `md5`, `addr`, `max_nodes?`, `max_depth?` | M4b 控制流图 / 抽象语法树；截断参数防爆上下文 |
 
 常用查询模板：
 
@@ -156,10 +175,23 @@ fwgraph/
     ├── cbm/<job>/        # CBM 目录树（含 git）+ graph_done.json
     ├── attack/<job>/     # attack_paths.json + attack_done.json
     ├── routes/<job>/     # routes_raw/routes.json/routes_done.json
+    ├── inputs/<job>/     # M6a identification.json（外部输入清单，证据分级）
+    ├── surfaces/<job>/   # M6b information/AS-*.json + AS-AUTH-*.json
+    ├── graphext/<job>/   # M4b cfg|ast/<md5>.json
+    ├── fuzz|frida/<job>/<run_id>/   # 函数级 fuzz / frida hook 运行
+    ├── protofuzz/<run_id>/          # 协议 fuzz 运行（run.json + cases/faults.jsonl）
+    ├── reports/          # job-*.md / pf-*.md（+ 导出缓存 docx/pdf）
+    ├── tls/              # HTTPS 自签证书（ORCH_SSL=1）
+    ├── users.json / sessions.json / audit.jsonl / quotas.json  # 账户/会话/审计/配额
     └── traces/<job>/<trace_id>/  # M7 覆盖率 trace（权威 trace.json）
 ```
 
 ## 6. 已知限制
+
+- **函数级 fuzz 要求启动可达**：AFL++ persistent 模式要求目标函数在正常启动流程中可达（forkserver 在该地址初始化），固件 daemon 若依赖 init/chroot/网络环境会如实失败并给中文提示；PIE 目标需加加载基址。
+- **协议 fuzz 是纯软件实现**：博智式硬件能力（RS232/485/CAN 业务卡、DI/AI 监视、继电器电源托管）不在范围；故障定位为监视器确认+复播复现的软件近似；默认只许私网/回环目标。
+- **AI 增强 overlay 不回喂挖矿 AI**：重命名符号不可作证据引用（`fw_get_function_source` 默认只吃 Hex-Rays 原始伪代码，`kind=brief` 分诊卡优先）。
+
 
 - **Lumina 不可用**：当前 IDA license 被 Lumina 服务器拒绝（`bad signature`），已预留 `LUMINA_ENABLED=1` 开关，换 license 即启用。详见 `docs/m2b-notes.md`。
 - **FLIRT 年代敏感**：签名命中要求"年代×ISA×字节序×配置"四元匹配，单点 sig 对老固件收益有限（+2~+6）；签名库扩矩阵的方法见 `docs/m2b-notes.md` §4。
