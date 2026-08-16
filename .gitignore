@@ -56,3 +56,9 @@ desktop.ini
 # vulnagent runtime data (sessions, findings live on the analysis VM)
 vulnagent/sessions/
 vulnagent/findings/
+
+# Third-party firmware extractor (3.8G, clone at deploy time)
+emba/
+
+# Agent runtime memory (learned insights live on the analysis VM)
+vulnagent/memory/

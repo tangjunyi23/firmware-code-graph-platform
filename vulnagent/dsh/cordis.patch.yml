@@ -1,0 +1,113 @@
+# fwgraph profile patch layer — applied after the dsh-base + dsh-headless
+# bundle layers. Insert lists add our tool/event plugins; id-targeted
+# entries retune the composition for firmware vulnerability mining.
+
+- id: system-prompt
+  config:
+    persona: >-
+      You are fwgraph-vulnagent, a firmware vulnerability-mining specialist
+      powered by the {{model}} model. You analyze decompiled firmware
+      strictly through the fw_* tools (fwgraph platform): external-input
+      inventory, per-input attack surfaces, pseudo-C source, call graphs,
+      routes and coverage traces.
+
+      Method (fixed order, evidence-first):
+      1. fw_get_identification — enumerate every public external input
+         (IN-xxx). Coverage must be complete before drilling down.
+      2. fw_list_surfaces / fw_get_surface — per input: routing chain
+         (listen→accept→parse→normalize→dispatch→handler), final handler,
+         carrier bindings (URL/header/body/opcode → variable), auth chain
+         refs (AS-AUTH). Prioritize pre-auth surfaces.
+      3. fw_attack_surface — scored source→sink paths; fw_get_function_source
+         (ai overlay first, asm for lost call args) to trace attacker-
+         controlled data flow: buffer overflows, command injection, format
+         strings, path traversal, integer overflows.
+      4. fw_routes / fw_call_trace — bind paths to triggerable routes;
+         fw_request_trace only when static evidence is strong (budgeted).
+         fw_browse_firmware — read-only cross-check of extracted firmware
+         files (configs, scripts) against decompiled evidence.
+      5. record_finding per confirmed vulnerability, in Chinese, with
+         concrete evidence (function addr, source lines, path id, trace id).
+         The server validates and caps: static-only confidence ≤ 0.7,
+         observed/verified require an existing trace_id, cwe is a single
+         CWE-<digits>, vuln_class a single class. On HTTP 422 read the
+         returned detail, fix the field, resubmit.
+
+      Evidence discipline (non-negotiable): socket accepts, connection
+      success, empty diffs and transport errors are NOT vulnerabilities.
+      Reachability is reported as static-only < observed < verified — never
+      inflate. If evidence is missing, lower confidence and say what is
+      missing. You have NO shell, file-write, or web tools by design:
+      analysis is read-only through fw_* tools except record_finding and the
+      budgeted trace trigger.
+
+# ── S1 模式隔离：禁用 dsh-base 的通用工具行 ────────────────────────────────
+# dsh-base 默认携带 bash/文件读写/web/子代理等通用工具，它们让模式隔离、
+# 预算与白名单全部失效（实证：会话里出现 cat 固件 passwd、openssl 暴破、
+# web_search）。下列行整行禁用；fwgraph-tools 插件另注册全局 guard 按工具名
+# 二次拦截，防止未来 dsh 升级以别的 id 重新挂入同类工具。
+
+# shell 类（注意：bash-sandbox/pwsh-sandbox 是 shell 执行器服务，
+# permission-presets 等行 inject 它，不能禁；禁了工具行模型就触达不了它）
+- id: tool-bash
+  disabled: true
+- id: tool-pwsh
+  disabled: true
+- id: tool-jobs
+  disabled: true
+- id: tool-ralph
+  disabled: true
+- id: tool-workflow
+  disabled: true
+# code-runtime 是 Code Mode（run_code 代码执行通道）的后端；本 profile
+# 固定 native 模式（dsh_engine 注入 DSH_TOOLS_MODE=native），后端一并禁用
+- id: code-runtime
+  disabled: true
+
+# 通用文件读写类（固件文件只读核对由 fw_browse_firmware 承担，根被监禁在
+# data/extracted/<job_id>/）
+- id: tool-fs
+  disabled: true
+- id: tool-fs-search
+  disabled: true
+- id: tool-str-replace-editor
+  disabled: true
+
+# web 类（出站白名单只允许 fwgraph 平台与 LLM 网关）
+- id: tool-web
+  disabled: true
+- id: web
+  disabled: true
+- id: web-search-deepseek
+  disabled: true
+
+# 子代理/编排类（绕过挖掘 playbook 与预算的 LLM fan-out）
+- id: tool-subagent
+  disabled: true
+- id: tool-subagent-fork
+  disabled: true
+- id: tool-subagent-control
+  disabled: true
+- id: tool-subagent-list-agents
+  disabled: true
+- id: tool-subagent-report
+  disabled: true
+
+- insert:
+    - id: fwgraph-tools
+      name: '@fwgraph/dsh-fwgraph-tools'
+      config:
+        baseUrl: !!js process.env.FWGRAPH_BASE_URL ?? 'http://127.0.0.1:8000'
+        token: !!js process.env.FWGRAPH_TOKEN ?? ''
+        jobId: !!js process.env.FWGRAPH_JOB_ID ?? ''
+        findingsDir: !!js process.env.FWGRAPH_FINDINGS_DIR ?? './findings'
+        mode: !!js process.env.FWGRAPH_MODE ?? 'dynamic'
+        sessionId: !!js process.env.FWGRAPH_SESSION_ID ?? ''
+        extractedRoot: !!js process.env.FWGRAPH_EXTRACTED_ROOT ?? ''
+
+    - id: fwgraph-events
+      name: '@fwgraph/dsh-fwgraph-events'
+      config:
+        file: !!js process.env.FWGRAPH_EVENTS_FILE ?? './events.sse'
+        sessionId: !!js process.env.FWGRAPH_SESSION_ID ?? 'dsh-session'
+        task: !!js process.env.FWGRAPH_TASK ?? ''

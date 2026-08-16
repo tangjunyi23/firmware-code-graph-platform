@@ -28,7 +28,33 @@ if [[ -f "$PID_FILE" ]] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
   exit 0
 fi
 
+# S2: TLS on by default (ORCH_SSL=0 falls back to plain HTTP). First run
+# self-signs data/tls/{cert,key}.pem for the VM's IP; replace with a real
+# certificate when one is available.
+SCHEME="http"
+UVICORN_TLS=()
+if [[ "${ORCH_SSL:-1}" != "0" ]]; then
+  TLS_DIR="data/tls"
+  CERT="$TLS_DIR/cert.pem"
+  KEY="$TLS_DIR/key.pem"
+  if [[ ! -f "$CERT" || ! -f "$KEY" ]]; then
+    mkdir -p "$TLS_DIR"
+    openssl req -x509 -newkey rsa:4096 -nodes \
+      -keyout "$KEY" -out "$CERT" -days 3650 \
+      -subj "/CN=192.168.141.135" \
+      -addext "subjectAltName=IP:192.168.141.135,IP:127.0.0.1,DNS:localhost"
+    chmod 600 "$KEY"
+    echo "generated self-signed TLS cert: $CERT (CN=192.168.141.135)"
+  fi
+  UVICORN_TLS=(--ssl-keyfile "$KEY" --ssl-certfile "$CERT")
+  SCHEME="https"
+fi
+
 nohup .venv/bin/python -m uvicorn orchestrator.app.main:app \
-  --host "$HOST" --port "$PORT" >>"$LOG_FILE" 2>&1 &
+  --host "$HOST" --port "$PORT" "${UVICORN_TLS[@]}" >>"$LOG_FILE" 2>&1 &
 echo $! >"$PID_FILE"
-echo "orchestrator started (pid $(cat "$PID_FILE")), http://$HOST:$PORT, log: $LOG_FILE"
+echo "orchestrator started (pid $(cat "$PID_FILE")), $SCHEME://$HOST:$PORT, log: $LOG_FILE"
+
+# CBM UI powers /jobs/{id}/graph/layout and the /cbmui proxy; start it
+# alongside the orchestrator (idempotent, best-effort).
+bash scripts/run_cbm_ui.sh || true

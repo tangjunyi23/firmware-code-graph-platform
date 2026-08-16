@@ -52,9 +52,9 @@
         <el-button size="small" @click="fitSignal++">适应视图</el-button>
         <el-button size="small" :loading="layoutLoading" @click="loadLayout">重新加载</el-button>
         <span class="edge-legend muted">
-          <i class="edge-line" style="background: rgba(64,158,255,.6)"></i>调用
-          <i class="edge-line" style="background: rgba(140,140,140,.5)"></i>定义
-          <i class="edge-line" style="background: rgba(190,120,200,.5)"></i>其他
+          <i class="edge-line" style="background: rgba(53,196,255,.7)"></i>调用
+          <i class="edge-line" style="background: rgba(130,160,200,.5)"></i>定义
+          <i class="edge-line" style="background: rgba(190,140,220,.5)"></i>其他
         </span>
       </div>
       <CodeGraphCanvas
@@ -107,10 +107,10 @@ const TYPE_NAMES = {
   Project: '项目', Branch: 'Branch', Folder: '目录',
 }
 const TYPE_COLORS = {
-  File: '#f78c6c', Module: '#82aaff', Function: '#c3e88d',
-  Project: '#c099ff', Branch: '#ffcb6b', Folder: '#89ddff',
+  File: '#ea580c', Module: '#2b6ce5', Function: '#16a34a',
+  Project: '#7c3aed', Branch: '#b45309', Folder: '#0284c7',
 }
-function typeColor (value) { return TYPE_COLORS[value] || '#409eff' }
+function typeColor (value) { return TYPE_COLORS[value] || '#2b6ce5' }
 const typeOptions = computed(() => {
   const present = new Set((layout.value?.nodes || []).map(n => n.label))
   return Object.entries(TYPE_NAMES)
@@ -179,7 +179,7 @@ watch(jobId, () => {
 onMounted(async () => {
   try {
     jobs.value = await api('/jobs')
-    const graphed = jobs.value.find(j => ['graphed', 'attacked', 'routed'].includes(j.status))
+    const graphed = jobs.value.find(j => ['surfaced', 'graphed', 'attacked', 'routed'].includes(j.status))
     if (graphed) jobId.value = graphed.job_id
   } catch (e) {
     ElMessage.error('加载任务失败: ' + e.message)
@@ -192,20 +192,22 @@ onMounted(async () => {
 .toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
 .row-between { display: flex; justify-content: space-between; align-items: center; }
 .result {
-  background: #1d1e1f; color: #d4d4d4; padding: 12px; border-radius: 6px;
+  background: #f4f8fd; color: #3d5470; border: 1px solid rgba(43, 108, 229, .18);
+  padding: 12px; border-radius: 6px;
   font-size: 12px; overflow: auto; max-height: 46vh; margin-top: 12px;
 }
 .node-bar {
   margin-top: 10px; display: flex; gap: 12px; align-items: center;
-  padding: 8px 12px; background: #f5f7fa; border-radius: 6px; flex-wrap: wrap;
+  padding: 8px 12px; background: rgba(43, 108, 229, .06);
+  border: 1px solid rgba(43, 108, 229, .2); border-radius: 6px; flex-wrap: wrap;
 }
-.node-name { font-weight: 600; }
+.node-name { font-weight: 600; color: #2b6ce5; }
 .type-dot {
   display: inline-block; width: 8px; height: 8px; border-radius: 50%;
   margin-right: 5px; vertical-align: middle;
 }
 .edge-legend { margin-left: auto; font-size: 12px; display: flex; align-items: center; gap: 6px; }
 .edge-line { display: inline-block; width: 18px; height: 2px; margin: 0 2px 0 8px; vertical-align: middle; }
-.muted { color: #909399; }
+.muted { color: #64748f; }
 .mono { font-family: ui-monospace, monospace; }
 </style>

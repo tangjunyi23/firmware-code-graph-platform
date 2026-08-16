@@ -9,6 +9,7 @@
         <el-button :icon="RefreshCw" :loading="loading" @click="loadAll">刷新</el-button>
         <el-button :icon="Radar" :loading="runningAttack" @click="rerunAttack">重算攻击面</el-button>
         <el-button :icon="Route" :loading="runningRoutes" @click="rerunRoutes">扫描路由</el-button>
+        <EnrichTrigger :job-id="jobId" @done="loadAll" />
       </div>
       <el-descriptions v-if="attackSummary" :column="4" border size="small" class="summary">
         <el-descriptions-item label="输入源">{{ attackSummary.sources }}</el-descriptions-item>
@@ -161,6 +162,8 @@
           </el-radio-group>
         </div>
       </template>
+      <el-alert v-if="srcKind === 'ai'" type="info" :closable="false" class="src-hint"
+        title="AI 增强对符号做了可读化重命名，仅供攻击面/调用链分析参考；证据引用与定位请以原始伪代码或汇编为准。" />
       <CodeViewer :code="srcCode" :loading="srcLoading" />
     </el-dialog>
 
@@ -202,6 +205,7 @@ import { ElMessage } from 'element-plus'
 import { FileCode, Radar, RefreshCw, Route, Search } from '@lucide/vue'
 import { api } from '../api'
 import CodeViewer from '../components/CodeViewer.vue'
+import EnrichTrigger from '../components/EnrichTrigger.vue'
 import { useNarrowViewport } from '../useNarrowViewport'
 
 const isNarrow = useNarrowViewport()
@@ -233,7 +237,7 @@ const srcVisible = ref(false)
 const srcLoading = ref(false)
 const srcNode = ref(null)
 const srcMd5 = ref('')
-const srcKind = ref('ai')
+const srcKind = ref('hexrays')
 const srcCode = ref('')
 
 const drawerSize = computed(() => (isNarrow.value ? '96%' : '660px'))
@@ -248,9 +252,9 @@ function scorePct (score) {
   return Math.max(4, Math.min(100, Math.round((score / 5.5) * 100)))
 }
 function scoreColor (score) {
-  if (score >= 5) return '#f56c6c'
-  if (score >= 4) return '#e6a23c'
-  return '#67c23a'
+  if (score >= 5) return '#dc2626'
+  if (score >= 4) return '#b45309'
+  return '#16a34a'
 }
 function dotClass (node) {
   const isSrc = (node.asrc || []).length > 0
@@ -274,7 +278,7 @@ function openPath (row) {
 async function showSource (md5, node) {
   srcMd5.value = md5
   srcNode.value = node
-  srcKind.value = 'ai'
+  srcKind.value = 'hexrays'
   srcVisible.value = true
   await loadSource()
 }
@@ -408,7 +412,7 @@ async function rerunRoutes () {
 onMounted(async () => {
   try {
     jobs.value = await api('/jobs')
-    const ready = jobs.value.find(job => ['routed', 'attacked', 'graphed'].includes(job.status))
+    const ready = jobs.value.find(job => ['surfaced', 'routed', 'attacked', 'graphed'].includes(job.status))
     if (ready) {
       jobId.value = ready.job_id
       await loadAll()
@@ -428,36 +432,36 @@ onMounted(async () => {
 .filters { margin-bottom: 12px; }
 .filter-select { width: 180px; }
 .route-search { width: min(360px, 100%); }
-.switch-label { color: #606266; font-size: 13px; }
+.switch-label { color: #64748f; font-size: 13px; }
 .path-table :deep(.el-table__row) { cursor: pointer; }
-.score-cell { font-weight: 700; font-family: 'JetBrains Mono', Consolas, monospace; }
+.score-cell { font-weight: 700; font-family: 'JetBrains Mono', ui-monospace, Consolas, monospace; }
 .tag-gap { margin-left: 6px; }
 
 /* path detail drawer */
 .drawer-head { display: flex; align-items: baseline; gap: 10px; }
-.drawer-title { font-weight: 600; font-size: 15px; }
+.drawer-title { font-weight: 600; font-size: 15px; letter-spacing: 1px; color: #2b6ce5; }
 .path-detail { padding-bottom: 24px; }
 .score-panel { display: flex; gap: 18px; align-items: center; padding: 4px 0 12px; }
 .score-left { flex: 0 0 180px; }
-.score-num { font-size: 28px; font-weight: 700; font-family: 'JetBrains Mono', Consolas, monospace; line-height: 1.1; }
+.score-num { font-size: 28px; font-weight: 700; font-family: 'JetBrains Mono', ui-monospace, Consolas, monospace; line-height: 1.1; }
 .score-bar { margin-top: 8px; }
-.score-facts { font-size: 12px; color: #606266; display: flex; flex-direction: column; gap: 4px; }
+.score-facts { font-size: 12px; color: #64748f; display: flex; flex-direction: column; gap: 4px; }
 .trace-alert { margin-bottom: 12px; }
 .trace-tag { margin-left: 6px; }
 
 .chain-v { padding-top: 4px; }
 .step { display: flex; align-items: stretch; }
 .rail { display: flex; flex-direction: column; align-items: center; width: 20px; flex: none; }
-.dot { width: 10px; height: 10px; border-radius: 50%; margin-top: 10px; flex: none; border: 2px solid #fff; box-shadow: 0 0 0 1px #dcdfe6; }
-.dot-src { background: #e6a23c; box-shadow: 0 0 0 1px #e6a23c; }
-.dot-sink { background: #f56c6c; box-shadow: 0 0 0 1px #f56c6c; }
-.dot-both { background: linear-gradient(135deg, #e6a23c 50%, #f56c6c 50%); box-shadow: 0 0 0 1px #d3745f; }
-.dot-mid { background: #a8abb2; }
-.line { width: 2px; flex: 1 1 auto; background: #e4e7ed; margin: 2px 0; }
-.node-card { flex: 1 1 auto; min-width: 0; margin: 0 0 10px 10px; padding: 8px 10px; border: 1px solid #ebeef5; border-radius: 8px; background: #fff; }
-.node-card.source { border-left: 3px solid #e6a23c; }
-.node-card.sink { border-left: 3px solid #f56c6c; }
-.node-card.source.sink { border-left: 3px solid #d3745f; }
+.dot { width: 10px; height: 10px; border-radius: 50%; margin-top: 10px; flex: none; border: 2px solid rgba(28, 43, 58, .8); box-shadow: 0 0 6px rgba(43, 108, 229, .35); }
+.dot-src { background: #b45309; box-shadow: 0 0 8px rgba(180, 83, 9, .55); }
+.dot-sink { background: #dc2626; box-shadow: 0 0 8px rgba(220, 38, 38, .55); }
+.dot-both { background: linear-gradient(135deg, #b45309 50%, #dc2626 50%); box-shadow: 0 0 8px rgba(234, 88, 12, .55); }
+.dot-mid { background: #8b9cb3; }
+.line { width: 2px; flex: 1 1 auto; background: rgba(43, 108, 229, .25); margin: 2px 0; }
+.node-card { flex: 1 1 auto; min-width: 0; margin: 0 0 10px 10px; padding: 8px 10px; border: 1px solid rgba(43, 108, 229, .25); border-radius: 8px; background: #ffffff; }
+.node-card.source { border-left: 3px solid #b45309; }
+.node-card.sink { border-left: 3px solid #dc2626; }
+.node-card.source.sink { border-left: 3px solid #ea580c; }
 .node-head { display: flex; align-items: center; gap: 8px; }
 .node-name { font-weight: 600; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .node-head .el-button { margin-left: auto; flex: none; }
@@ -467,6 +471,7 @@ onMounted(async () => {
 /* source dialog */
 .src-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .src-head .el-radio-group { margin-left: auto; }
+.src-hint { margin-bottom: 10px; }
 @media (max-width: 720px) {
   .job-select, .filter-select, .route-search { width: 100%; }
   .summary :deep(.el-descriptions__body) { overflow-x: auto; }

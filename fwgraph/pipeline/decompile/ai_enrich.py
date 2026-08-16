@@ -36,7 +36,7 @@ FWGRAPH_ROOT = Path(__file__).resolve().parents[2]
 MAX_CODE_CHARS = int(os.getenv("AI_ENRICH_MAX_CODE_CHARS", "6000"))
 MAX_ASM_CHARS = int(os.getenv("AI_ENRICH_MAX_ASM_CHARS", "9000"))
 # the anthropic gateway caps completion at 4096 tokens
-ENRICH_MAX_TOKENS = int(os.getenv("AI_ENRICH_MAX_TOKENS", "4096"))
+ENRICH_MAX_TOKENS = int(os.getenv("AI_ENRICH_MAX_TOKENS", "16384"))  # reasoning models burn thought tokens before content; 4096 starved output
 
 _SYSTEM = """You are a reverse-engineering assistant annotating Hex-Rays MIPS pseudo-C.
 Hex-Rays lost all call-site arguments (bare "memcpy();") and all variable

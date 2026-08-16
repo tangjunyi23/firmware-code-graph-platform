@@ -136,6 +136,7 @@ def test_run_enrich_llm_error_isolated(job_dir, monkeypatch):
 @pytest.fixture
 def client(tmp_path, monkeypatch):
     monkeypatch.setenv("ORCH_TOKEN", "")
+    monkeypatch.setenv("FWGRAPH_DATA", str(tmp_path))  # 配额/审计走临时目录，免污染真实 data
     monkeypatch.setattr(main, "FIRMWARE_DIR", tmp_path / "firmware")
     monkeypatch.setattr(main, "PSEUDOCODE_DIR", tmp_path / "pseudocode")
     (main.FIRMWARE_DIR / JOB).mkdir(parents=True)

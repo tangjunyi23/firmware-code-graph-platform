@@ -276,6 +276,7 @@ TRACE_FIXTURE = {
 @pytest.fixture
 def client(tmp_path, monkeypatch):
     monkeypatch.setenv("ORCH_TOKEN", "")
+    monkeypatch.setenv("FWGRAPH_DATA", str(tmp_path))  # 配额/审计走临时目录，免污染真实 data
     monkeypatch.setattr(main, "DATA_DIR", tmp_path)
     monkeypatch.setattr(main, "FIRMWARE_DIR", tmp_path / "firmware")
     monkeypatch.setattr(main, "EXTRACTED_DIR", tmp_path / "extracted")

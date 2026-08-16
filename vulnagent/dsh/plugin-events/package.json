@@ -1,0 +1,9 @@
+{
+  "name": "@fwgraph/dsh-fwgraph-events",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Bridge dsh agent-loop events (thinking chain / streaming text / tool calls / usage) to a vulnagent-compatible events.sse file",
+  "main": "src/index.js",
+  "license": "Apache-2.0"
+}

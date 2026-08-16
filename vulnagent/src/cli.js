@@ -4,6 +4,7 @@
  *
  *   node src/cli.js info                          show agent + environment manifests
  *   node src/cli.js run "task" [--max-turns N] [--session NAME] [--quiet]
+ *   node src/cli.js hunt ["漏洞类型"] [--rounds N] [--max-turns N] [--mode static|dynamic] [--quiet]
  *   node src/cli.js resume <session_id> [--max-turns N] [--quiet]
  *   node src/cli.js list                          list sessions
  *   node src/cli.js events <session_id>           replay the SSE event log
@@ -61,6 +62,27 @@ async function main() {
     return;
   }
 
+  if (cmd === "hunt") {
+    const agent = loadManifest("agent.json");
+    const environment = loadManifest("environment.json");
+    if (!config.fwgraph.token) throw new Error("FWGRAPH_TOKEN is empty (check .env)");
+    if (!config.llm.apiKey) throw new Error("LLM_API_KEY is empty (check .env)");
+    const { runHunt } = await import("./playbook.js");
+    const vulnType = args._.slice(1).join(" ").trim() || "预认证漏洞";
+    const mode = args.mode ?? "dynamic";
+    if (!["static", "dynamic"].includes(mode)) throw new Error(`--mode must be static|dynamic, got ${JSON.stringify(args.mode)}`);
+    const result = await runHunt({
+      config, agent, environment, vulnType,
+      maxRounds: Number(args.rounds ?? 3),
+      maxTurns: Number(args["max-turns"] ?? 40),
+      quiet: Boolean(args.quiet),
+      mode,
+    });
+    console.log(`\nhunt=${result.huntId} verdict=${result.verdict}`);
+    console.log(`artifacts: sessions/${result.huntId}/ (attack-surface.md, phase*.md, challenge_verdict*, context_snapshot.json, FINAL.md)`);
+    return;
+  }
+
   if (cmd === "run" || cmd === "resume") {
     const agent = loadManifest("agent.json");
     const environment = loadManifest("environment.json");
@@ -73,7 +95,15 @@ async function main() {
     if (cmd === "run") {
       const task = args._.slice(1).join(" ").trim();
       if (!task) throw new Error('usage: node src/cli.js run "task text"');
-      session = Session.create({ config, agent, environment, task, sessionId: args.session, quiet });
+      if ((args.engine ?? "") === "dsh") {
+        // DeepSeek Harness engine (see dsh/setup.sh): task runs through the
+        // fwgraph dsh profile; findings land on the server-side findings API.
+        const { runDshTask } = await import("./dsh_engine.js");
+        const r = await runDshTask({ config, task, quiet, mode: args.mode });
+        console.log(`\ndsh exit=${r.exitCode}`);
+        return;
+      }
+      session = Session.create({ config, agent, environment, task, sessionId: args.session, quiet, mode: args.mode });
     } else {
       const sessionId = args._[1];
       if (!sessionId) throw new Error("usage: node src/cli.js resume <session_id>");

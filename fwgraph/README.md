@@ -55,7 +55,7 @@ bash fwgraph/scripts/run_cbm_ui.sh         # CBM UI 127.0.0.1:9749（被 /cbmui 
 
 前端入口：`http://192.168.141.135:8000/`（输入 `ORCH_TOKEN` 登录）。
 回归测试：`bash fwgraph/scripts/e2e_regression.sh`（约 15~20 分钟，报告落 `docs/e2e-report.txt`）。
-单测：`fwgraph/.venv/bin/python -m pytest orchestrator/tests -q`（当前 217 个；M0~M7 历史基线 193 个）。
+单测：`fwgraph/.venv/bin/python -m pytest orchestrator/tests -q`（当前 270 个，269 通过 + 1 个已知测试间污染项；M0~M7 历史基线 193 个）。
 
 ## 3. 使用流程（curl 示例）
 

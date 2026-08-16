@@ -31,6 +31,8 @@
 - **CBM 代码图谱（M4）**：伪 C 树净化后交给 codebase-memory-mcp 建索引，
   元数据（AI 标签、checksec、trace 标记）回注 SQLite；libc_equiv 沿
   SIMILAR_TO 边传播
+- **外部输入识别（M6a）**：rootfs 多根扫描（systemd/init.d/inetd/配置/二进制），识别全部公网可达外部输入（协议/端口/输入类型/处理链库/分发链），产出 identification.json；回环、localhost、加密包均显式记账，双验收门自检
+- **逐输入攻击面（M6b）**：每个 IN-xxx 导出一个 AS-xxx.json 到 information/：路由链（listen→accept→parse→normalize→dispatch→handler）、分发器/parser/normalizer、终点 handler、载体绑定（URL/header/body→变量，含地址证据）、授权链独立成 AS-AUTH 文件
 - **攻击面分析（M6）**：source/sink 规则 → BFS 路径 → 启发式评分
   （`source权重 + sink权重 − 边数×0.22 − 消毒×0.45`）；保守静态路由恢复
   （(字符串, handler) 指针对扫描）
@@ -42,7 +44,7 @@
   参数与语义命名，产物为独立 overlay（`source:"ai"`），原始 IDA 导出
   逐字节不动
 - **vulnagent（M8）**：上游漏洞挖掘 agent（Managed Agents 抽象，Node ≥20
-  零依赖），17 个工具只读消费平台 API（含受控 trace 触发），结构化
+  零依赖），20 个工具只读消费平台 API（含受控 trace 触发、identification/surfaces 攻击面产物），结构化
   findings（schema 校验 + 去重关联）+ 中文标准报告
 - **Web 前端（M5）**：Vue 3 SPA——任务/函数/攻击面（路径详情抽屉 +
   调用链时间线 + 源码三视图）/漏洞挖掘（SSE 事件流卡片）/图谱
@@ -131,6 +133,8 @@ node src/cli.js run "对 verified 路径做漏洞挖掘" --max-turns 40
 | `POST·GET /jobs/{id}/graph` | 图谱构建 / 摘要 / layout |
 | `POST·GET /jobs/{id}/attack` | 攻击面重算 / 摘要 |
 | `POST·GET /jobs/{id}/routes` | 路由扫描 / 摘要 |
+| `POST·GET /jobs/{id}/inputs`、`GET /jobs/{id}/identification` | M6a 外部输入识别（identification.json，公网可达、零遗漏） |
+| `POST·GET /jobs/{id}/surfaces`、`GET /jobs/{id}/surfaces/{sid}` | M6b 逐输入攻击面导出（information/AS-*.json + AS-AUTH-*.json） |
 | `POST /jobs/{id}/trace`、`GET /jobs/{id}/traces[/{tid}]` | 差分覆盖率 |
 | `GET /jobs/{id}/functions[/{md5}/{addr}/source]` | 函数清单与源码（`?ai=1` overlay、`?asm=1` 汇编） |
 | `POST /jobs/{id}/aienrich`、`GET .../aienrich/{md5}` | AI 伪代码增强 |

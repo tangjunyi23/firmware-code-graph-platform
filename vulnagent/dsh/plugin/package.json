@@ -1,0 +1,9 @@
+{
+  "name": "@fwgraph/dsh-fwgraph-tools",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "fwgraph firmware attack-surface read-only tools for DeepSeek Harness (vulnagent dsh engine)",
+  "main": "src/index.js",
+  "license": "Apache-2.0"
+}

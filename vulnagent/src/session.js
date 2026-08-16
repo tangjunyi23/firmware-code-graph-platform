@@ -11,7 +11,7 @@ import path from "node:path";
 import { randomBytes } from "node:crypto";
 import { LLMClient } from "./llm.js";
 import { EventStream, truncate } from "./events.js";
-import { TOOL_DEFS, executeTool } from "./tools.js";
+import { TOOL_DEFS, DYNAMIC_ONLY_TOOLS, executeTool } from "./tools.js";
 
 function atomicWrite(file, text) {
   const tmp = file + ".tmp";
@@ -27,13 +27,55 @@ const MAX_TOK_NUDGES = 2;
 const TRUNC_NUDGE = "你的上一条输出达到 token 上限被截断，且没有产生任何工具调用。请收敛推理，立即给出下一步：工具调用，或不超过 200 字的结论。";
 const RESUME_NUDGE = "会话从中断处恢复。请继续推进任务：工具调用，或不超过 200 字的结论。";
 
+// P1 历史压缩：旧工具结果（单条上限 16KB）在消息历史里永久驻留，每轮全量
+// 重发给 LLM，是上下文一次性吞吐的最大来源。超过阈值的旧 tool_result 替换
+// 为首尾摘录占位（原文随时可用更精确的参数重查，图谱检索优先）。最近
+// KEEP_RECENT 条消息保持原文，首轮任务（messages[0]）永不压缩。
+const COMPACT_THRESHOLD = Number(process.env.VULNAGENT_COMPACT_THRESHOLD ?? 1200);
+const COMPACT_KEEP_RECENT = Number(process.env.VULNAGENT_COMPACT_KEEP_RECENT ?? 6);
+const COMPACT_MARK = "[已归档]";
+
+export function compactHistory(messages, { threshold = COMPACT_THRESHOLD, keepRecent = COMPACT_KEEP_RECENT } = {}) {
+  const toolNames = new Map();
+  for (const m of messages) {
+    if (m.role === "assistant" && Array.isArray(m.content)) {
+      for (const b of m.content) {
+        if (b && b.type === "tool_use") toolNames.set(b.id, b.name);
+      }
+    }
+  }
+  const keepFrom = messages.length - keepRecent;
+  let compacted = 0;
+  for (let i = 1; i < Math.max(1, keepFrom); i++) {
+    const m = messages[i];
+    if (m.role !== "user" || !Array.isArray(m.content)) continue;
+    for (const block of m.content) {
+      if (!block || block.type !== "tool_result") continue;
+      const parts = Array.isArray(block.content) ? block.content : [];
+      for (const part of parts) {
+        if (!part || part.type !== "text" || typeof part.text !== "string") continue;
+        if (part.text.length <= threshold || part.text.startsWith(COMPACT_MARK)) continue;
+        const name = toolNames.get(block.tool_use_id) ?? "tool";
+        const head = part.text.slice(0, 300);
+        const tail = part.text.slice(-200);
+        part.text = `${COMPACT_MARK} ${name} 结果原 ${part.text.length} 字符，首尾摘录如下；`
+          + `需要原文请用更精确的参数重新查询（图谱检索/fw_get_function_source 均可重入）。\n`
+          + `--- 头部 ---\n${head}\n…\n--- 尾部 ---\n${tail}`;
+        compacted += 1;
+      }
+    }
+  }
+  return compacted;
+}
+
 export class Session {
-  static create({ config, agent, environment, task, sessionId, quiet }) {
+  static create({ config, agent, environment, task, sessionId, quiet, mode }) {
     const id = sessionId ?? `s-${Date.now().toString(36)}-${randomBytes(2).toString("hex")}`;
     const dir = path.join(config.dirs.sessions, id);
     mkdirSync(dir, { recursive: true });
     const session = new Session({ config, agent, environment, id, dir, quiet });
     session.task = task;
+    session.mode = mode || "dynamic";
     session.messages = [{ role: "user", content: task }];
     session.state = {
       session_id: id,
@@ -41,6 +83,9 @@ export class Session {
       environment_id: environment.id,
       task,
       status: "running",
+      mode: session.mode,
+      // server-side finding attribution + report association key off this
+      job_id: config.fwgraph.defaultJobId ?? process.env.FWGRAPH_JOB_ID ?? "",
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
       turns: 0,
@@ -59,6 +104,10 @@ export class Session {
     session.state = JSON.parse(readFileSync(path.join(dir, "state.json"), "utf8"));
     session.messages = JSON.parse(readFileSync(path.join(dir, "messages.json"), "utf8"));
     session.task = session.state.task;
+    // restore mode so static-mode tool filtering survives a resume
+    session.mode = session.state.mode ?? "dynamic";
+    // backfill job_id for sessions written before the field existed
+    session.state.job_id = session.state.job_id ?? config.fwgraph.defaultJobId ?? process.env.FWGRAPH_JOB_ID ?? "";
     // NOTE: do NOT reassign session.findings here — the constructor already
     // created the array and toolCtx.findings aliases it; reassigning would
     // silently drop this run's record_finding entries from state.json.
@@ -73,7 +122,15 @@ export class Session {
     this.id = id;
     this.dir = dir;
     this.events = new EventStream(path.join(dir, "events.sse"), { quiet });
-    this.llm = new LLMClient(config.llm);
+    // agent.json's model block is the manifest-level default; env vars
+    // (LLM_MODEL / LLM_TEMPERATURE / LLM_MAX_TOKENS) still take priority.
+    const agentModel = agent?.model ?? {};
+    this.llm = new LLMClient({
+      ...config.llm,
+      model: config.llm.sources?.model === "env" ? config.llm.model : (agentModel.name ?? config.llm.model),
+      temperature: config.llm.sources?.temperature === "env" ? config.llm.temperature : (agentModel.temperature ?? config.llm.temperature),
+      maxTokens: config.llm.sources?.maxTokens === "env" ? config.llm.maxTokens : (agentModel.max_tokens ?? config.llm.maxTokens),
+    });
     this.findings = [];
     this.finished = false;
     this.finishSummary = "";
@@ -85,7 +142,10 @@ export class Session {
 
   get enabledTools() {
     const wanted = new Set(this.agent.tools ?? TOOL_DEFS.map((t) => t.name));
-    return TOOL_DEFS.filter((t) => wanted.has(t.name));
+    // 纯静态挖掘模式：动态类工具（fuzz/frida/trace）对 agent 不可见
+    const mode = this.mode ?? this.state?.mode ?? "dynamic";
+    return TOOL_DEFS.filter((t) => wanted.has(t.name)
+      && (mode !== "static" || !DYNAMIC_ONLY_TOOLS.has(t.name)));
   }
 
   persist() {
@@ -113,6 +173,11 @@ export class Session {
       }
       for (let turn = this.state.turns; turn < maxTurns; turn++) {
         this.state.turns = turn + 1;
+        const compacted = compactHistory(this.messages);
+        if (compacted) {
+          this.events.emit("text", { text: `[harness] 历史压缩：归档 ${compacted} 条旧工具结果（保留首尾摘录，原文可重查）` });
+          this.persist();
+        }
         const resp = await this.llm.messages({ system, messages: this.messages, tools });
         const content = resp.content ?? [];
         this.messages.push({ role: "assistant", content });
@@ -143,6 +208,8 @@ export class Session {
             this.persist();
             continue;
           }
+          this.state.status = "completed";
+          this.state.note = "idle timeout";
           this.persist();
           this.events.emit("session_idle", { session_id: this.id, reason: `stop_reason=${resp.stop_reason ?? "end_turn"}, no tool calls` });
           break;
@@ -224,7 +291,7 @@ export class Session {
       "",
       `- 会话：${this.id}`,
       `- 任务：${this.task}`,
-      `- 分析 Agent：${this.agent.id}（模型 ${this.config.llm.model}）`,
+      `- 分析 Agent：${this.agent.id}（模型 ${this.llm.model}）`,
       `- 固件任务：${this.config.fwgraph.defaultJobId}`,
       `- 报告时间：${new Date().toISOString()}`,
       "",

@@ -9,7 +9,7 @@
 import { computed } from 'vue'
 import hljs from 'highlight.js/lib/core'
 import c from 'highlight.js/lib/languages/c'
-import 'highlight.js/styles/atom-one-dark.css'
+import 'highlight.js/styles/atom-one-light.css'
 
 hljs.registerLanguage('c', c)
 
@@ -31,7 +31,8 @@ const highlighted = computed(() => {
 <style scoped>
 .code-viewer pre {
   margin: 0;
-  background: #282c34;
+  background: #f8fafd;
+  border: 1px solid rgba(43, 108, 229, .2);
   border-radius: 6px;
   padding: 12px;
   overflow: auto;
@@ -39,5 +40,6 @@ const highlighted = computed(() => {
   font-size: 13px;
   line-height: 1.5;
 }
-.code-viewer code { font-family: 'JetBrains Mono', Consolas, 'Courier New', monospace; }
+.code-viewer pre :deep(.hljs) { background: transparent; }
+.code-viewer code { font-family: 'JetBrains Mono', ui-monospace, Consolas, 'Courier New', monospace; }
 </style>

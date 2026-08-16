@@ -14,9 +14,12 @@ directly. This module reverse-proxies it under the orchestrator port:
 CBM UI v0.9.0 uses plain fetch() only — no WebSocket/EventSource — so plain
 HTTP proxying is sufficient.
 
-Auth: when ORCH_TOKEN is set, proxy routes accept the bearer header, a
-`fwgraph_token` cookie (the SPA sets it at login so the CBM iframe and its
-same-origin fetches authenticate), or a `?token=` query param.
+Auth: when ORCH_TOKEN is set, proxy routes accept the bearer header (main
+ORCH_TOKEN only, unchanged), a `fwgraph_token` cookie (the SPA sets it at
+login so the CBM iframe and its same-origin fetches authenticate; main token
+or an `fws-` session token), or a `?token=` query param — session tokens
+ONLY. The main ORCH_TOKEN is deliberately rejected in URLs so it never lands
+in access logs, browser history or Referer headers.
 
 SPA hosting: if webui/dist exists it is mounted at "/" LAST, so every API
 route registered earlier wins; unknown GET paths fall back to index.html.
@@ -31,6 +34,8 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
+
+from . import accounts
 
 FWGRAPH_ROOT = Path(__file__).resolve().parents[2]
 
@@ -52,19 +57,37 @@ def _make_client() -> httpx.AsyncClient:
                              follow_redirects=True)
 
 
+# Session tokens minted by accounts.create_session carry this prefix
+# (accounts._TOKEN_PREFIX); only they may authenticate via URL query params.
+_SESSION_PREFIX = "fws-"
+
+
+def _session_token_ok(token: str | None) -> bool:
+    """True only for well-formed `fws-` session tokens that resolve."""
+    if not token or not token.startswith(_SESSION_PREFIX):
+        return False
+    return accounts.resolve_session(token) is not None
+
+
 def proxy_authorized(request: Request) -> bool:
     """Mirror main.require_token semantics, plus cookie/query for browser
-    contexts (iframe, CBM UI's own fetches) that cannot set headers."""
+    contexts (iframe, CBM UI's own fetches) that cannot set headers.
+
+    S1 URL hardening: the main ORCH_TOKEN works via the Bearer header
+    (unchanged) and the login cookie, but NEVER via ?token= — URLs leak into
+    access logs / browser history / Referer. Query-string tokens must be
+    resolvable `fws-` session tokens (that is also what lets session users
+    open the /cbmui iframe, which used to accept the main token only).
+    """
     token = os.getenv("ORCH_TOKEN", "")
     if not token:
         return True
     if request.headers.get("authorization") == f"Bearer {token}":
         return True
-    if request.cookies.get(TOKEN_COOKIE) == token:
+    cookie = request.cookies.get(TOKEN_COOKIE)
+    if cookie is not None and (cookie == token or _session_token_ok(cookie)):
         return True
-    if request.query_params.get("token") == token:
-        return True
-    return False
+    return _session_token_ok(request.query_params.get("token"))
 
 
 def _forward_headers(request: Request) -> dict:

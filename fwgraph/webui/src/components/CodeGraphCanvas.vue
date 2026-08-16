@@ -40,22 +40,22 @@ let nodeById = new Map()
 let selected = null
 
 const EDGE_COLORS = {
-  CALLS: 'rgba(64, 158, 255, 0.30)',
-  DEFINES: 'rgba(140, 140, 140, 0.20)',
-  CONTAINS_FILE: 'rgba(160, 160, 160, 0.10)',
-  CONTAINS_FOLDER: 'rgba(160, 160, 160, 0.10)',
+  CALLS: 'rgba(43, 108, 229, 0.38)',
+  DEFINES: 'rgba(130, 160, 200, 0.22)',
+  CONTAINS_FILE: 'rgba(43, 108, 229, .10)',
+  CONTAINS_FOLDER: 'rgba(43, 108, 229, .10)',
 }
-const DEFAULT_EDGE_COLOR = 'rgba(190, 120, 200, 0.18)'
+const DEFAULT_EDGE_COLOR = 'rgba(190, 140, 220, 0.24)'
 
 // soft modern palette by node label; the CBM per-node color is only a
 // fallback so the view stays consistent with the SPA theme
 const LABEL_COLORS = {
-  File: '#f78c6c',
-  Module: '#82aaff',
-  Function: '#c3e88d',
-  Project: '#c099ff',
-  Branch: '#ffcb6b',
-  Folder: '#89ddff',
+  File: '#8fa8c9',
+  Module: '#2b6ce5',
+  Function: '#16a34a',
+  Project: '#7c3aed',
+  Branch: '#b45309',
+  Folder: '#0284c7',
 }
 
 function rebuild () {
@@ -98,10 +98,10 @@ function render () {
   dirty = false
   ctx.save()
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-  ctx.fillStyle = '#fbfcfe'
+  ctx.fillStyle = '#f4f8fd'
   ctx.fillRect(0, 0, viewW, viewH)
   // subtle dot grid so panning/zooming has a visual reference
-  ctx.fillStyle = 'rgba(100, 120, 160, 0.10)'
+  ctx.fillStyle = 'rgba(43, 108, 229, 0.12)'
   const grid = 28
   for (let gx = (transform.ox % grid + grid) % grid; gx < viewW; gx += grid) {
     for (let gy = (transform.oy % grid + grid) % grid; gy < viewH; gy += grid) {
@@ -150,25 +150,25 @@ function render () {
     const isHl = hl && (n.name || '').toLowerCase().includes(hl)
     ctx.beginPath()
     ctx.arc(sx, sy, isHl ? r + 2.5 : r, 0, Math.PI * 2)
-    ctx.fillStyle = LABEL_COLORS[n.label] || n.color || '#409eff'
+    ctx.fillStyle = LABEL_COLORS[n.label] || n.color || '#2b6ce5'
     ctx.fill()
     ctx.lineWidth = 0.8
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)'
+    ctx.strokeStyle = 'rgba(28, 43, 58, 0.35)'
     ctx.stroke()
     if (isHl) {
       ctx.lineWidth = 1.6
-      ctx.strokeStyle = '#f56c6c'
+      ctx.strokeStyle = '#dc2626'
       ctx.stroke()
     }
     if (selected && selected.id === n.id) {
       ctx.beginPath()
       ctx.arc(sx, sy, r + 4, 0, Math.PI * 2)
       ctx.lineWidth = 1.8
-      ctx.strokeStyle = '#303133'
+      ctx.strokeStyle = '#2b6ce5'
       ctx.stroke()
     }
     if ((isHl || showLabels || (selected && selected.id === n.id)) && n.name) {
-      ctx.fillStyle = '#303133'
+      ctx.fillStyle = '#1c2b3a'
       ctx.font = '10px sans-serif'
       ctx.fillText(n.name.length > 40 ? n.name.slice(0, 39) + '…' : n.name, sx + r + 2, sy + 3)
     }
@@ -273,10 +273,11 @@ watch(() => props.fitSignal, fit)
 .graph-canvas-wrap {
   width: 100%;
   height: 66vh;
-  border: 1px solid #e4e7ed;
+  border: 1px solid rgba(43, 108, 229, .25);
   border-radius: 6px;
   overflow: hidden;
-  background: #ffffff;
+  background: #eef3fa;
+  box-shadow: inset 0 0 30px rgba(43, 108, 229, .06);
 }
 canvas { display: block; cursor: grab; }
 canvas:active { cursor: grabbing; }

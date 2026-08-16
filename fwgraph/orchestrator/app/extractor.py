@@ -178,12 +178,22 @@ def run_emba(firmware_path, log_dir, stdout_log_path, timeout=None):
 def _chown_output(log_dir):
     """Make root-owned EMBA container output readable by the worker user."""
     owner = f"{os.getuid()}:{os.getgid()}"
-    proc = subprocess.run(
-        ["sudo", "-n", "chown", "-R", owner, str(log_dir)],
-        capture_output=True,
-        text=True,
-        timeout=120,
-    )
+    sudo_pw = _cfg("EMBA_SUDO_PASSWORD", "")
+    if sudo_pw:
+        proc = subprocess.run(
+            ["sudo", "-S", "-p", "", "chown", "-R", owner, str(log_dir)],
+            input=sudo_pw + "\n",
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+    else:
+        proc = subprocess.run(
+            ["sudo", "-n", "chown", "-R", owner, str(log_dir)],
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
     if proc.returncode != 0:
         detail = (proc.stderr or proc.stdout or "").strip()[-300:]
         raise RuntimeError(f"cannot take ownership of EMBA output: {detail}")

@@ -13,8 +13,9 @@ Endpoints:
   POST /graph/query               graph检索 entry point for the vuln-hunting AI:
                                   {job_id, op: search|cypher|trace|snippet|
                                    dangerous|trace_flow, ...}
-  GET  /jobs                      list all jobs (newest first)
+  GET  /jobs                      list jobs (newest first; non-admin: own only)
   GET  /jobs/{job_id}             job status + log tail + manifest summary
+  DELETE /jobs/{job_id}           remove a job and all its artifacts (owner/admin)
   GET  /jobs/{job_id}/manifest    full manifest.json
   GET  /jobs/{job_id}/functions   flattened symbols.json for the web UI (M5)
   GET  /jobs/{job_id}/functions/{md5}/{addr}/source  pseudo-C of one function
@@ -35,6 +36,7 @@ automatically after extraction unless AUTO_DECOMPILE=0; any failure ends in
 """
 
 import json
+import logging
 import os
 import re
 import shutil
@@ -44,18 +46,24 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from dotenv import load_dotenv
-from fastapi import Body, Depends, FastAPI, File, HTTPException, UploadFile
+from fastapi import Body, Depends, FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.responses import PlainTextResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 import httpx
 
-from . import decompiler, extractor, vulnagent_api, webui
+from . import accounts, admin_api, decompiler, extractor, protofuzz_api, vulnagent_api, webui
+from pipeline import report
 from pipeline.ailift import registry as ailift_registry
 from pipeline.ailift import runner as ailift_runner
 from pipeline.attack import runner as attack_runner
 from pipeline.decompile import ai_enrich
 from pipeline.graph import ingest as graph_ingest
 from pipeline.graph import query as graph_query
+from pipeline.fuzz import runner as fuzz_runner
+from pipeline.graphext import runner as graphext_runner
+from pipeline.inputs import runner as inputs_runner
+from pipeline.frida import runner as frida_runner
+from pipeline.surfaces import runner as surfaces_runner
 from pipeline.routes import runner as route_runner
 from pipeline.extract import px4 as px4_extractor
 from pipeline.trace import tracer
@@ -72,12 +80,35 @@ CBM_DIR = DATA_DIR / "cbm"
 TRACES_DIR = DATA_DIR / "traces"
 ATTACK_DIR = DATA_DIR / "attack"
 ROUTES_DIR = DATA_DIR / "routes"
+INPUTS_DIR = DATA_DIR / "inputs"
+FUZZ_DIR = DATA_DIR / "fuzz"
+FRIDA_DIR = DATA_DIR / "frida"
+GRAPHEXT_DIR = DATA_DIR / "graphext"
+SURFACES_DIR = DATA_DIR / "surfaces"
 
 STATUS_RUNNING = {"pending", "extracting", "parsing", "decompiling",
-                  "ailifting", "graphing", "attacking", "routing"}
+                  "ailifting", "graphing", "attacking", "routing",
+                  "identifying", "surfacing"}
 LOG_TAIL_LINES = 30
 
 app = FastAPI(title="fwgraph orchestrator", version="0.1.0")
+
+
+@app.middleware("http")
+async def security_headers(request, call_next):
+    """Baseline hardening headers on every response (S2).
+
+    setdefault() so proxied upstream headers (the /cbmui proxy forwards the
+    CBM UI's own headers) always win. No global CSP on purpose: the SPA
+    embeds /cbmui in an iframe, and a frame-ancestors/CSP here would break
+    that embedding — the proxy rewrites the upstream CSP itself instead
+    (webui._rewrite_csp).
+    """
+    resp = await call_next(request)
+    resp.headers.setdefault("X-Content-Type-Options", "nosniff")
+    resp.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
+    resp.headers.setdefault("Referrer-Policy", "no-referrer")
+    return resp
 
 _security = HTTPBearer(auto_error=False)
 _jobs: dict = {}
@@ -85,11 +116,80 @@ _jobs_lock = threading.Lock()
 
 
 def require_token(cred: HTTPAuthorizationCredentials | None = Depends(_security)):
+    """Resolve the bearer credential to a principal dict.
+
+    Empty ORCH_TOKEN keeps the historical dev/test behavior (auth disabled,
+    anon admin). A Bearer equal to ORCH_TOKEN is the legacy token admin.
+    Anything else is looked up in the accounts session table.
+    """
     token = os.getenv("ORCH_TOKEN", "")
     if not token:
-        return  # no token configured -> dev mode, auth disabled
-    if cred is None or cred.credentials != token:
-        raise HTTPException(status_code=401, detail="invalid or missing bearer token")
+        return {"username": "anon", "role": "admin", "legacy": True}
+    if cred is not None and cred.credentials == token:
+        return {"username": "token-admin", "role": "admin", "legacy": True}
+    if cred is not None:
+        session = accounts.resolve_session(cred.credentials)
+        if session is not None:
+            return {"username": session["username"], "role": session["role"],
+                    "legacy": False, "token": cred.credentials}
+    raise HTTPException(status_code=401, detail="invalid or missing bearer token")
+
+
+def require_admin(principal: dict = Depends(require_token)):
+    """require_token plus an admin role gate (403 for plain users)."""
+    if principal.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="admin role required")
+    return principal
+
+
+def _can_access(principal: dict, owner) -> bool:
+    """Owner check per the accounts.can_access contract: admin, matching
+    owner, or a legacy owner-less job. Falls back to a local copy until the
+    accounts side lands the function (concurrent rollout)."""
+    fn = getattr(accounts, "can_access", None)
+    if fn is not None:
+        return bool(fn(principal, owner))
+    if principal.get("role") == "admin":
+        return True
+    if not owner:
+        return True
+    return principal.get("username") == owner
+
+
+def _check_quota(job_id: str, kind: str):
+    """accounts.check_quota contract (raises 429 when the job exceeds its
+    per-kind quota); a no-op until the accounts side lands it."""
+    fn = getattr(accounts, "check_quota", None)
+    if fn is not None:
+        fn(job_id, kind)
+
+
+def job_guard(request: Request, principal: dict = Depends(require_token)):
+    """Access gate mounted on every /jobs/{job_id}/... endpoint (S3).
+
+    Unknown jobs and jobs owned by someone else both answer 404 — the
+    existence of another user's job is never leaked."""
+    job_id = request.path_params.get("job_id", "")
+    job = _jobs.get(job_id)
+    if job is None or not _can_access(principal, job.get("owner")):
+        raise HTTPException(status_code=404, detail="job not found")
+    return job
+
+
+class _TokenRedactFilter(logging.Filter):
+    """uvicorn.access logs the raw request line, query string included; a
+    ?token= credential would otherwise land in data/orchestrator.log (S1)."""
+    _pattern = re.compile(r"([?&]token=)[^&\s\"']+")
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        try:
+            msg = record.getMessage()
+        except Exception:  # noqa: BLE001 - never break logging
+            return True
+        if "token=" in msg:
+            record.msg = self._pattern.sub(r"\1***", msg)
+            record.args = ()
+        return True
 
 
 def _now() -> str:
@@ -101,10 +201,20 @@ def _job_path(job_id: str) -> Path:
 
 
 def _save_job(job: dict):
+    """Persist job.json atomically (tmp + rename, like accounts._write_json).
+    A full disk must not crash the request path: OSError (e.g. ENOSPC) is
+    logged to the orchestrator log instead of being re-raised (M9)."""
     job["updated_at"] = _now()
     path = _job_path(job["job_id"])
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(job, indent=2), encoding="utf-8")
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(path.name + ".tmp")
+        tmp.write_text(json.dumps(job, indent=2, ensure_ascii=False),
+                       encoding="utf-8")
+        os.replace(tmp, path)
+    except OSError as exc:
+        print(f"[orchestrator] job {job.get('job_id')} persist failed: "
+              f"{type(exc).__name__}: {exc}", flush=True)
 
 
 def _set_status(job: dict, status: str, error: str | None = None):
@@ -116,7 +226,9 @@ def _set_status(job: dict, status: str, error: str | None = None):
 
 def _load_jobs():
     """Load persisted jobs; anything left running by a previous instance is
-    marked failed (EMBA itself is gone after a restart)."""
+    marked failed (EMBA itself is gone after a restart). Jobs persisted
+    before per-user ownership get owner "admin" backfilled (S3); both fixes
+    are written back to disk once here."""
     if not FIRMWARE_DIR.is_dir():
         return
     for job_file in sorted(FIRMWARE_DIR.glob("*/job.json")):
@@ -124,11 +236,16 @@ def _load_jobs():
             job = json.loads(job_file.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             continue
+        dirty = False
         if job.get("status") in STATUS_RUNNING:
             job["status"] = "failed"
             job["error"] = "interrupted by service restart"
-            job["updated_at"] = _now()
-            job_file.write_text(json.dumps(job, indent=2), encoding="utf-8")
+            dirty = True
+        if not job.get("owner"):
+            job["owner"] = "admin"
+            dirty = True
+        if dirty:
+            _save_job(job)
         _jobs[job["job_id"]] = job
 
 
@@ -155,29 +272,67 @@ def _manifest_summary(job_id: str):
     return manifest.get("stats")
 
 
+# M6 concurrency gates: every decompile job spawns IDA_WORKERS idat
+# processes, so N uncapped jobs meant 3N IDAs fighting over the box. The
+# semaphores are created lazily so admin_api.apply_settings() (startup) and
+# tests can still override the limits via env.
+_sem_init_lock = threading.Lock()
+_decompile_sem: threading.Semaphore | None = None
+_ailift_sem: threading.Semaphore | None = None
+
+
+def _decompile_semaphore() -> threading.Semaphore:
+    global _decompile_sem
+    with _sem_init_lock:
+        if _decompile_sem is None:
+            _decompile_sem = threading.Semaphore(
+                int(os.getenv("DECOMPILE_MAX_JOBS", "2")))
+        return _decompile_sem
+
+
+def _ailift_semaphore() -> threading.Semaphore:
+    global _ailift_sem
+    with _sem_init_lock:
+        if _ailift_sem is None:
+            _ailift_sem = threading.Semaphore(
+                int(os.getenv("AILIFT_MAX_JOBS", "2")))
+        return _ailift_sem
+
+
 def _decompile_worker(job_id: str, only_md5s=None):
     job = _jobs[job_id]
-    try:
-        _set_status(job, "decompiling")
-        summary = decompiler.run_job(job_id, DATA_DIR, only_md5s=only_md5s)
-        if summary["succeeded"] > 0:
-            _set_status(job, "decompiled")
-        else:
-            _set_status(job, "failed",
-                         "decompilation failed for all binaries "
-                         "(see decompile_summary.json)")
-    except Exception as exc:  # noqa: BLE001 - any failure must end as 'failed'
-        _set_status(job, "failed", f"decompile: {type(exc).__name__}: {exc}")
+    # gate acquired at worker entry; released before the auto chain so a
+    # chained ailift/graph does not occupy a decompile slot
+    with _decompile_semaphore():
+        try:
+            _set_status(job, "decompiling")
+            summary = decompiler.run_job(job_id, DATA_DIR, only_md5s=only_md5s)
+            if summary["succeeded"] > 0:
+                _set_status(job, "decompiled")
+            else:
+                _set_status(job, "failed",
+                             "decompilation failed for all binaries "
+                             "(see decompile_summary.json)")
+        except Exception as exc:  # noqa: BLE001 - any failure must end as 'failed'
+            _set_status(job, "failed", f"decompile: {type(exc).__name__}: {exc}")
+    # one-shot auto chain (AUTO_FULL=1 or per-job auto): continue
+    # ailift -> graph in this thread; graph chains attack/routes/surfaces.
+    if only_md5s is None and job.get("status") == "decompiled" \
+            and (job.get("auto") or os.getenv("AUTO_FULL", "0") == "1"):
+        _ailift_worker(job_id)
+        if job.get("status") == "ailifted":
+            _graph_worker(job_id)
 
 
 def _ailift_worker(job_id: str):
     job = _jobs[job_id]
-    try:
-        _set_status(job, "ailifting")
-        ailift_runner.run_job(job_id, DATA_DIR)
-        _set_status(job, "ailifted")
-    except Exception as exc:  # noqa: BLE001 - any failure must end as 'failed'
-        _set_status(job, "failed", f"ailift: {type(exc).__name__}: {exc}")
+    with _ailift_semaphore():
+        try:
+            _set_status(job, "ailifting")
+            ailift_runner.run_job(job_id, DATA_DIR)
+            _set_status(job, "ailifted")
+        except Exception as exc:  # noqa: BLE001 - any failure must end as 'failed'
+            _set_status(job, "failed", f"ailift: {type(exc).__name__}: {exc}")
 
 
 def _graph_worker(job_id: str):
@@ -197,6 +352,26 @@ def _graph_worker(job_id: str):
         _set_status(job, final_status)
     except Exception as exc:  # noqa: BLE001 - any failure must end as 'failed'
         _set_status(job, "failed", f"graph: {type(exc).__name__}: {exc}")
+    else:
+        # M6b: per-input surface export needs graph/attack/routes artifacts;
+        # run it after the chain settles (never flips the job to failed)
+        if os.getenv("AUTO_SURFACES", "1") != "0":
+            try:
+                surfaces_runner.run_job(job_id, DATA_DIR)
+            except Exception:  # noqa: BLE001 - surfaces are best-effort
+                pass
+        # M4b: CFG/AST extension artifacts (best-effort, never fails the job)
+        if os.getenv("AUTO_GRAPHEXT", "1") != "0":
+            try:
+                graphext_runner.run_job(job_id, DATA_DIR)
+            except Exception:  # noqa: BLE001
+                pass
+        # auto jobs: deterministic综合报告 (best-effort, never fails the job)
+        if job.get("auto"):
+            try:
+                report.generate_job_report(job_id, DATA_DIR)
+            except Exception:  # noqa: BLE001 - report is best-effort
+                pass
 
 
 def _attack_worker(job_id: str):
@@ -217,6 +392,26 @@ def _route_worker(job_id: str):
         _set_status(job, "routed")
     except Exception as exc:  # noqa: BLE001 - persist every worker failure
         _set_status(job, "failed", f"routes: {type(exc).__name__}: {exc}")
+
+
+def _inputs_worker(job_id: str):
+    job = _jobs[job_id]
+    try:
+        _set_status(job, "identifying")
+        inputs_runner.run_job(job_id, DATA_DIR)
+        _set_status(job, "done")
+    except Exception as exc:  # noqa: BLE001 - persist every worker failure
+        _set_status(job, "failed", f"inputs: {type(exc).__name__}: {exc}")
+
+
+def _surfaces_worker(job_id: str):
+    job = _jobs[job_id]
+    try:
+        _set_status(job, "surfacing")
+        surfaces_runner.run_job(job_id, DATA_DIR)
+        _set_status(job, "surfaced")
+    except Exception as exc:  # noqa: BLE001 - persist every worker failure
+        _set_status(job, "failed", f"surfaces: {type(exc).__name__}: {exc}")
 
 
 def _extract_worker(job_id: str):
@@ -248,6 +443,13 @@ def _extract_worker(job_id: str):
     except Exception as exc:  # noqa: BLE001 - any failure must end as 'failed'
         _set_status(job, "failed", f"{type(exc).__name__}: {exc}")
         return
+    # M6a: external-input identification right after extraction
+    # (best-effort — never flips the job to failed)
+    if os.getenv("AUTO_INPUTS", "1") != "0":
+        try:
+            inputs_runner.run_job(job_id, DATA_DIR)
+        except Exception:  # noqa: BLE001
+            pass
     if os.getenv("AUTO_DECOMPILE", "1") != "0":
         _decompile_worker(job_id)
 
@@ -256,7 +458,11 @@ def _extract_worker(job_id: str):
 def startup():
     FIRMWARE_DIR.mkdir(parents=True, exist_ok=True)
     EXTRACTED_DIR.mkdir(parents=True, exist_ok=True)
+    admin_api.apply_settings()  # data/settings.json overrides .env/env
+    accounts.ensure_initial_admin()
     _load_jobs()
+    # S1: keep ?token= credentials out of data/orchestrator.log
+    logging.getLogger("uvicorn.access").addFilter(_TokenRedactFilter())
 
 
 @app.get("/healthz")
@@ -264,20 +470,67 @@ def healthz():
     return {"status": "ok", "jobs": len(_jobs)}
 
 
-@app.post("/firmware", status_code=201, dependencies=[Depends(require_token)])
-def upload_firmware(file: UploadFile = File(...)):
+# M5: uploads are streamed with a hard byte cap (default 2 GiB, env
+# MAX_FIRMWARE_BYTES) and refused up front when the disk cannot hold the
+# file plus 10 GiB of headroom (extraction multiplies the footprint).
+MIN_FREE_BYTES = 10 * 1024**3
+
+
+def _max_firmware_bytes() -> int:
+    return int(os.getenv("MAX_FIRMWARE_BYTES", str(2 * 1024**3)))
+
+
+def _disk_free_bytes(path) -> int:
+    return shutil.disk_usage(path).free
+
+
+@app.post("/firmware", status_code=201)
+def upload_firmware(request: Request, file: UploadFile = File(...),
+                    auto: bool = False,
+                    principal: dict = Depends(require_token)):
+    max_bytes = _max_firmware_bytes()
+    # Pre-flight checks need the advertised size; chunked multipart may omit
+    # Content-Length, in which case only the streaming cap below applies.
+    length = request.headers.get("content-length")
+    if length and length.isdigit():
+        if int(length) > max_bytes:
+            raise HTTPException(
+                status_code=413,
+                detail=f"固件大小超过上限（{max_bytes // 1024**3}GB）")
+        free = _disk_free_bytes(DATA_DIR)
+        if free < int(length) + MIN_FREE_BYTES:
+            raise HTTPException(
+                status_code=507,
+                detail=f"磁盘剩余空间不足：仅剩 {free // 1024**3}GB，"
+                       "上传需预留文件本身外加 10GB 余量")
     job_id = uuid.uuid4().hex[:12]
     job_dir = FIRMWARE_DIR / job_id
     job_dir.mkdir(parents=True, exist_ok=True)
     fw_path = job_dir / "firmware.bin"
-    with open(fw_path, "wb") as fh:
-        shutil.copyfileobj(file.file, fh)
+    written = 0
+    try:
+        with open(fw_path, "wb") as fh:
+            while True:
+                chunk = file.file.read(1024 * 1024)
+                if not chunk:
+                    break
+                written += len(chunk)
+                if written > max_bytes:
+                    raise HTTPException(
+                        status_code=413,
+                        detail=f"固件大小超过上限（{max_bytes // 1024**3}GB）")
+                fh.write(chunk)
+    except BaseException:
+        shutil.rmtree(job_dir, ignore_errors=True)  # never keep partial uploads
+        raise
 
     job = {
         "job_id": job_id,
         "firmware": file.filename or "firmware.bin",
         "status": "pending",
         "error": None,
+        "auto": auto,
+        "owner": principal.get("username") or "admin",
         "created_at": _now(),
         "updated_at": _now(),
         "firmware_path": str(fw_path),
@@ -287,11 +540,13 @@ def upload_firmware(file: UploadFile = File(...)):
     with _jobs_lock:
         _jobs[job_id] = job
         _save_job(job)
+    accounts.audit(principal["username"], "firmware_upload",
+                   f"{job_id} {job['firmware']} auto={auto}")
     threading.Thread(target=_extract_worker, args=(job_id,), daemon=True).start()
     return {"job_id": job_id, "status": "pending"}
 
 
-@app.post("/jobs/{job_id}/decompile", status_code=202, dependencies=[Depends(require_token)])
+@app.post("/jobs/{job_id}/decompile", status_code=202, dependencies=[Depends(require_token), Depends(job_guard)])
 def trigger_decompile(job_id: str, body: dict | None = Body(None)):
     job = _jobs.get(job_id)
     if job is None:
@@ -331,7 +586,7 @@ def trigger_decompile(job_id: str, body: dict | None = Body(None)):
             "only_md5s": sorted(only_md5s) if only_md5s is not None else None}
 
 
-@app.post("/jobs/{job_id}/ailift", status_code=202, dependencies=[Depends(require_token)])
+@app.post("/jobs/{job_id}/ailift", status_code=202, dependencies=[Depends(require_token), Depends(job_guard)])
 def trigger_ailift(job_id: str):
     job = _jobs.get(job_id)
     if job is None:
@@ -350,7 +605,7 @@ def trigger_ailift(job_id: str):
     return {"job_id": job_id, "status": "ailifting"}
 
 
-@app.get("/jobs/{job_id}/ailift", dependencies=[Depends(require_token)])
+@app.get("/jobs/{job_id}/ailift", dependencies=[Depends(require_token), Depends(job_guard)])
 def get_ailift(job_id: str):
     job = _jobs.get(job_id)
     if job is None:
@@ -383,8 +638,9 @@ def _aienrich_worker(job_id: str, md5: str, addrs, attack_only: bool,
 
 
 @app.post("/jobs/{job_id}/aienrich", status_code=202,
-          dependencies=[Depends(require_token)])
-def trigger_aienrich(job_id: str, payload: dict = Body(...)):
+          dependencies=[Depends(job_guard)])
+def trigger_aienrich(job_id: str, payload: dict = Body(...),
+                     principal: dict = Depends(require_token)):
     """AI pseudo-C enrichment overlay (argument recovery + readable names).
 
     Body: {binary_md5, addrs?, attack_only=true, include_failed=true,
@@ -415,13 +671,15 @@ def trigger_aienrich(job_id: str, payload: dict = Body(...)):
     if md5 not in symbols.get("binaries", {}):
         raise HTTPException(status_code=404,
                             detail=f"binary {md5} not in symbols.json")
+    _check_quota(job_id, "aienrich")
+    accounts.audit(principal["username"], "aienrich_trigger", job_id)
     threading.Thread(target=_aienrich_worker,
                      args=(job_id, md5, addrs, attack_only, include_failed,
                            limit), daemon=True).start()
     return {"job_id": job_id, "binary_md5": md5, "status": "aienriching"}
 
 
-@app.get("/jobs/{job_id}/aienrich", dependencies=[Depends(require_token)])
+@app.get("/jobs/{job_id}/aienrich", dependencies=[Depends(require_token), Depends(job_guard)])
 def list_aienrich(job_id: str):
     """Full function directory grouped by binary, with AI-enrichment
     overlays merged in as markers (M5 enrich diff view). The function
@@ -528,7 +786,7 @@ def list_aienrich(job_id: str):
             "total_functions": total_functions, "binaries": binaries}
 
 
-@app.get("/jobs/{job_id}/aienrich/{md5}", dependencies=[Depends(require_token)])
+@app.get("/jobs/{job_id}/aienrich/{md5}", dependencies=[Depends(require_token), Depends(job_guard)])
 def get_aienrich(job_id: str, md5: str):
     job = _jobs.get(job_id)
     if job is None:
@@ -539,7 +797,7 @@ def get_aienrich(job_id: str, md5: str):
     return json.loads(summary_file.read_text(encoding="utf-8"))
 
 
-@app.post("/jobs/{job_id}/graph", status_code=202, dependencies=[Depends(require_token)])
+@app.post("/jobs/{job_id}/graph", status_code=202, dependencies=[Depends(require_token), Depends(job_guard)])
 def trigger_graph(job_id: str):
     job = _jobs.get(job_id)
     if job is None:
@@ -558,7 +816,7 @@ def trigger_graph(job_id: str):
     return {"job_id": job_id, "status": "graphing"}
 
 
-@app.get("/jobs/{job_id}/graph", dependencies=[Depends(require_token)])
+@app.get("/jobs/{job_id}/graph", dependencies=[Depends(require_token), Depends(job_guard)])
 def get_graph(job_id: str):
     job = _jobs.get(job_id)
     if job is None:
@@ -573,7 +831,7 @@ def get_graph(job_id: str):
     return out
 
 
-@app.get("/jobs/{job_id}/graph/layout", dependencies=[Depends(require_token)])
+@app.get("/jobs/{job_id}/graph/layout", dependencies=[Depends(require_token), Depends(job_guard)])
 def get_graph_layout(job_id: str):
     """Node/edge layout for the SPA's own graph canvas (M5 native graph view).
 
@@ -603,7 +861,7 @@ def get_graph_layout(job_id: str):
 
 
 @app.post("/jobs/{job_id}/attack", status_code=202,
-          dependencies=[Depends(require_token)])
+          dependencies=[Depends(require_token), Depends(job_guard)])
 def trigger_attack(job_id: str):
     job = _jobs.get(job_id)
     if job is None:
@@ -622,7 +880,7 @@ def trigger_attack(job_id: str):
     return {"job_id": job_id, "status": "attacking"}
 
 
-@app.get("/jobs/{job_id}/attack", dependencies=[Depends(require_token)])
+@app.get("/jobs/{job_id}/attack", dependencies=[Depends(require_token), Depends(job_guard)])
 def get_attack(job_id: str):
     job = _jobs.get(job_id)
     if job is None:
@@ -638,7 +896,7 @@ def get_attack(job_id: str):
 
 
 @app.post("/jobs/{job_id}/routes", status_code=202,
-          dependencies=[Depends(require_token)])
+          dependencies=[Depends(require_token), Depends(job_guard)])
 def trigger_routes(job_id: str):
     job = _jobs.get(job_id)
     if job is None:
@@ -659,7 +917,7 @@ def trigger_routes(job_id: str):
     return {"job_id": job_id, "status": "routing"}
 
 
-@app.get("/jobs/{job_id}/routes", dependencies=[Depends(require_token)])
+@app.get("/jobs/{job_id}/routes", dependencies=[Depends(require_token), Depends(job_guard)])
 def get_routes(job_id: str):
     job = _jobs.get(job_id)
     if job is None:
@@ -674,8 +932,313 @@ def get_routes(job_id: str):
 
 
 # ---------------------------------------------------------------------------
-# M7: qemu-user differential coverage traces
+# M6a: external-input identification (identification.json)
 # ---------------------------------------------------------------------------
+
+
+@app.post("/jobs/{job_id}/inputs", status_code=202,
+          dependencies=[Depends(require_token), Depends(job_guard)])
+def trigger_inputs(job_id: str):
+    job = _jobs.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="job not found")
+    with _jobs_lock:
+        if job["status"] in STATUS_RUNNING:
+            raise HTTPException(
+                status_code=409,
+                detail=f"job is {job['status']}, wait for it to finish")
+        if not (EXTRACTED_DIR / job_id / "manifest.json").is_file():
+            raise HTTPException(status_code=409, detail="job not extracted yet")
+        job["status"] = "identifying"
+        job["error"] = None
+        _save_job(job)
+    threading.Thread(target=_inputs_worker, args=(job_id,),
+                     daemon=True).start()
+    return {"job_id": job_id, "status": "identifying"}
+
+
+@app.get("/jobs/{job_id}/inputs", dependencies=[Depends(require_token), Depends(job_guard)])
+def get_inputs(job_id: str):
+    job = _jobs.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="job not found")
+    done_file = INPUTS_DIR / job_id / "inputs_done.json"
+    if not done_file.is_file() and job["status"] != "identifying":
+        raise HTTPException(status_code=404,
+                            detail="input identification not run yet")
+    out = {"job_id": job_id, "status": job["status"], "error": job["error"]}
+    if done_file.is_file():
+        out["summary"] = json.loads(done_file.read_text(encoding="utf-8"))
+    return out
+
+
+@app.get("/jobs/{job_id}/identification", dependencies=[Depends(require_token), Depends(job_guard)])
+def get_identification(job_id: str):
+    if job_id not in _jobs:
+        raise HTTPException(status_code=404, detail="job not found")
+    doc = INPUTS_DIR / job_id / "identification.json"
+    if not doc.is_file():
+        raise HTTPException(status_code=404,
+                            detail="identification.json not built yet")
+    return json.loads(doc.read_text(encoding="utf-8"))
+
+
+# ---------------------------------------------------------------------------
+# M6b: per-input attack-surface export (information/AS-*.json)
+# ---------------------------------------------------------------------------
+
+_SURFACE_ID_RE = re.compile(
+    r"^AS-(AUTH-)?[0-9A-Za-z]{1,8}$")
+
+
+@app.post("/jobs/{job_id}/surfaces", status_code=202,
+          dependencies=[Depends(require_token), Depends(job_guard)])
+def trigger_surfaces(job_id: str):
+    job = _jobs.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="job not found")
+    with _jobs_lock:
+        if job["status"] in STATUS_RUNNING:
+            raise HTTPException(
+                status_code=409,
+                detail=f"job is {job['status']}, wait for it to finish")
+        if not (INPUTS_DIR / job_id / "identification.json").is_file():
+            raise HTTPException(status_code=409,
+                                detail="job has no identification.json — "
+                                       "run the inputs stage first")
+        job["status"] = "surfacing"
+        job["error"] = None
+        _save_job(job)
+    threading.Thread(target=_surfaces_worker, args=(job_id,),
+                     daemon=True).start()
+    return {"job_id": job_id, "status": "surfacing"}
+
+
+@app.get("/jobs/{job_id}/surfaces", dependencies=[Depends(require_token), Depends(job_guard)])
+def get_surfaces(job_id: str):
+    job = _jobs.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="job not found")
+    done_file = SURFACES_DIR / job_id / "surfaces_done.json"
+    if not done_file.is_file() and job["status"] != "surfacing":
+        raise HTTPException(status_code=404,
+                            detail="surface export not run yet")
+    out = {"job_id": job_id, "status": job["status"], "error": job["error"]}
+    if done_file.is_file():
+        out["summary"] = json.loads(done_file.read_text(encoding="utf-8"))
+    info_dir = SURFACES_DIR / job_id / "information"
+    if info_dir.is_dir():
+        out["files"] = sorted(f.name for f in info_dir.glob("*.json"))
+    return out
+
+
+@app.get("/jobs/{job_id}/surfaces/{surface_id}",
+         dependencies=[Depends(require_token), Depends(job_guard)])
+def get_surface(job_id: str, surface_id: str):
+    if job_id not in _jobs:
+        raise HTTPException(status_code=404, detail="job not found")
+    if not _SURFACE_ID_RE.match(surface_id):
+        raise HTTPException(status_code=400, detail="bad surface id")
+    doc = SURFACES_DIR / job_id / "information" / f"{surface_id}.json"
+    if not doc.is_file():
+        raise HTTPException(status_code=404, detail="surface not found")
+    return json.loads(doc.read_text(encoding="utf-8"))
+
+# ---------------------------------------------------------------------------
+# Dynamic analysis engines: AFL++ fuzz (device-free) + frida (live device)
+# ---------------------------------------------------------------------------
+
+_FUZZ_RUN_RE = re.compile(r"^fz-[0-9a-f]{8}$")
+_FRIDA_RUN_RE = re.compile(r"^fs-[0-9a-f]{8}$")
+_FUZZ_LOCK = threading.Lock()
+_FRIDA_LOCK = threading.Lock()
+
+
+def _dyn_worker(kind, job_id, run_dir, run_file, fn):
+    """Run a dynamic-analysis job; placeholder -> result, errors captured."""
+    try:
+        summary = fn()
+        run_file.write_text(json.dumps(summary, indent=2),
+                            encoding="utf-8")
+    except Exception as exc:  # noqa: BLE001 - surface as run-level error
+        summary = {"run_id": run_dir.name, "job_id": job_id, "engine": kind,
+                   "status": "error", "detail": f"{type(exc).__name__}: {exc}"}
+        run_file.write_text(json.dumps(summary, indent=2),
+                            encoding="utf-8")
+
+
+@app.post("/jobs/{job_id}/fuzz", status_code=202,
+          dependencies=[Depends(job_guard)])
+def trigger_fuzz(job_id: str, payload: dict = Body(...),
+                 principal: dict = Depends(require_token)):
+    job = _jobs.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="job not found")
+    md5 = str(payload.get("binary_md5") or "")
+    if not re.fullmatch(r"[0-9a-f]{32}", md5):
+        raise HTTPException(status_code=400,
+                            detail="binary_md5 must be 32 lowercase hex")
+    argv = payload.get("argv") or []
+    if not isinstance(argv, list) or len(argv) > 16:
+        raise HTTPException(status_code=400, detail="argv must be a list <= 16")
+    function = payload.get("function")
+    if function is not None and not re.fullmatch(
+            r"(0x)?[0-9a-fA-F]{1,12}", str(function)):
+        raise HTTPException(status_code=400,
+                            detail="function must be a hex address")
+    args = payload.get("args") or []
+    if not isinstance(args, list) or len(args) > 8:
+        raise HTTPException(status_code=400,
+                            detail="args like [\"buf\",\"len\"] (<= 8)")
+    seconds = int(payload.get("seconds") or 60)
+    _check_quota(job_id, "fuzz")
+    accounts.audit(principal["username"], "fuzz_trigger", job_id)
+    run_id = f"fz-{uuid.uuid4().hex[:8]}"
+    run_dir = FUZZ_DIR / job_id / run_id
+    run_dir.mkdir(parents=True, exist_ok=True)
+    run_file = run_dir / "fuzz.json"
+    run_file.write_text(json.dumps(
+        {"run_id": run_id, "job_id": job_id, "engine": "afl-qemu",
+         "status": "running", "binary_md5": md5,
+         "function": str(function) if function else None}),
+        encoding="utf-8")
+
+    def _go():
+        with _FUZZ_LOCK:
+            _dyn_worker(
+                "afl-qemu", job_id, run_dir, run_file,
+                lambda: fuzz_runner.run_job(
+                    job_id, DATA_DIR, md5, function=function, args=args,
+                    argv=argv, seconds=seconds, run_id=run_id))
+    threading.Thread(target=_go, daemon=True).start()
+    return {"job_id": job_id, "run_id": run_id, "status": "running"}
+
+
+@app.get("/jobs/{job_id}/fuzz", dependencies=[Depends(require_token), Depends(job_guard)])
+def list_fuzz(job_id: str):
+    if job_id not in _jobs:
+        raise HTTPException(status_code=404, detail="job not found")
+    return {"job_id": job_id, "runs": fuzz_runner.list_runs(job_id, DATA_DIR)}
+
+
+@app.get("/jobs/{job_id}/fuzz/{run_id}", dependencies=[Depends(require_token), Depends(job_guard)])
+def get_fuzz(job_id: str, run_id: str):
+    if job_id not in _jobs:
+        raise HTTPException(status_code=404, detail="job not found")
+    if not _FUZZ_RUN_RE.match(run_id):
+        raise HTTPException(status_code=400, detail="bad run id")
+    try:
+        return fuzz_runner.get_run(job_id, DATA_DIR, run_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="fuzz run not found")
+
+
+@app.post("/jobs/{job_id}/frida", status_code=202,
+          dependencies=[Depends(job_guard)])
+def trigger_frida(job_id: str, payload: dict = Body(...),
+                  principal: dict = Depends(require_token)):
+    job = _jobs.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="job not found")
+    try:
+        import frida  # noqa: F401
+    except ImportError:
+        raise HTTPException(status_code=503,
+                            detail="frida-tools not installed on the host")
+    host = str(payload.get("host") or "")
+    if not re.fullmatch(r"[\w.:-]{1,64}", host):
+        raise HTTPException(status_code=400,
+                            detail="host like 192.168.1.10 or 192.168.1.10:27042")
+    process = str(payload.get("process") or "")
+    if not process or len(process) > 128:
+        raise HTTPException(status_code=400, detail="process required")
+    functions = payload.get("functions") or []
+    if not isinstance(functions, list) or not 1 <= len(functions) <= 32:
+        raise HTTPException(status_code=400,
+                            detail="functions must be a list of 1..32")
+    seconds = int(payload.get("seconds") or 60)
+    spawn = bool(payload.get("spawn"))
+    _check_quota(job_id, "frida")
+    accounts.audit(principal["username"], "frida_trigger", job_id)
+    run_id = f"fs-{uuid.uuid4().hex[:8]}"
+    run_dir = FRIDA_DIR / job_id / run_id
+    run_dir.mkdir(parents=True, exist_ok=True)
+    run_file = run_dir / "frida.json"
+    run_file.write_text(json.dumps(
+        {"run_id": run_id, "job_id": job_id, "engine": "frida",
+         "status": "running", "host": host, "process": process}),
+        encoding="utf-8")
+
+    def _go():
+        with _FRIDA_LOCK:
+            _dyn_worker(
+                "frida", job_id, run_dir, run_file,
+                lambda: frida_runner.run_job(
+                    job_id, DATA_DIR, host, process, functions,
+                    seconds=seconds, spawn=spawn, run_id=run_id))
+    threading.Thread(target=_go, daemon=True).start()
+    return {"job_id": job_id, "run_id": run_id, "status": "running"}
+
+
+@app.get("/jobs/{job_id}/frida", dependencies=[Depends(require_token), Depends(job_guard)])
+def list_frida(job_id: str):
+    if job_id not in _jobs:
+        raise HTTPException(status_code=404, detail="job not found")
+    return {"job_id": job_id, "runs": frida_runner.list_runs(job_id, DATA_DIR)}
+
+
+@app.get("/jobs/{job_id}/frida/{run_id}", dependencies=[Depends(require_token), Depends(job_guard)])
+def get_frida(job_id: str, run_id: str):
+    if job_id not in _jobs:
+        raise HTTPException(status_code=404, detail="job not found")
+    if not _FRIDA_RUN_RE.match(run_id):
+        raise HTTPException(status_code=400, detail="bad run id")
+    try:
+        return frida_runner.get_run(job_id, DATA_DIR, run_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="frida run not found")
+
+
+# ---------------------------------------------------------------------------
+# M4b: CFG / AST graph extensions
+# ---------------------------------------------------------------------------
+
+_GRAPHEXT_LOCK = threading.Lock()
+
+
+@app.post("/jobs/{job_id}/graphext", status_code=202,
+          dependencies=[Depends(require_token), Depends(job_guard)])
+def trigger_graphext(job_id: str):
+    job = _jobs.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="job not found")
+    if not (PSEUDOCODE_DIR / job_id / "symbols.json").is_file():
+        raise HTTPException(status_code=409, detail="job not decompiled yet")
+
+    def _go():
+        with _GRAPHEXT_LOCK:
+            try:
+                graphext_runner.run_job(job_id, DATA_DIR)
+            except Exception as exc:  # noqa: BLE001
+                done = GRAPHEXT_DIR / job_id
+                done.mkdir(parents=True, exist_ok=True)
+                (done / "graphext_done.json").write_text(json.dumps(
+                    {"job_id": job_id, "status": "error",
+                     "detail": f"{type(exc).__name__}: {exc}"}),
+                    encoding="utf-8")
+    threading.Thread(target=_go, daemon=True).start()
+    return {"job_id": job_id, "status": "extending"}
+
+
+@app.get("/jobs/{job_id}/graphext", dependencies=[Depends(require_token), Depends(job_guard)])
+def get_graphext(job_id: str):
+    if job_id not in _jobs:
+        raise HTTPException(status_code=404, detail="job not found")
+    done = GRAPHEXT_DIR / job_id / "graphext_done.json"
+    if not done.is_file():
+        raise HTTPException(status_code=404, detail="graphext not run yet")
+    return json.loads(done.read_text(encoding="utf-8"))
+
 
 _TRACE_ID_RE = re.compile(r"^[0-9a-f]{12}$")
 # One trace at a time: qemu -d exec is heavy and ports could collide.
@@ -722,8 +1285,9 @@ def _trace_summary(trace: dict) -> dict:
 
 
 @app.post("/jobs/{job_id}/trace", status_code=202,
-          dependencies=[Depends(require_token)])
-def trigger_trace(job_id: str, payload: dict = Body(...)):
+          dependencies=[Depends(job_guard)])
+def trigger_trace(job_id: str, payload: dict = Body(...),
+                  principal: dict = Depends(require_token)):
     """M7: run a baseline/trigger differential coverage trace.
 
     Body: {binary_md5, argv=[...], port?, request_path?, argv0?}. argv0
@@ -761,8 +1325,10 @@ def trigger_trace(job_id: str, payload: dict = Body(...)):
     if not (PSEUDOCODE_DIR / job_id / "symbols.json").is_file():
         raise HTTPException(status_code=409,
                             detail="job not decompiled yet (no symbols.json)")
+    _check_quota(job_id, "trace")
     if not TRACE_LOCK.acquire(blocking=False):
         raise HTTPException(status_code=409, detail="another trace is running")
+    accounts.audit(principal["username"], "trace_trigger", job_id)
     trace_id = tracer.new_trace_id()
     req = {"binary_md5": md5, "argv": argv, "port": port,
            "request_path": payload.get("request_path"),
@@ -772,7 +1338,7 @@ def trigger_trace(job_id: str, payload: dict = Body(...)):
     return {"job_id": job_id, "trace_id": trace_id, "status": "running"}
 
 
-@app.get("/jobs/{job_id}/traces", dependencies=[Depends(require_token)])
+@app.get("/jobs/{job_id}/traces", dependencies=[Depends(require_token), Depends(job_guard)])
 def list_traces(job_id: str):
     job = _jobs.get(job_id)
     if job is None:
@@ -791,7 +1357,7 @@ def list_traces(job_id: str):
 
 
 @app.get("/jobs/{job_id}/traces/{trace_id}",
-         dependencies=[Depends(require_token)])
+         dependencies=[Depends(require_token), Depends(job_guard)])
 def get_trace(job_id: str, trace_id: str):
     job = _jobs.get(job_id)
     if job is None:
@@ -844,8 +1410,59 @@ def _trace_flow(job_id: str, payload: dict):
     }
 
 
+def _trim_cfg(cfg: dict, max_nodes: int) -> dict:
+    """Cap a CFG at max_nodes blocks (0 = full). Edges are [from, to, kind]
+    triples keyed by block start address."""
+    blocks = cfg.get("blocks", [])
+    if not max_nodes or len(blocks) <= max_nodes:
+        return cfg
+    kept = blocks[:max_nodes]
+    keep_addrs = {b.get("start") for b in kept}
+    edges = [e for e in cfg.get("edges", [])
+             if isinstance(e, (list, tuple)) and len(e) >= 2
+             and e[0] in keep_addrs and e[1] in keep_addrs]
+    return {**cfg, "blocks": kept, "edges": edges,
+            "truncated": True, "total_blocks": len(blocks)}
+
+
+def _trim_ast(ast: dict, max_depth: int, max_nodes: int) -> dict:
+    """Prune an AST beyond max_depth and/or max_nodes (0 = no limit)."""
+    if not max_depth and not max_nodes:
+        return ast
+    root = ast.get("root")
+    if not isinstance(root, dict):
+        return ast
+    budget = [max_nodes or 10**9]
+    pruned = [False]
+
+    def walk(node, depth):
+        if budget[0] <= 0:
+            pruned[0] = True
+            return {"type": node.get("type", "?"), "pruned": True}
+        budget[0] -= 1
+        out = {k: v for k, v in node.items() if k != "children"}
+        children = node.get("children") or []
+        if children and max_depth and depth >= max_depth:
+            out["children"] = [{"type": "…", "pruned": True,
+                                "pruned_children": len(children)}]
+            pruned[0] = True
+        elif children:
+            out["children"] = [walk(c, depth + 1) for c in children]
+        return out
+
+    trimmed = walk(root, 0)
+    if pruned[0]:
+        return {**ast, "root": trimmed, "truncated": True}
+    return {**ast, "root": trimmed}
+
+
 def _attack_surface(job_id: str, payload: dict):
-    """Return ranked, precomputed attack paths with optional filters."""
+    """Return ranked, precomputed attack paths with optional filters.
+
+    brief=true strips each path to {path_id, score, edge_count, source, sink,
+    sanitizers, verified/observed flags} — the chain node list (the bulk of
+    the payload) is omitted so the upstream AI can triage cheaply and fetch
+    full paths only for the interesting ones."""
     artifact = ATTACK_DIR / job_id / "attack_paths.json"
     if not artifact.is_file():
         raise HTTPException(status_code=404, detail="attack analysis not run yet")
@@ -867,6 +1484,18 @@ def _attack_surface(job_id: str, payload: dict):
         paths.append(path)
         if len(paths) >= limit:
             break
+    if payload.get("brief"):
+        def _ep(node):
+            return {k: (node or {}).get(k)
+                    for k in ("addr", "name", "ai_name", "asrc", "asink")}
+        paths = [{
+            "path_id": p.get("path_id"), "score": p.get("score"),
+            "edge_count": p.get("edge_count"),
+            "verified_reachable": bool(p.get("verified_reachable")),
+            "observed_node_count": p.get("observed_node_count", 0),
+            "source": _ep(p.get("source")), "sink": _ep(p.get("sink")),
+            "sanitizers": p.get("sanitizers", []),
+        } for p in paths]
     return {"job_id": job_id, "generated_at": data.get("generated_at"),
             "summary": data.get("summary", {}), "total": len(paths),
             "paths": paths}
@@ -904,25 +1533,42 @@ def _routes(job_id: str, payload: dict):
             "routes": matches}
 
 
-@app.post("/graph/query", dependencies=[Depends(require_token)])
-def graph_query_endpoint(payload: dict = Body(...)):
+# M4: the cypher op is strictly read-only — write-capable clauses are
+# rejected here, before anything reaches query.py / the CBM SQLite.
+_CYPHER_WRITE_RE = re.compile(
+    r"\b(CREATE|SET|DELETE|REMOVE|MERGE|DROP|CALL|LOAD)\b", re.IGNORECASE)
+
+
+@app.post("/graph/query")
+def graph_query_endpoint(payload: dict = Body(...),
+                         principal: dict = Depends(require_token)):
     """Graph检索 proxy for the upstream vuln-hunting AI.
 
     Body: {"job_id": ..., "op": "search"|"cypher"|"trace"|"snippet"|
            "dangerous"|"trace_flow"|"attack_surface"|"routes",
            ...op-specific args}
       search:    pattern (required), label?, limit?
-      cypher:    query (required) — raw Cypher against the CBM subset
+      cypher:    query (required) — raw Cypher against the CBM subset,
+                 READ-ONLY: CREATE/SET/DELETE/REMOVE/MERGE/DROP/CALL/LOAD
+                 are rejected with 400
       trace:     name (required), direction? (both|inbound|outbound)
       snippet:   name (required) — resolves to qualified_name internally
       dangerous: functions? (defaults to query.DEFAULT_DANGEROUS), limit?
       trace_flow: trace_id (required) — M7: ordered request-handling path
                  of one coverage trace + dangerous libc_equiv highlights
-      attack_surface: source?, sink?, verified_only?, limit? — ranked paths
+      attack_surface: source?, sink?, verified_only?, limit?, brief? — ranked paths;
+                 brief=true drops the per-path chain node list (triage view)
       routes: pattern?, method?, binary_md5?, min_confidence?, limit?
+      cfg/ast:  md5 + addr (required), max_nodes?, max_depth? — context-budget
+                 truncation (0 = full)
+
+    Job-scoped: callers only see jobs they own (admin sees all); foreign
+    jobs answer 404.
     """
     job_id = payload.get("job_id")
     if not job_id or job_id not in _jobs:
+        raise HTTPException(status_code=404, detail="job not found")
+    if not _can_access(principal, _jobs[job_id].get("owner")):
         raise HTTPException(status_code=404, detail="job not found")
     op = payload.get("op")
     project = graph_ingest.project_name(job_id)
@@ -936,10 +1582,16 @@ def graph_query_endpoint(payload: dict = Body(...)):
                                       label=payload.get("label"),
                                       limit=payload.get("limit"))
         if op == "cypher":
-            q = payload.get("query")
+            q = str(payload.get("query") or "").strip()
             if not q:
                 raise HTTPException(status_code=400,
                                     detail="cypher: 'query' required")
+            if _CYPHER_WRITE_RE.search(q):
+                raise HTTPException(
+                    status_code=400,
+                    detail="cypher 仅允许只读查询（MATCH/RETURN/WHERE 等）；"
+                           "禁止 CREATE/SET/DELETE/REMOVE/MERGE/DROP/CALL/"
+                           "LOAD 写操作")
             return graph_query.cypher(project, q)
         if op == "trace":
             name = payload.get("name")
@@ -963,16 +1615,41 @@ def graph_query_endpoint(payload: dict = Body(...)):
             return _attack_surface(job_id, payload)
         if op == "routes":
             return _routes(job_id, payload)
+        if op in ("cfg", "ast"):
+            md5 = str(payload.get("md5") or "")
+            addr = str(payload.get("addr") or "")
+            if not re.fullmatch(r"[0-9a-f]{32}", md5) or                     not re.fullmatch(r"(0x)?[0-9a-fA-F]+", addr):
+                raise HTTPException(status_code=400,
+                                    detail="cfg/ast need md5 + addr")
+            try:
+                max_nodes = max(0, int(payload.get("max_nodes") or 0))
+                max_depth = max(0, int(payload.get("max_depth") or 0))
+            except (TypeError, ValueError) as exc:
+                raise HTTPException(status_code=400,
+                                    detail="cfg/ast: bad max_nodes/max_depth") from exc
+            addr_n = hex(int(addr, 16))
+            try:
+                if op == "cfg":
+                    cfg = graphext_runner.get_cfg(job_id, DATA_DIR, md5, addr_n)
+                    return {"md5": md5, "addr": addr_n,
+                            "cfg": _trim_cfg(cfg, max_nodes)}
+                ast = graphext_runner.get_ast(job_id, DATA_DIR, md5, addr_n)
+                return {"md5": md5, "addr": addr_n,
+                        "ast": _trim_ast(ast, max_depth, max_nodes)}
+            except KeyError as exc:
+                raise HTTPException(status_code=404, detail=str(exc)) from exc
         raise HTTPException(status_code=400,
                             detail=f"unknown op {op!r}; expected search|cypher|"
                                    "trace|snippet|dangerous|trace_flow|"
-                                   "attack_surface|routes")
+                                   "attack_surface|routes|cfg|ast")
     except graph_query.CBMError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
-@app.get("/jobs", dependencies=[Depends(require_token)])
-def list_jobs():
+@app.get("/jobs")
+def list_jobs(principal: dict = Depends(require_token)):
+    """Newest first. Admins see everything; plain users see their own jobs
+    plus legacy owner-less ones (S3)."""
     with _jobs_lock:
         jobs = sorted(_jobs.values(), key=lambda j: j["created_at"], reverse=True)
         return [{
@@ -982,10 +1659,12 @@ def list_jobs():
             "error": j["error"],
             "created_at": j["created_at"],
             "updated_at": j["updated_at"],
-        } for j in jobs]
+            "auto": bool(j.get("auto")),
+            "owner": j.get("owner"),
+        } for j in jobs if _can_access(principal, j.get("owner"))]
 
 
-@app.get("/jobs/{job_id}", dependencies=[Depends(require_token)])
+@app.get("/jobs/{job_id}", dependencies=[Depends(job_guard)])
 def get_job(job_id: str):
     job = _jobs.get(job_id)
     if job is None:
@@ -993,12 +1672,59 @@ def get_job(job_id: str):
     return {
         **{k: job[k] for k in ("job_id", "firmware", "status", "error",
                                "created_at", "updated_at", "size_bytes")},
+        "auto": bool(job.get("auto")),
+        "owner": job.get("owner"),
         "log_tail": _log_tail(job_id),
         "manifest_summary": _manifest_summary(job_id),
     }
 
 
-@app.get("/jobs/{job_id}/manifest", dependencies=[Depends(require_token)])
+# data/<dir>/<job_id> trees owned by a job; removed by DELETE /jobs/{job_id}.
+# ("decompile"/"idb" have no module-level constant; resolved from DATA_DIR.)
+_JOB_DATA_DIR_NAMES = ("decompile", "idb")
+
+
+def _job_artifact_dirs(job_id: str) -> list:
+    return [
+        FIRMWARE_DIR / job_id, EXTRACTED_DIR / job_id, PSEUDOCODE_DIR / job_id,
+        CBM_DIR / job_id, TRACES_DIR / job_id, ATTACK_DIR / job_id,
+        ROUTES_DIR / job_id, INPUTS_DIR / job_id, FUZZ_DIR / job_id,
+        FRIDA_DIR / job_id, GRAPHEXT_DIR / job_id, SURFACES_DIR / job_id,
+        *[DATA_DIR / name / job_id for name in _JOB_DATA_DIR_NAMES],
+    ]
+
+
+@app.delete("/jobs/{job_id}", dependencies=[Depends(job_guard)])
+def delete_job(job_id: str, principal: dict = Depends(require_token)):
+    """Remove a job and every artifact it owns (M5). Owner or admin only
+    (job_guard); a running job must settle first (409)."""
+    job = _jobs.get(job_id)
+    if job is None:  # unreachable once job_guard ran; kept for direct calls
+        raise HTTPException(status_code=404, detail="job not found")
+    if job.get("status") in STATUS_RUNNING:
+        raise HTTPException(
+            status_code=409,
+            detail=f"任务正在运行（{job['status']}），请等待结束后再删除")
+    for path in _job_artifact_dirs(job_id):
+        shutil.rmtree(path, ignore_errors=True)
+    try:
+        (EXTRACTED_DIR / f"{job_id}.emba.log").unlink(missing_ok=True)
+    except OSError:
+        pass
+    # the CBM index db lives outside data/ (~/.cache/codebase-memory-mcp)
+    try:
+        db = graph_ingest.db_path(graph_ingest.project_name(job_id))
+        for suffix in ("", "-wal", "-shm"):
+            Path(f"{db}{suffix}").unlink(missing_ok=True)
+    except OSError:
+        pass
+    with _jobs_lock:
+        _jobs.pop(job_id, None)
+    accounts.audit(principal["username"], "job_delete", job_id)
+    return {"job_id": job_id, "deleted": True}
+
+
+@app.get("/jobs/{job_id}/manifest", dependencies=[Depends(require_token), Depends(job_guard)])
 def get_manifest(job_id: str):
     job = _jobs.get(job_id)
     if job is None:
@@ -1021,7 +1747,7 @@ _FUNCTION_FIELDS = ("addr", "name", "size", "lines", "tags", "is_exported",
                     "verified_reachable", "trace_ids")
 
 
-@app.get("/jobs/{job_id}/functions", dependencies=[Depends(require_token)])
+@app.get("/jobs/{job_id}/functions", dependencies=[Depends(require_token), Depends(job_guard)])
 def list_functions(job_id: str):
     """Flattened symbols.json for the web UI functions page (M5)."""
     job = _jobs.get(job_id)
@@ -1047,7 +1773,7 @@ def list_functions(job_id: str):
 
 
 @app.get("/jobs/{job_id}/functions/{md5}/{addr}/source",
-         dependencies=[Depends(require_token)])
+         dependencies=[Depends(require_token), Depends(job_guard)])
 def get_function_source(job_id: str, md5: str, addr: str, ai: int = 0,
                         asm: int = 0):
     """Decompiled pseudo-C for one function (M5 functions page viewer).
@@ -1090,9 +1816,99 @@ def get_function_source(job_id: str, md5: str, addr: str, ai: int = 0,
                                                 errors="replace"))
 
 
+# Cheap call-target scan for the brief endpoint: dangerous libc + generic
+# call-site regex, both intentionally heuristic (triage aid, not evidence).
+_DANGEROUS_CALLS = (
+    "strcpy", "strcat", "sprintf", "vsprintf", "gets", "system", "popen",
+    "execve", "execlp", "execvp", "memcpy", "memmove", "strncpy", "strncat",
+    "sscanf", "scanf", "recv", "recvfrom", "read", "mktemp", "realpath",
+)
+_CALL_NAME_RE = re.compile(r"\b([A-Za-z_]\w*)\s*\(")
+
+
+@app.get("/jobs/{job_id}/functions/{md5}/{addr}/brief",
+         dependencies=[Depends(require_token), Depends(job_guard)])
+def get_function_brief(job_id: str, md5: str, addr: str):
+    """Compact function triage card (~1-2KB instead of full pseudo-C):
+    attack-surface metadata from symbols.json + pseudocode head + dangerous
+    call lines + callees. The upstream AI screens with this first and only
+    pulls /source for suspicious functions — the context-budget fix (P2)."""
+    job = _jobs.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="job not found")
+    if not _MD5_RE.match(md5) or not _ADDR_RE.match(addr):
+        raise HTTPException(status_code=400, detail="bad md5/addr format")
+    symbols_file = PSEUDOCODE_DIR / job_id / "symbols.json"
+    if not symbols_file.is_file():
+        raise HTTPException(status_code=404,
+                            detail="job not decompiled yet (no symbols.json)")
+    symbols = json.loads(symbols_file.read_text(encoding="utf-8"))
+    info = (symbols.get("binaries") or {}).get(md5)
+    if info is None:
+        raise HTTPException(status_code=404, detail="binary not in symbols")
+    want = int(addr, 16)
+    fn = None
+    for cand in info.get("functions", []):
+        try:
+            if int(str(cand.get("addr", "0")), 16) == want:
+                fn = cand
+                break
+        except ValueError:
+            continue
+    if fn is None:
+        raise HTTPException(status_code=404, detail="function not found")
+
+    src_file = PSEUDOCODE_DIR / job_id / md5 / "functions" / f"{fn['addr']}.c"
+    if not src_file.is_file():
+        src_file = (PSEUDOCODE_DIR / job_id / md5 / "functions"
+                    / f"{str(fn['addr']).lower()}.c")
+    source_available = src_file.is_file()
+    head, dangerous, callees = [], [], []
+    if source_available:
+        lines = src_file.read_text(encoding="utf-8",
+                                   errors="replace").splitlines()
+        head = lines[:8]
+        bin_names = {f.get("name") for f in info.get("functions", [])}
+        seen = set()
+        for lineno, line in enumerate(lines, 1):
+            stripped = line.strip()
+            low = stripped.lower()
+            if len(dangerous) < 12 and any(
+                    f"{d}(" in low for d in _DANGEROUS_CALLS):
+                dangerous.append({"line": lineno, "text": stripped[:160]})
+            if len(callees) < 20:
+                for name in _CALL_NAME_RE.findall(stripped):
+                    if (name in bin_names and name != fn.get("name")
+                            and name not in seen):
+                        seen.add(name)
+                        callees.append(name)
+    return {
+        "job_id": job_id, "md5": md5, "addr": fn.get("addr"),
+        "binary_path": info.get("path"), "arch": info.get("arch"),
+        "name": fn.get("name"), "ai_name": fn.get("ai_name"),
+        "size": fn.get("size"), "lines": fn.get("lines"),
+        "tags": fn.get("tags") or [], "domain": fn.get("domain"),
+        "libc_equiv": fn.get("libc_equiv"),
+        "asrc": fn.get("asrc") or [], "asink": fn.get("asink") or [],
+        "on_attack_path": bool(fn.get("on_attack_path")),
+        "path_ids": fn.get("path_ids") or [],
+        "observed_in_trace": bool(fn.get("observed_in_trace")),
+        "verified_reachable": bool(fn.get("verified_reachable")),
+        "source_available": source_available,
+        "head": head, "dangerous_calls": dangerous, "callees": callees,
+    }
+
+
 # Upstream vuln-mining agent API (Managed Agents harness in <repo>/vulnagent/).
 # Registered after the job/graph APIs, before the SPA catch-all.
 vulnagent_api.setup(app, require_token)
+
+# Admin console: auth/users/system/logs/dashboard/reports/auto-chain.
+# Also registered before the SPA catch-all.
+admin_api.setup(app, require_token, require_admin)
+
+# M-ICS: protocol fuzzing (live-device / emulated target). Before webui too.
+protofuzz_api.setup(app, require_token)
 
 # M5: CBM UI reverse proxy (/cbmui, /api, /rpc) + SPA static hosting at "/".
 # Registered last so every API route above wins over the catch-alls.

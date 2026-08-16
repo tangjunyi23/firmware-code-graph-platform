@@ -7,6 +7,7 @@
   "main": "src/cli.js",
   "scripts": {
     "info": "node src/cli.js info",
-    "list": "node src/cli.js list"
+    "list": "node src/cli.js list",
+    "test": "node --test \"tests/*.test.js\""
   }
 }

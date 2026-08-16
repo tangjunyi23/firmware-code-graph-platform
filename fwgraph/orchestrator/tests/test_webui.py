@@ -14,7 +14,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from orchestrator.app import main, webui
+from orchestrator.app import accounts, main, webui
 
 JOB = "webuijob0001"
 MD5 = "9e39391af855fd996cdd90437e2eeb7b"
@@ -289,22 +289,39 @@ class TestCbmUiProxy:
         assert resp.status_code == 200
         assert seen["path"] == "/rpc"
 
-    def test_auth_required_when_token_set(self, proxy_client, monkeypatch):
+    def test_auth_required_when_token_set(self, proxy_client, monkeypatch,
+                                          tmp_path):
         http, _ = proxy_client
         monkeypatch.setenv("ORCH_TOKEN", "s3cret")
+        monkeypatch.setenv("FWGRAPH_DATA", str(tmp_path))
         assert http.get("/cbmui/").status_code == 401
         assert http.get("/api/processes").status_code == 401
+        # Bearer header with the main token: unchanged behavior
         assert http.get("/cbmui/", headers={
             "Authorization": "Bearer s3cret"}).status_code == 200
+        # cookie: main token (legacy login) and session token both work
         assert http.get("/cbmui/", cookies={
             webui.TOKEN_COOKIE: "s3cret"}).status_code == 200
-        assert http.get("/cbmui/?token=s3cret").status_code == 200
+        session = accounts.create_session("alice", "user")
+        assert session.startswith("fws-")
+        assert http.get("/cbmui/", cookies={
+            webui.TOKEN_COOKIE: session}).status_code == 200
+        # query string: session tokens only — the main token is rejected so
+        # it can never leak into URLs (access logs, history, Referer)
+        assert http.get(f"/cbmui/?token={session}").status_code == 200
+        assert http.get("/cbmui/?token=s3cret").status_code == 401
         assert http.get("/cbmui/?token=wrong").status_code == 401
+        # a well-formed but unknown session token is still rejected
+        assert http.get("/cbmui/?token=fws-notreal").status_code == 401
 
-    def test_token_query_not_forwarded(self, proxy_client, monkeypatch):
+    def test_token_query_not_forwarded(self, proxy_client, monkeypatch,
+                                       tmp_path):
         http, seen = proxy_client
         monkeypatch.setenv("ORCH_TOKEN", "s3cret")
-        assert http.get("/api/processes?token=s3cret&x=1").status_code == 200
+        monkeypatch.setenv("FWGRAPH_DATA", str(tmp_path))
+        session = accounts.create_session("alice", "user")
+        assert http.get(f"/api/processes?token={session}&x=1"
+                        ).status_code == 200
         assert seen["query"] == "x=1"
 
     def test_upstream_down_502(self, proxy_client, monkeypatch):
