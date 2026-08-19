@@ -40,7 +40,7 @@ from pathlib import Path
 from fastapi import Body, Depends, FastAPI, HTTPException
 from fastapi.responses import PlainTextResponse, StreamingResponse
 
-from . import accounts
+from . import accounts, config
 
 FWGRAPH_ROOT = Path(__file__).resolve().parents[2]
 VULNAGENT_HOME = Path(os.getenv(
@@ -82,7 +82,7 @@ def _now() -> str:
 
 def _data_dir() -> Path:
     """Resolve FWGRAPH_DATA at call time (tests monkeypatch the env var)."""
-    return Path(os.getenv("FWGRAPH_DATA", str(FWGRAPH_ROOT / "data")))
+    return config.data_dir()
 
 
 def _b36(ts_ms: int) -> str:

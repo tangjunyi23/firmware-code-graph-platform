@@ -1,0 +1,39 @@
+# syntax=docker/dockerfile:1
+# fwgraph 沙箱镜像（Phase 2）：在容器内运行不可信固件的动态分析
+# （AFL++ fuzz / frida-server 插桩 / qemu-user 覆盖 trace）。
+# 构建（仓库根目录）：docker build -f deploy/docker/Dockerfile.sandbox -t fwgraph-sandbox:local .
+FROM ubuntu:24.04
+
+# AFL++ 仓库可用 build-arg 换成内部镜像源
+ARG AFL_REPO=https://github.com/AFLplusplus/AFLplusplus
+# frida-server 版本需与宿主 fwgraph venv 的 frida python 包对齐
+# （requirements.txt 未固定 frida；以对齐 .venv 实装版本 17.17.0 为默认）
+ARG FRIDA_VERSION=17.17.0
+
+# qemu-user: trace 用 qemu-<arch>；gcc/make/git-core: 构建 AFL++；
+# python3: 下载/解压 frida-server（避免额外装 curl/xz-utils）
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        qemu-user gcc make git-core ca-certificates python3 \
+    && rm -rf /var/lib/apt/lists/*
+
+# 仅编译 AFL++ 核心（afl-fuzz 等，容器内路径 /opt/AFLplusplus/afl-fuzz）；
+# qemu_mode 的 afl-qemu-trace 由宿主按架构挂载进容器（见 fuzz runner）
+RUN git clone --depth 1 "$AFL_REPO" /opt/AFLplusplus \
+    && make -C /opt/AFLplusplus -j"$(nproc)"
+
+# frida-server（x86 固件本地插桩模式的沙箱内服务端）
+RUN python3 - "$FRIDA_VERSION" <<'EOF'
+import lzma, shutil, sys, urllib.request
+ver = sys.argv[1]
+url = ("https://github.com/frida/frida/releases/download/"
+       f"{ver}/frida-server-{ver}-linux-x86_64.xz")
+tmp = "/tmp/frida-server.xz"
+urllib.request.urlretrieve(url, tmp)
+with lzma.open(tmp, "rb") as src, open("/usr/local/bin/frida-server", "wb") as dst:
+    shutil.copyfileobj(src, dst)
+EOF
+RUN chmod 755 /usr/local/bin/frida-server
+
+# 非 root 运行；docker run 时再叠加 --read-only/--cap-drop ALL 等隔离参数
+RUN useradd -m -u 1000 sandbox
+USER sandbox

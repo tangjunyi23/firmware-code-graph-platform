@@ -23,8 +23,7 @@ from pathlib import Path
 
 from fastapi import HTTPException
 
-# fwgraph/orchestrator/app/accounts.py -> ../../.. = fwgraph/
-FWGRAPH_ROOT = Path(__file__).resolve().parents[2]
+from . import config
 
 SESSION_TTL_SECONDS = 7 * 24 * 3600
 _PBKDF2_ITERATIONS = 100_000
@@ -62,7 +61,7 @@ _lock = threading.Lock()
 
 def data_dir() -> Path:
     """Resolve the fwgraph data dir at call time (tests monkeypatch the env)."""
-    return Path(os.getenv("FWGRAPH_DATA", str(FWGRAPH_ROOT / "data")))
+    return config.data_dir()
 
 
 def _users_path() -> Path:
@@ -217,7 +216,15 @@ def ensure_initial_admin(log=None):
     with _lock:
         if _users_path().is_file():
             return
-        password = os.getenv("ADMIN_INITIAL_PASSWORD", "admin123")
+        password = os.getenv("ADMIN_INITIAL_PASSWORD")
+        if password is None:
+            # FWGRAPH_STRICT_SECRETS=1：拒绝以众所周知的默认口令引导 admin
+            # （默认 0，不改变现有行为；已有 users.json 时不触发）
+            if config.env_bool("FWGRAPH_STRICT_SECRETS"):
+                raise RuntimeError(
+                    "FWGRAPH_STRICT_SECRETS=1 但未设置 ADMIN_INITIAL_PASSWORD："
+                    "拒绝使用默认初始口令创建 bootstrap admin")
+            password = "admin123"
         salt = secrets.token_hex(16)
         doc = {"users": [{
             "username": "admin",

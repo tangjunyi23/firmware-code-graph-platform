@@ -30,6 +30,15 @@ kernel.apparmor_restrict_unprivileged_userns=1 blocks unshare for
 unprofiled processes; there the legacy `sudo chroot` path stays, but only
 when the operator explicitly sets TRACE_ALLOW_ROOT_CHROOT=1, and every such
 run stamps a Chinese warning into its meta (which lands in trace.json).
+
+Sandboxing (Phase 2): SANDBOX_BACKEND=docker (or TRACE_SANDBOX_BACKEND)
+with the fwgraph-sandbox image built runs the coverage inside a container
+instead — rootfs bind-mounted read-only at its host path plus its top-level
+dirs bound over the same container paths (so guest absolute-path opens keep
+rootfs semantics without a chroot), one-shot runs get --network none,
+service runs publish 127.0.0.1:<port>, the exec log comes back via an
+/out bind mount, and the fwgraph-trace-<run_id> container is always
+docker rm -f'd. Docker/image unavailable -> the userns/root ruling above.
 """
 
 import os
@@ -39,11 +48,15 @@ import shutil
 import signal
 import socket
 import subprocess
+import tempfile
 import time
 from pathlib import Path
 from pathlib import PurePosixPath
 
-QEMU_BIN_DIR = "/usr/bin"
+from pipeline import sandbox
+
+# qemu-user 所在目录（QEMU_BIN_DIR env 可覆盖；测试直接 monkeypatch 本常量）
+QEMU_BIN_DIR = os.environ.get("QEMU_BIN_DIR", "/usr/bin")
 
 # (arch, endianness) -> qemu-user binary name. Values match manifest.json
 # produced by orchestrator.app.extractor.normalize_arch.
@@ -78,6 +91,13 @@ _TRACE_OLD_RE = re.compile(r"^Trace 0x[0-9a-fA-F]+ \[0x([0-9a-fA-F]+)\]")
 _INTERP_RE = re.compile(r"Requesting program interpreter: ([^]]+)]")
 _NEEDED_RE = re.compile(r"Shared library: \[([^]]+)\]")
 _SEARCH_PATH_RE = re.compile(r"(?:Library runpath|Library rpath): \[([^]]*)\]")
+
+# docker trace 模式下绑定进容器同名路径的 rootfs 顶层目录：容器内不做
+# chroot，guest 运行期的绝对路径 open() 靠这些只读绑定保持 rootfs 文件语义。
+# 不含 usr——保护镜像自带的 /usr/bin/qemu-*（固件库多在 /lib，/usr/lib
+# 属已知精度缺口）。
+_DOCKER_BIND_TOPDIRS = ("bin", "sbin", "etc", "lib", "lib64", "var", "opt",
+                        "home", "root", "www", "cgi-bin")
 
 SUDO_TIMEOUT = 30
 
@@ -201,6 +221,16 @@ def sandbox_mode() -> str:
         "固件并共享宿主机网络」的风险后，请在 .env 中显式开启该开关再重试。")
 
 
+def trace_exec_mode() -> str:
+    """本次 trace 的执行后端：docker（SANDBOX_BACKEND / TRACE_SANDBOX_BACKEND
+    选中且 docker 与沙箱镜像均可用）优先；否则回退 sandbox_mode() 的
+    userns/root 原有裁决。"""
+    if (sandbox.backend_for("trace") == "docker"
+            and sandbox.sandbox_image_present(sandbox.SANDBOX_IMAGE)):
+        return "docker"
+    return sandbox_mode()
+
+
 def _readelf(args, binary: Path) -> str:
     try:
         proc = subprocess.run(["readelf", *args, str(binary)],
@@ -285,16 +315,18 @@ def inspect_dynamic_linker(rootfs, target_in_rootfs: str) -> dict:
 
 
 def prepare_rootfs(rootfs, qemu_name: str, target_in_rootfs: str) -> str:
-    """Make rootfs ready for chroot coverage; returns qemu path in rootfs.
+    """Make rootfs ready for coverage; returns the qemu path to execute.
 
     Idempotent: the qemu binary is (re)copied when missing or different in
     size, the target gets the exec bit (EMBA drops it). /proc handling
     depends on the sandbox mode: root mode mounts <rootfs>/proc via sudo
     (left mounted, as before); userns mode mounts it inside each run's
     private mount namespace instead, so nothing leaks onto the host.
+    docker 模式跳过这两者——容器镜像自带 qemu（/usr/bin/<qemu>）、容器自带
+    /proc，rootfs 以只读挂载进容器，此处只补目标执行位。
     """
     rootfs = Path(rootfs)
-    mode = sandbox_mode()
+    mode = trace_exec_mode()
     proc_dir = rootfs / "proc"
     proc_dir.mkdir(exist_ok=True)
     if mode == "root":
@@ -304,6 +336,20 @@ def prepare_rootfs(rootfs, qemu_name: str, target_in_rootfs: str) -> str:
             sudo_run(["mount", "-t", "proc", "proc", str(proc_dir)])
     tmp_dir = rootfs / "tmp"
     tmp_dir.mkdir(exist_ok=True)
+
+    def _chmod_x(path):
+        try:
+            if mode == "root":
+                raise OSError("root mode keeps the historical sudo chmod")
+            os.chmod(path, 0o755)
+        except OSError:
+            # root-owned leftovers from earlier sudo runs need sudo once
+            sudo_run(["chmod", "+x", str(path)])
+
+    if mode == "docker":
+        _chmod_x(rootfs / target_in_rootfs.lstrip("/"))
+        return f"/usr/bin/{qemu_name}"
+
     qemu_dest = rootfs / qemu_name
     qemu_src = Path(QEMU_BIN_DIR) / qemu_name
     if (not qemu_dest.is_file()
@@ -314,15 +360,6 @@ def prepare_rootfs(rootfs, qemu_name: str, target_in_rootfs: str) -> str:
             shutil.copyfile(qemu_src, qemu_dest)
         except OSError:
             sudo_run(["cp", str(qemu_src), str(qemu_dest)])
-
-    def _chmod_x(path):
-        try:
-            if mode != "userns":
-                raise OSError("root mode keeps the historical sudo chmod")
-            os.chmod(path, 0o755)
-        except OSError:
-            # root-owned leftovers from earlier sudo runs need sudo once
-            sudo_run(["chmod", "+x", str(path)])
 
     _chmod_x(qemu_dest)
     _chmod_x(rootfs / target_in_rootfs.lstrip("/"))
@@ -398,20 +435,45 @@ def run_coverage(rootfs, qemu_in_rootfs: str, argv_in_rootfs, run_id: str,
     firmware copy named e.g. busybox-arm would otherwise exit with
     'applet not found'.
 
-    Sandbox (S4): see module docstring. 'userns' mode runs the chroot with
-    fake root and (one-shot only) no network; 'root' mode is the gated
-    legacy sudo chroot and stamps ROOT_CHROOT_WARNING into meta.
+    Sandbox (S4 + Phase 2): see module docstring. 'userns' mode runs the
+    chroot with fake root and (one-shot only) no network; 'root' mode is the
+    gated legacy sudo chroot and stamps ROOT_CHROOT_WARNING into meta;
+    'docker' mode runs qemu inside the fwgraph-sandbox image and is cleaned
+    up via `docker rm -f fwgraph-trace-<run_id>`.
     """
     log_in_rootfs = f"/tmp/fwgraph-cov-{run_id}.log"
     log_host = Path(rootfs) / log_in_rootfs.lstrip("/")
     if log_host.exists():
         log_host.unlink()
-    mode = sandbox_mode()
-    qemu_argv = ([qemu_in_rootfs]
-                 + (["-0", argv0] if argv0 else [])
-                 + (["-L", sysroot_prefix] if sysroot_prefix else [])
-                 + ["-d", "exec", "-D", log_in_rootfs]
-                 + [str(a) for a in argv_in_rootfs])
+    mode = trace_exec_mode()
+    log_label = log_in_rootfs
+    container = None
+    out_dir = None
+    if mode == "docker":
+        # 容器内 /tmp 是随容器销毁的 tmpfs，exec 日志经独立挂载的 /out 取回
+        out_dir = Path(tempfile.mkdtemp(prefix=f"fwgraph-cov-{run_id}-"))
+        out_dir.chmod(0o777)  # 容器内 sandbox 用户（uid 1000）需要可写
+        log_label = f"/out/fwgraph-cov-{run_id}.log"
+        log_host = out_dir / f"fwgraph-cov-{run_id}.log"
+        container = f"fwgraph-trace-{run_id}"
+        qemu_argv = ([qemu_in_rootfs]
+                     + (["-0", argv0] if argv0 else [])
+                     # qemu -L 以 rootfs 为前缀：可执行文件与 ELF 解释器/库
+                     # 均按 guest 路径在 rootfs（同路径只读挂载）内解析
+                     + ["-L", str(rootfs)]
+                     + ["-d", "exec", "-D", log_label]
+                     + [str(a) for a in argv_in_rootfs])
+        mounts = [(str(rootfs), str(rootfs), "ro")]
+        for top in _DOCKER_BIND_TOPDIRS:
+            if (Path(rootfs) / top).exists():
+                mounts.append((str(Path(rootfs) / top), f"/{top}", "ro"))
+        mounts.append((str(out_dir), "/out", "rw"))
+    else:
+        qemu_argv = ([qemu_in_rootfs]
+                     + (["-0", argv0] if argv0 else [])
+                     + (["-L", sysroot_prefix] if sysroot_prefix else [])
+                     + ["-d", "exec", "-D", log_in_rootfs]
+                     + [str(a) for a in argv_in_rootfs])
     if mode == "userns":
         # -U/-r: fake root via uid map; -m: private mount ns so the in-run
         # proc mount dies with the namespace; -n: no network — skipped for
@@ -425,15 +487,24 @@ def run_coverage(rootfs, qemu_in_rootfs: str, argv_in_rootfs, run_id: str,
         cmd = (["unshare", "-Urm"] + ([] if port else ["-n"])
                + ["sh", "-c", script])
         password = ""
-    else:
+    elif mode != "docker":
         cmd = _sudo_prefix() + ["chroot", str(rootfs)] + qemu_argv
         password = _sudo_pw()
     t0 = time.monotonic()
-    proc = subprocess.Popen(cmd,
-                            stdin=subprocess.PIPE if password else subprocess.DEVNULL,
-                            stdout=subprocess.DEVNULL,
-                            stderr=subprocess.DEVNULL,
-                            start_new_session=True, text=True)
+    if mode == "docker":
+        # service 型发布 127.0.0.1:<port>，就绪探针/trigger 逻辑不变；
+        # timeout 不传——生命周期由下面 finally 的 docker rm -f 兜底
+        proc = sandbox.run_sandboxed(
+            qemu_argv, image=sandbox.SANDBOX_IMAGE, name=container,
+            mounts=mounts, network="bridge" if port else "none",
+            ports=[port] if port else None)
+        password = ""
+    else:
+        proc = subprocess.Popen(cmd,
+                                stdin=subprocess.PIPE if password else subprocess.DEVNULL,
+                                stdout=subprocess.DEVNULL,
+                                stderr=subprocess.DEVNULL,
+                                start_new_session=True, text=True)
     trigger_result = None
     try:
         if password:
@@ -454,19 +525,39 @@ def run_coverage(rootfs, qemu_in_rootfs: str, argv_in_rootfs, run_id: str,
                 trigger_result = trigger()
             _wait_exit(proc, run_timeout)
     finally:
-        _kill_tree(proc, log_in_rootfs, sudo=(mode == "root"))
+        if mode == "docker":
+            # rm -f 具名容器（--rm 仅对自然退出生效），客户端随之退出
+            subprocess.run(["docker", "rm", "-f", container],
+                           capture_output=True, check=False)
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                try:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                except (ProcessLookupError, PermissionError):
+                    pass
+        else:
+            _kill_tree(proc, log_in_rootfs, sudo=(mode == "root"))
     elapsed = time.monotonic() - t0
     if mode == "root":
         # the chrooted qemu runs as real root and writes the exec log with
         # mode 600; the parse step runs as the service user. In userns mode
         # the log is written by (fake-root ->) the invoking user itself.
         sudo_run(["chmod", "644", str(log_host)], check=False)
-    if not log_host.is_file() or log_host.stat().st_size == 0:
-        raise QemuError(f"empty coverage log (target rc={proc.poll()}); "
-                        f"check qemu can run the binary")
-    addrs = parse_exec_log(log_host)
-    meta = {"log": log_in_rootfs, "tb_count": len(addrs),
-            "elapsed_seconds": round(elapsed, 2), "sandbox": mode}
+    try:
+        if not log_host.is_file() or log_host.stat().st_size == 0:
+            raise QemuError(f"empty coverage log (target rc={proc.poll()}); "
+                            f"check qemu can run the binary")
+        addrs = parse_exec_log(log_host)
+    finally:
+        if out_dir is not None:
+            shutil.rmtree(out_dir, ignore_errors=True)
+    meta = {"log": log_label, "tb_count": len(addrs),
+            "elapsed_seconds": round(elapsed, 2), "sandbox": mode,
+            "sandbox_backend": mode}
+    if mode == "docker":
+        meta["sandbox_image"] = sandbox.SANDBOX_IMAGE
+        meta["sandbox_limits"] = dict(sandbox.DEFAULT_LIMITS)
     if mode == "root":
         meta["sandbox_warning"] = ROOT_CHROOT_WARNING
     if trigger is not None:

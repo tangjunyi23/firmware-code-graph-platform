@@ -19,6 +19,7 @@ name to a qualified_name via search_graph first (exact match preferred).
 
 import json
 import os
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -38,7 +39,12 @@ def _cfg(name: str, default: str) -> str:
 
 
 def _cbm_bin() -> str:
-    return _cfg("CBM_BIN", str(Path.home() / ".local" / "bin" / "codebase-memory-mcp"))
+    """CBM CLI 路径：CBM_BIN env -> PATH 查找 -> ~/.local/bin 兜底。"""
+    explicit = os.getenv("CBM_BIN", "").strip()
+    if explicit:
+        return explicit
+    found = shutil.which("codebase-memory-mcp")
+    return found or str(Path.home() / ".local" / "bin" / "codebase-memory-mcp")
 
 
 def index_timeout() -> int:

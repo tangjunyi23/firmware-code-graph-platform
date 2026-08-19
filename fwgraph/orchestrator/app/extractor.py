@@ -4,7 +4,7 @@ Runs EMBA with the extract-only profile via subprocess (non-blocking Popen +
 polling), then parses csv_logs/p99_prepare_analyzer.csv into manifest.json.
 
 Config (from .env, with defaults matching the dev VM):
-  EMBA_DIR            EMBA repo path            (/home/tankuku/firmware-graph/emba)
+  EMBA_DIR            EMBA repo path            (默认 <仓库根>/emba，即 fwgraph/ 同级)
   EMBA_PROFILE        profile in scan-profiles/ (extract-only.emba)
   EMBA_TIMEOUT        extraction timeout in s   (7200)
   EMBA_SUDO_PASSWORD  sudo password for EMBA    (required unless sudo -n works)
@@ -19,10 +19,13 @@ import time
 from collections import Counter
 from pathlib import Path
 
+from . import config
+
 # EMBA uses fixed container names (emba / emba_quest) -> only one run at a time.
 EMBA_LOCK = threading.Lock()
 
-EMBA_DIR_DEFAULT = "/home/tankuku/firmware-graph/emba"
+# 默认按仓库布局推导：fwgraph/ 与 emba/ 同级（EMBA_DIR env 优先，见 run_emba）
+EMBA_DIR_DEFAULT = str(config.FWGRAPH_ROOT.parent / "emba")
 
 
 def _cfg(name: str, default: str) -> str:

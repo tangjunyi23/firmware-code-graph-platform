@@ -51,7 +51,7 @@ from fastapi.responses import PlainTextResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 import httpx
 
-from . import accounts, admin_api, decompiler, extractor, protofuzz_api, vulnagent_api, webui
+from . import accounts, admin_api, config, decompiler, extractor, protofuzz_api, vulnagent_api, webui
 from pipeline import report
 from pipeline.ailift import registry as ailift_registry
 from pipeline.ailift import runner as ailift_runner
@@ -68,11 +68,11 @@ from pipeline.routes import runner as route_runner
 from pipeline.extract import px4 as px4_extractor
 from pipeline.trace import tracer
 
-# fwgraph/orchestrator/app/main.py -> ../../.. = fwgraph/
-FWGRAPH_ROOT = Path(__file__).resolve().parents[2]
+# 路径推导集中在 orchestrator.app.config（fwgraph/orchestrator/app/ -> fwgraph/）
+FWGRAPH_ROOT = config.FWGRAPH_ROOT
 load_dotenv(FWGRAPH_ROOT / ".env")
 
-DATA_DIR = Path(os.getenv("FWGRAPH_DATA", str(FWGRAPH_ROOT / "data")))
+DATA_DIR = config.data_dir()
 FIRMWARE_DIR = DATA_DIR / "firmware"
 EXTRACTED_DIR = DATA_DIR / "extracted"
 PSEUDOCODE_DIR = DATA_DIR / "pseudocode"

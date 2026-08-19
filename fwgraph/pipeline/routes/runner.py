@@ -9,6 +9,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+from orchestrator.app import config
 from pipeline.graph import ingest as graph_ingest
 
 FWGRAPH_ROOT = Path(__file__).resolve().parents[2]
@@ -105,7 +106,11 @@ def run_job(job_id, data_dir, scan=True):
     results = []
     routes = []
     if scan:
-        idat = Path(_cfg("IDA_DIR", "/home/tankuku/ida-pro-9.1")) / "idat"
+        ida_dir = config.ida_dir()
+        if ida_dir is None:
+            raise RuntimeError(
+                "未配置 IDA_DIR：请在 fwgraph/.env 或环境变量中设置 IDA 安装目录")
+        idat = ida_dir / "idat"
         timeout = int(_cfg("ROUTE_SCAN_TIMEOUT", "900"))
         for md5, entry in sorted(symbols.get("binaries", {}).items()):
             idb = data_dir / "idb" / job_id / f"{md5}.i64"

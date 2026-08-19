@@ -33,6 +33,8 @@ from pathlib import Path
 
 from pipeline.decompile import annotate
 
+from . import config
+
 # fwgraph/orchestrator/app/decompiler.py -> ../../.. = fwgraph/
 FWGRAPH_ROOT = Path(__file__).resolve().parents[2]
 EXPORT_SCRIPT = FWGRAPH_ROOT / "pipeline" / "decompile" / "ida_export.py"
@@ -107,7 +109,7 @@ def _decompile_binary(job_id: str, binary: dict, data_dir: Path, timeout: int) -
             if not input_path.exists():
                 shutil.copy2(elf, input_path)
 
-        idat = Path(_cfg("IDA_DIR", "/home/tankuku/ida-pro-9.1")) / "idat"
+        idat = config.ida_dir() / "idat"  # run_job 已保证 IDA_DIR 已配置
         # The outdir rides inside the -S argument: a trailing token after the
         # input file never reaches idc.ARGV on IDA 9.1 (probe-verified).
         cmd = _ida_command(idat, input_path, outdir, binary)
@@ -166,6 +168,10 @@ def run_job(job_id: str, data_dir, only_md5s=None) -> dict:
     without it every binary is decompiled and symbols.json is rewritten.
     """
     data_dir = Path(data_dir)
+    if config.ida_dir() is None:
+        # 启动 decompile job 前 fail-fast：错误会经 _decompile_worker 落入 job.error
+        raise RuntimeError(
+            "未配置 IDA_DIR：请在 fwgraph/.env 或环境变量中设置 IDA 安装目录")
     t0 = time.time()
     manifest_path = data_dir / "extracted" / job_id / "manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))

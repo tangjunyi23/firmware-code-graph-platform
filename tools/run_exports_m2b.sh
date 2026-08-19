@@ -5,9 +5,9 @@
 set -x
 export TVHEADLESS=1
 export FLIRT_SIGS=1
-IDAT=/home/tankuku/ida-pro-9.1/idat
-EXPORT=/home/tankuku/firmware-graph/fwgraph/pipeline/decompile/ida_export.py
-S=/home/tankuku/firmware-graph/samples
+IDAT="${IDAT:-/home/tankuku/ida-pro-9.1/idat}"
+EXPORT="${EXPORT:-/home/tankuku/firmware-graph/fwgraph/pipeline/decompile/ida_export.py}"
+S="${SAMPLES:-/home/tankuku/firmware-graph/samples}"
 OUT=$S/export_m2b
 mkdir -p "$OUT"
 [ -f "$S/busybox-mips.i64.m2b-bak" ] || cp "$S/busybox-mips.i64" "$S/busybox-mips.i64.m2b-bak"

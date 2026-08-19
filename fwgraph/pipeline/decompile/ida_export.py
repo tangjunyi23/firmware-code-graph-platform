@@ -386,15 +386,23 @@ def _apply_flirt(meta):
         sigs = []
         if spec == "1":
             import glob as _glob
-            try:
-                sigroot = idaapi.idadir("sig")
-            except Exception:  # noqa: BLE001
-                sigroot = "/home/tankuku/ida-pro-9.1/sig"
-            d = os.path.join(sigroot, _sig_dir_name(meta.get("procname")))
-            sigs = sorted(os.path.basename(p)
-                          for p in _glob.glob(os.path.join(d, "fwgraph_*.sig")))
-            if not sigs:
-                rec["errors"].append("no fwgraph_*.sig in " + d)
+            # sig 根目录：IDA_SIG_DIR 优先，其次 idadir("sig")，再 $IDA_DIR/sig；
+            # 都取不到则为 None 并跳过 sig 应用（本步骤保持容错语义，永不出错）
+            sigroot = os.environ.get("IDA_SIG_DIR", "").strip() or None
+            if sigroot is None:
+                try:
+                    sigroot = idaapi.idadir("sig")
+                except Exception:  # noqa: BLE001
+                    ida_dir = os.environ.get("IDA_DIR", "").strip()
+                    sigroot = os.path.join(ida_dir, "sig") if ida_dir else None
+            if sigroot is None:
+                rec["errors"].append("no sig root (set IDA_SIG_DIR or IDA_DIR)")
+            else:
+                d = os.path.join(sigroot, _sig_dir_name(meta.get("procname")))
+                sigs = sorted(os.path.basename(p)
+                              for p in _glob.glob(os.path.join(d, "fwgraph_*.sig")))
+                if not sigs:
+                    rec["errors"].append("no fwgraph_*.sig in " + d)
         else:
             sigs = [s.strip() for s in spec.split(",") if s.strip()]
         rec["before"] = _name_counts()

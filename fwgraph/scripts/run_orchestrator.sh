@@ -29,22 +29,24 @@ if [[ -f "$PID_FILE" ]] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
 fi
 
 # S2: TLS on by default (ORCH_SSL=0 falls back to plain HTTP). First run
-# self-signs data/tls/{cert,key}.pem for the VM's IP; replace with a real
-# certificate when one is available.
+# self-signs data/tls/{cert,key}.pem (CN/SAN 由 ORCH_CERT_CN/ORCH_CERT_SANS
+# 控制，默认 localhost / IP:127.0.0.1,DNS:localhost)；有正式证书时直接替换。
 SCHEME="http"
 UVICORN_TLS=()
 if [[ "${ORCH_SSL:-1}" != "0" ]]; then
   TLS_DIR="data/tls"
   CERT="$TLS_DIR/cert.pem"
   KEY="$TLS_DIR/key.pem"
+  CERT_CN="${ORCH_CERT_CN:-localhost}"
+  CERT_SANS="${ORCH_CERT_SANS:-IP:127.0.0.1,DNS:localhost}"
   if [[ ! -f "$CERT" || ! -f "$KEY" ]]; then
     mkdir -p "$TLS_DIR"
     openssl req -x509 -newkey rsa:4096 -nodes \
       -keyout "$KEY" -out "$CERT" -days 3650 \
-      -subj "/CN=192.168.141.135" \
-      -addext "subjectAltName=IP:192.168.141.135,IP:127.0.0.1,DNS:localhost"
+      -subj "/CN=$CERT_CN" \
+      -addext "subjectAltName=$CERT_SANS"
     chmod 600 "$KEY"
-    echo "generated self-signed TLS cert: $CERT (CN=192.168.141.135)"
+    echo "generated self-signed TLS cert: $CERT (CN=$CERT_CN)"
   fi
   UVICORN_TLS=(--ssl-keyfile "$KEY" --ssl-certfile "$CERT")
   SCHEME="https"

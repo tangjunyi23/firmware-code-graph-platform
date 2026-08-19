@@ -19,7 +19,8 @@ if [[ -f .env ]]; then
   set +a
 fi
 
-CBM_BIN="${CBM_BIN:-$HOME/.local/bin/codebase-memory-mcp}"
+# CBM_BIN 未设置时先查 PATH，再兜底 ~/.local/bin
+CBM_BIN="${CBM_BIN:-$(command -v codebase-memory-mcp || echo "$HOME/.local/bin/codebase-memory-mcp")}"
 PORT="${CBM_UI_PORT:-9749}"
 PID_FILE="data/cbm_ui.pid"
 LOG_FILE="data/cbm_ui.log"

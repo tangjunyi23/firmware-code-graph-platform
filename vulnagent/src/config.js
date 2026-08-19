@@ -36,7 +36,7 @@ export function loadConfig() {
   const src = (key) => (process.env[key] ?? fileEnv[key]) !== undefined ? "env" : "default";
   return {
     fwgraph: {
-      baseUrl: env("FWGRAPH_BASE_URL", "http://192.168.108.129:8000").replace(/\/+$/, ""),
+      baseUrl: env("FWGRAPH_BASE_URL", "http://127.0.0.1:8000").replace(/\/+$/, ""),
       token: env("FWGRAPH_TOKEN"),
       defaultJobId: env("FWGRAPH_JOB_ID"),
       // root of the firmware extraction trees (<root>/<job_id>/); the dsh

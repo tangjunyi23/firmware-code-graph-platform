@@ -11,21 +11,30 @@ static surfaces.
 No device reachable -> clean RuntimeError; the platform never pretends.
 
 Endpoints live in orchestrator/app/main.py; this module is transport-free.
+
+Sandbox (Phase 2): local mode (no remote host) with SANDBOX_BACKEND=docker
+runs frida-server inside the sandbox image (read-only, cap-drop ALL +
+SYS_PTRACE for injection, target dir bind-mounted ro) and connects over the
+container bridge IP; the container is always docker rm -f'd afterwards.
 """
 
 import json
 import os
 import re
+import subprocess
 import sys
 import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+from pipeline import sandbox
+
 FWGRAPH_ROOT = Path(__file__).resolve().parents[2]
 
 MAX_SECONDS = int(os.getenv("FRIDA_MAX_SECONDS", "300"))
 _FSID_RE = re.compile(r"^fs-[0-9a-f]{8}$")
+_LOCAL_HOSTS = ("", "local", "127.0.0.1", "localhost")
 
 _AGENT_JS = r"""
 const targets = %s;
@@ -91,6 +100,69 @@ def _now():
     return datetime.now(timezone.utc).isoformat()
 
 
+def _docker_rm(name):
+    subprocess.run(["docker", "rm", "-f", name], capture_output=True,
+                   check=False)
+
+
+def _device_via_sandbox(frida, process, run_id):
+    """本地模式的 docker 沙箱：容器内跑 frida-server，经 bridge IP 连接。
+    返回 (容器名, device)；任何一步失败都先清理容器再抛 RuntimeError。"""
+    name = f"fwgraph-frida-{run_id}"
+    # frida 注入依赖 ptrace：cap-drop ALL 之上单独放行的最小能力
+    cmd = ["docker", "run", "-d", "--rm", "--name", name,
+           "--network", "bridge", "--read-only",
+           "--cap-drop", "ALL", "--cap-add", "SYS_PTRACE",
+           "--security-opt", "no-new-privileges"]
+    target = Path(process)
+    if target.is_absolute():
+        # 目标二进制同路径只读挂载进容器；attach 模式要求进程已在容器内，
+        # 实际有意义的主要是 spawn 模式
+        try:
+            os.chmod(target, 0o755)  # EMBA 解出的文件常缺执行位
+        except OSError:
+            pass
+        cmd += ["-v", f"{target.parent}:{target.parent}:ro"]
+    cmd += [sandbox.SANDBOX_IMAGE, "frida-server", "-l", "0.0.0.0:27042"]
+    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+    if proc.returncode != 0:
+        raise RuntimeError("frida 沙箱容器启动失败："
+                           f"{(proc.stderr or '').strip()[-200:]}")
+    cid = proc.stdout.strip() or name
+    try:
+        ip = subprocess.run(
+            ["docker", "inspect", "-f",
+             "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}", cid],
+            capture_output=True, text=True, timeout=15).stdout.strip()
+        if not ip:
+            raise RuntimeError("frida 沙箱容器未取到 bridge IP")
+        mgr = frida.get_device_manager()
+        deadline = time.time() + 10
+        last = None
+        while time.time() < deadline:  # 等容器内 frida-server 开始监听
+            try:
+                return name, mgr.add_remote_device(ip, timeout=5)
+            except Exception as exc:  # noqa: BLE001 - 连接重试窗口
+                last = exc
+                time.sleep(0.3)
+        raise RuntimeError(
+            f"沙箱容器内 frida-server 不可达（{ip}:27042）：{last}")
+    except Exception:
+        _docker_rm(name)
+        raise
+
+
+def _sandbox_fallback_warning(backend):
+    """配置了 docker 但无法进容器时的中文警告（落 frida.json）。"""
+    if backend != "docker":
+        if sandbox.configured_backend("frida") == "docker":
+            return ("警告：SANDBOX_BACKEND=docker 但 docker 不可用，本次 "
+                    "frida 插桩在宿主机直接运行不可信固件代码。")
+        return None
+    return (f"警告：沙箱镜像 {sandbox.SANDBOX_IMAGE} 未构建，本次 frida 插桩"
+            f"在宿主机直接运行不可信固件代码。构建：{sandbox.BUILD_HINT}")
+
+
 def run_job(job_id, data_dir, host, process, functions, seconds=60,
             spawn=False, run_id=None):
     """Hook `functions` on `process` via the frida-server at `host`.
@@ -121,9 +193,20 @@ def run_job(job_id, data_dir, host, process, functions, seconds=60,
             t["offset"] = int(off, 16) if off.startswith("0x") else int(off or 0)
         targets.append(t)
 
-    if host in ("", "local", "127.0.0.1", "localhost"):
-        # x86 目标在本机直接插桩（无需 frida-server）
-        device = frida.get_local_device()
+    container = None
+    sandbox_backend = "remote"
+    sandbox_warning = None
+    if host in _LOCAL_HOSTS:
+        backend = sandbox.backend_for("frida")
+        if backend == "docker" and sandbox.sandbox_image_present(
+                sandbox.SANDBOX_IMAGE):
+            container, device = _device_via_sandbox(frida, process, run_id)
+            sandbox_backend = "docker"
+        else:
+            sandbox_warning = _sandbox_fallback_warning(backend)
+            # x86 目标在本机直接插桩（无需 frida-server）
+            device = frida.get_local_device()
+            sandbox_backend = "none"
     else:
         mgr = frida.get_device_manager()
         try:
@@ -136,43 +219,47 @@ def run_job(job_id, data_dir, host, process, functions, seconds=60,
     pid = None
     session = None
     counts = {"hit": 0, "hooked": 0, "error": 0}
-    with open(events_path, "a", encoding="utf-8") as fh:
-        def on_message(msg, _data):
-            if msg.get("type") == "send":
-                payload = msg.get("payload", {})
-                kind = payload.get("type", "?")
-                if kind in counts:
-                    counts[kind] += 1
-                fh.write(json.dumps(payload, ensure_ascii=False) + "\n")
-                fh.flush()
-            elif msg.get("type") == "error":
-                counts["error"] += 1
-                fh.write(json.dumps({"type": "error",
-                                     "message": msg.get("description", "?")},
-                                    ensure_ascii=False) + "\n")
+    try:
+        with open(events_path, "a", encoding="utf-8") as fh:
+            def on_message(msg, _data):
+                if msg.get("type") == "send":
+                    payload = msg.get("payload", {})
+                    kind = payload.get("type", "?")
+                    if kind in counts:
+                        counts[kind] += 1
+                    fh.write(json.dumps(payload, ensure_ascii=False) + "\n")
+                    fh.flush()
+                elif msg.get("type") == "error":
+                    counts["error"] += 1
+                    fh.write(json.dumps({"type": "error",
+                                         "message": msg.get("description", "?")},
+                                        ensure_ascii=False) + "\n")
 
-        try:
-            if spawn:
-                pid = device.spawn([process])
-                session = device.attach(pid)
-            else:
-                session = device.attach(process)
-            script = session.create_script(_AGENT_JS % json.dumps(targets))
-            script.on("message", on_message)
-            script.load()
-            if pid is not None:
-                device.resume(pid)
-            time.sleep(seconds)
-            script.unload()
-        except frida.ProcessNotFoundError as exc:
-            raise RuntimeError(f"process not found on device: {process}") \
-                from exc
-        finally:
-            if session is not None:
-                try:
-                    session.detach()
-                except Exception:
-                    pass
+            try:
+                if spawn:
+                    pid = device.spawn([process])
+                    session = device.attach(pid)
+                else:
+                    session = device.attach(process)
+                script = session.create_script(_AGENT_JS % json.dumps(targets))
+                script.on("message", on_message)
+                script.load()
+                if pid is not None:
+                    device.resume(pid)
+                time.sleep(seconds)
+                script.unload()
+            except frida.ProcessNotFoundError as exc:
+                raise RuntimeError(f"process not found on device: {process}") \
+                    from exc
+            finally:
+                if session is not None:
+                    try:
+                        session.detach()
+                    except Exception:
+                        pass
+    finally:
+        if container is not None:
+            _docker_rm(container)
 
     summary = {
         "run_id": run_id, "job_id": job_id, "engine": "frida",
@@ -183,7 +270,13 @@ def run_job(job_id, data_dir, host, process, functions, seconds=60,
         "hooked": counts["hooked"], "hits": counts["hit"],
         "errors": counts["error"],
         "events_file": str(events_path),
+        "sandbox_backend": sandbox_backend,
     }
+    if sandbox_backend == "docker":
+        summary["sandbox_image"] = sandbox.SANDBOX_IMAGE
+        summary["sandbox_limits"] = dict(sandbox.DEFAULT_LIMITS)
+    if sandbox_warning:
+        summary["sandbox_warning"] = sandbox_warning
     (work / "frida.json").write_text(json.dumps(summary, indent=2),
                                      encoding="utf-8")
     return summary

@@ -35,7 +35,7 @@ from pathlib import Path
 from fastapi import Body, Depends, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, PlainTextResponse
 
-from . import accounts, extractor, report_export, vulnagent_api
+from . import accounts, config, extractor, report_export, vulnagent_api
 from pipeline import report as job_report
 
 # fwgraph/orchestrator/app/admin_api.py -> ../../.. = fwgraph/
@@ -84,6 +84,10 @@ def _public_user(user: dict) -> dict:
 # ---------------------------------------------------------------------------
 
 def _ida_present() -> bool:
+    """IDA_DIR env 优先；未配置时保留 ~/ida-pro* / ~/ida 的探测兜底。"""
+    ida = config.ida_dir()
+    if ida is not None:
+        return (ida / "idat").exists()
     home = Path.home()
     return any(home.glob("ida-pro*")) or (home / "ida").exists()
 
