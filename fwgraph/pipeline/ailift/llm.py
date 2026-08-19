@@ -251,6 +251,7 @@ class LLMClient:
         if self.style == "anthropic":
             path = "/messages"
             headers["anthropic-version"] = "2023-06-01"
+            headers["x-api-key"] = self.api_key  # anthropic-style gateways (e.g. opencode go) reject Bearer
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             resp = await client.post(f"{self.base_url}{path}",
                                      json=payload, headers=headers)
