@@ -1,5 +1,11 @@
 # Phase 1: Attack Surface Locking
 
+## fwgraph 平台路径（固件任务）
+
+对 fwgraph job：先 `fw_get_identification` / `fw_list_surfaces`，再用 `fw_attack_surface brief=true`。identification 的 `processing_chain.unresolved_needed` 只是 DT_NEEDED 质量缺口，不要另换固件树。路径节点用 `evidence_address`（job_id + md5 + 规范地址）跨工具连接，不要用路径或符号名。动态结果 `observed_in_window` ≠ 请求导致，也不要报覆盖率百分比；`verified` 必须是同一条 trace 覆盖整条链。若返回 `ai_review`，把 `priority=P0/P1` 当作分诊提示（不是漏洞结论）；必须再用 `fw_get_function_source` 的 Hex-Rays 伪代码核实。禁止把 hint 写入 finding，禁止引用臆造符号。`decompile_gap` 只表示缺伪代码。
+
+---
+
 ## Phase 1 条件执行（Round 2+ 且 snapshot 存在时）
 
 当 Phase 0.5 成功恢复了 snapshot 状态时，以下步骤可跳过或简化：

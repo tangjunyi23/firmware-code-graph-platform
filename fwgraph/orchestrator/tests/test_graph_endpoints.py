@@ -165,6 +165,20 @@ class TestGraphQuery:
         assert response.json()["total"] == 1
         assert response.json()["paths"][0]["path_id"] == "p1"
 
+    def test_compose_evidence_joins_without_fetch(self, client):
+        http, _ = client
+        response = http.post("/graph/query", json={
+            "job_id": JOB, "op": "compose_evidence",
+            "binary_md5": "a" * 32, "addr": "0x1000",
+            "static_block": {"asink": ["cmdexec"]},
+            "decompile_text": "int f(void) { return 0; }",
+        })
+        assert response.status_code == 200
+        body = response.json()
+        assert body["producers"] == ["attack_surface", "hexrays"]
+        assert body["address"]["addr"] == "0x1000"
+        assert body["dynamic"] is None
+
     def test_routes_dispatch_and_filter(self, client):
         http, tmp_path = client
         route_dir = tmp_path / "routes" / JOB
@@ -248,7 +262,6 @@ class TestRouteEndpoints:
         graph_dir = tmp_path / "cbm" / JOB
         graph_dir.mkdir(parents=True)
         (graph_dir / "graph_done.json").write_text("{}", encoding="utf-8")
-        (tmp_path / "idb" / JOB).mkdir(parents=True)
         threads = []
 
         class FakeThread:

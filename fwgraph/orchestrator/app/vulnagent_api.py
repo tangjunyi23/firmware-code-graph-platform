@@ -48,10 +48,9 @@ VULNAGENT_HOME = Path(os.getenv(
 NODE_BIN = os.getenv("VULNAGENT_NODE_BIN", "node")
 MAX_PARALLEL = int(os.getenv("VULNAGENT_MAX_SESSIONS", "2"))
 MAX_TURNS_CAP = int(os.getenv("VULNAGENT_MAX_TURNS_CAP", "100"))
-# Session engine: "dsh" (DeepSeek Harness fwgraph profile, default) or
-# "builtin" (the zero-dep agent loop in vulnagent/src). dsh falls back to
-# builtin automatically when the harness checkout is missing.
-VULNAGENT_ENGINE = os.getenv("VULNAGENT_ENGINE", "dsh")
+# Session engine is DeepSeek Harness only (fwgraph profile). The builtin
+# loop remains in vulnagent/src for offline CLI tests (`--engine builtin`).
+VULNAGENT_ENGINE = "dsh"
 DSH_REPO = Path(os.getenv("DSH_REPO", str(Path.home() / "deepseek-harness")))
 DSH_HOME = os.getenv("DSH_HOME", str(Path.home() / ".dsh"))
 
@@ -272,6 +271,18 @@ def _job_owner(job_id: str):
         return job, (job.get("owner") if job else None)
 
 
+def _bind_hunt_session(job_id: str, sid: str) -> None:
+    if not job_id or not sid:
+        return
+    from . import main as _main
+    with _main._jobs_lock:
+        job = _main._jobs.get(job_id)
+        if not job:
+            return
+        job["hunt_session_id"] = sid
+        _main._save_job(job)
+
+
 def _finding_visible(finding: dict, principal: dict) -> bool:
     """Non-admins only see findings on jobs they own; findings without a
     (known) job association are hidden from them entirely."""
@@ -414,7 +425,8 @@ def _validate_finding(payload: dict) -> dict:
     if confidence_reported is not None:
         doc["confidence_reported"] = confidence_reported
     for field in ("session_id", "function_name", "preconditions",
-                  "exploit_sketch", "remediation"):
+                  "exploit_sketch", "remediation", "poc", "call_chain",
+                  "source_summary", "sink_function", "sanitization"):
         value = payload.get(field)
         if value is not None:
             if not isinstance(value, str):
@@ -472,16 +484,24 @@ def _write_report(sdir: Path, state: dict) -> None:
                   f"- **漏洞位置**：{f.get('function_name') or '?'} @ {f.get('function_addr')}",
                   f"- **可达性**：{f.get('reachability', 'static-only')}",
                   f"- **漏洞描述**：{f.get('summary', '')}"]
-        if f.get("source_summary") or f.get("sink_function"):
-            lines.append(f"- **攻击路径**：{f.get('source_summary') or '?'} → "
-                         f"sink：{f.get('sink_function') or '?'}")
         if f.get("sanitization"):
             lines.append(f"- **消毒与防护现状**：{f['sanitization']}")
         lines.append("- **漏洞证据**：")
         for j, e in enumerate(f.get("evidence", []), 1):
             lines.append(f"  {j}. {e}")
-        if f.get("exploit_sketch"):
-            lines.append(f"- **利用思路**：{f['exploit_sketch']}")
+        chain = (f.get("call_chain") or "").strip()
+        if not chain:
+            src = (f.get("source_summary") or "").strip()
+            sink = (f.get("sink_function") or "").strip()
+            if src or sink:
+                chain = f"{src or '入口未知'} → {sink or 'sink 未知'}"
+        lines += ["", "**调用链**：", "", chain or "（未给出调用链）", ""]
+        poc = (f.get("poc") or f.get("exploit_sketch") or "").strip()
+        lines += ["**漏洞 PoC**：", ""]
+        if poc:
+            lines += ["```", poc, "```", ""]
+        else:
+            lines += ["（未给出可复现 PoC）", ""]
         if f.get("remediation"):
             lines.append(f"- **修复建议**：{f['remediation']}")
         lines.append("")
@@ -647,9 +667,11 @@ def setup(app: FastAPI, require_token) -> None:
         if not 1 <= max_turns <= MAX_TURNS_CAP:
             raise HTTPException(status_code=400,
                                 detail=f"max_turns must be 1..{MAX_TURNS_CAP}")
-        if not (VULNAGENT_HOME / "src" / "cli.js").is_file():
-            raise HTTPException(status_code=503,
-                                detail=f"vulnagent not deployed at {VULNAGENT_HOME}")
+        if not (DSH_REPO / "apps" / "cli").is_dir():
+            raise HTTPException(
+                status_code=503,
+                detail="未安装 DeepSeek Harness：请将仓库放到 "
+                       f"{DSH_REPO} 或设置 DSH_REPO")
         running = _live_sessions()
         if len(running) >= MAX_PARALLEL:
             raise HTTPException(
@@ -659,68 +681,27 @@ def setup(app: FastAPI, require_token) -> None:
         sid = _new_sid()
         sdir = VULNAGENT_HOME / "sessions" / sid
         sdir.mkdir(parents=True, exist_ok=True)
-        if VULNAGENT_ENGINE == "dsh" and (DSH_REPO / "apps/cli").is_dir():
-            try:
-                proc = _spawn_dsh(sid, sdir, task, mode=mode, job_id=job_id,
-                                  max_turns=max_turns,
-                                  owner=principal["username"])
-            except OSError as exc:
-                raise HTTPException(
-                    status_code=500,
-                    detail=f"failed to spawn dsh: {exc}") from exc
-            _procs[sid] = proc
-            time.sleep(1.2)
-            if proc.poll() is not None:
-                tail = (sdir / "runner.log").read_text(
-                    encoding="utf-8", errors="replace")[-500:]
-                raise HTTPException(
-                    status_code=500,
-                    detail=f"dsh runner exited rc={proc.returncode}: {tail}")
-            accounts.audit(principal["username"], "session_start",
-                           f"{sid} engine=dsh job={gate_job} mode={mode}")
-            return {"session_id": sid, "status": "running",
-                    "engine": "dsh", "max_turns": max_turns}
-        log_file = open(sdir / "runner.log", "ab")
-        cmd = [NODE_BIN, "src/cli.js", "run", task,
-               "--max-turns", str(max_turns), "--session", sid, "--quiet",
-               "--mode", mode]
-        spawn_env = dict(os.environ)
-        if job_id:
-            spawn_env["FWGRAPH_JOB_ID"] = job_id
         try:
-            proc = subprocess.Popen(
-                cmd, cwd=str(VULNAGENT_HOME), stdout=log_file,
-                stderr=subprocess.STDOUT, start_new_session=True,
-                env=spawn_env)
+            proc = _spawn_dsh(sid, sdir, task, mode=mode, job_id=job_id,
+                              max_turns=max_turns,
+                              owner=principal["username"])
         except OSError as exc:
-            log_file.close()
-            raise HTTPException(status_code=500,
-                                detail=f"failed to spawn node: {exc}") from exc
+            raise HTTPException(
+                status_code=500,
+                detail=f"failed to spawn dsh: {exc}") from exc
         _procs[sid] = proc
-        try:
-            (sdir / "runner.pid").write_text(str(proc.pid), encoding="utf-8")
-        except OSError:
-            pass
-        # Fail fast if the runner dies immediately (bad env, syntax error).
-        time.sleep(0.8)
+        time.sleep(1.2)
         if proc.poll() is not None:
             tail = (sdir / "runner.log").read_text(
                 encoding="utf-8", errors="replace")[-500:]
-            raise HTTPException(status_code=500,
-                                detail=f"runner exited rc={proc.returncode}: {tail}")
-        # the builtin CLI owns state.json; stamp owner onto it best-effort
-        # (the vulnagent-side patch keeps it on later rewrites)
-        state = _read_state(sdir)
-        if state and not state.get("owner"):
-            state["owner"] = principal["username"]
-            try:
-                (sdir / "state.json").write_text(json.dumps(state, indent=2),
-                                                 encoding="utf-8")
-            except OSError:
-                pass
+            raise HTTPException(
+                status_code=500,
+                detail=f"dsh runner exited rc={proc.returncode}: {tail}")
         accounts.audit(principal["username"], "session_start",
-                       f"{sid} engine=builtin job={gate_job} mode={mode}")
-        return {"session_id": sid, "status": "running", "max_turns": max_turns}
+                       f"{sid} engine=dsh job={gate_job} mode={mode}")
+        _bind_hunt_session(gate_job, sid)
+        return {"session_id": sid, "status": "running",
+                "engine": "dsh", "max_turns": max_turns}
 
     @app.get("/vulnagent/sessions")
     def list_sessions(principal: dict = Depends(require_token)):

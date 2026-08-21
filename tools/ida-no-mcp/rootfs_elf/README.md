@@ -1,7 +1,15 @@
 # rootfs_elf (ida-no-mcp)
 
 离线 RootFS 批量 ELF 分析工具。已整合进 fwgraph 仓库
-（`tools/ida-no-mcp/`），相对独立版的改动：
+（`tools/ida-no-mcp/`）。来源：`/home/tankuku/Allzip/rootfs_elf.tar.gz`。
+
+**fwgraph 自动反编译强制走本工具**：`orchestrator.app.decompiler` 对
+manifest 里的 ELF 调用本目录 `ida_worker.py`（IDA 9.1 idalib），再把
+`decompile/` + `function_index.jsonl` 适配成 `functions/<addr>.c` 与
+`symbols.json`。`pipeline/decompile/ida_export.py` 只留给 raw/PX4 镜像。
+并发由 `IDA_WORKERS`（`-j` 同级）控制。
+
+相对独立版的改动：
 
 - `checksec` 默认使用 `fwgraph/pipeline/extract/checksec.py` 的原生纯
   Python 实现（可解析被 sstrip 掉节表的固件 ELF），pwntools 的

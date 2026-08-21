@@ -91,6 +91,11 @@ def _seed(tmp_path):
             "chain": [{"addr": "0x1000", "name": "sub_1000"},
                       {"addr": "0x1001"}, {"addr": "0x1002"}],
             "sanitizers": [],
+            "ai_review": {
+                "priority": "P0", "vuln_class_hint": "bof",
+                "cwe_hint": "CWE-121", "dataflow": "likely",
+                "reason": "strcpy 无长度", "source": "llm",
+            },
         }]}), encoding="utf-8")
 
     # graphext cfg/ast
@@ -126,6 +131,13 @@ def test_attack_surface_brief(client):
     assert b["path_id"] == "p1" and b["score"] == 5.5
     assert b["source"]["asrc"] == ["network"]
     assert b["sink"]["asink"] == ["memunsafe"]
+    assert b["source"]["evidence_address"]["addr"] == "0x1000"
+    assert b["source"]["evidence_address"]["job_id"] == JOB
+    assert b["attribution"] in ("static_only", "observed_in_window",
+                                "verified_in_single_trace")
+    assert b["ai_review"]["priority"] == "P0"
+    assert b["ai_review"]["cwe_hint"] == "CWE-121"
+    assert "source" not in b["ai_review"]
 
 
 def test_cfg_truncation(client):
@@ -156,6 +168,8 @@ def test_function_brief(client):
     assert d["name"] == "sub_1000" and d["on_attack_path"] is True
     assert d["asrc"] == ["network"] and d["path_ids"] == ["p1"]
     assert d["source_available"] is True
+    assert d["decompile_gap"] is False
+    assert d["evidence_address"]["addr"] == "0x1000"
     assert d["head"][0].startswith("int sub_1000")
     calls = {c["text"] for c in d["dangerous_calls"]}
     assert any("strcpy" in c for c in calls)

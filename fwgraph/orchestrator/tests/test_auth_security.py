@@ -226,12 +226,12 @@ class TestQuota:
     def test_default_limits(self, tmp_path, monkeypatch):
         monkeypatch.setenv("FWGRAPH_DATA", str(tmp_path))
         for env in ("TRACE_DAILY_PER_JOB", "FUZZ_DAILY_PER_JOB",
-                    "FRIDA_DAILY_PER_JOB", "AIENRICH_DAILY_PER_JOB"):
+                    "FRIDA_DAILY_PER_JOB", "ATTACK_AI_DAILY_PER_JOB"):
             monkeypatch.delenv(env, raising=False)
         assert accounts.quota_limit("trace") == 10
         assert accounts.quota_limit("fuzz") == 6
         assert accounts.quota_limit("frida") == 6
-        assert accounts.quota_limit("aienrich") == 6
+        assert accounts.quota_limit("attack_ai") == 8
 
 
 class TestCanAccess:

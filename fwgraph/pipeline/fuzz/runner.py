@@ -148,6 +148,9 @@ def _spawn_afl_docker(cmd, env, rootfs, work, trace_dir, qemu_trace, hook,
     已知边界：afl-qemu-trace 与 fw_fuzzhook_*.so 仍在宿主编译后挂载进容器，
     容器 glibc（ubuntu:24.04）与宿主差距过大时需按宿主工具链重建镜像。
     """
+    # 编排器自身容器化运行时（Phase 3）work 由容器 root 创建；
+    # 沙箱内 sandbox 用户（uid 1000）需要可写
+    work.chmod(0o777)
     mounts = [(str(rootfs), str(rootfs), "ro"),      # job rootfs（QEMU_LD_PREFIX）
               (str(work), str(work), "rw"),          # seeds + afl_out
               (str(trace_dir), str(trace_dir), "ro")]  # AFL_PATH

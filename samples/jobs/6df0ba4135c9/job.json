@@ -1,0 +1,15 @@
+{
+  "job_id": "6df0ba4135c9",
+  "firmware": "ArcherC7v2_en_us_3_15_4_up(260427).bin",
+  "status": "routed",
+  "error": null,
+  "auto": true,
+  "profile": "high",
+  "owner": "token-admin",
+  "created_at": "2026-08-21T08:14:38.477643+00:00",
+  "updated_at": "2026-08-21T08:57:06.722366+00:00",
+  "firmware_path": "/home/tankuku/src/firmware-code-graph-platform/fwgraph/data/firmware/6df0ba4135c9/firmware.bin",
+  "log_dir": "/home/tankuku/src/firmware-code-graph-platform/fwgraph/data/extracted/6df0ba4135c9",
+  "size_bytes": 16252928,
+  "hunt_session_id": "s-mt2pu419-f182"
+}

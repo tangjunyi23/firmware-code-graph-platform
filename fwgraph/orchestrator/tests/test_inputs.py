@@ -3,7 +3,7 @@
 import json
 from pathlib import Path
 
-from pipeline.inputs import discover, runner, services
+from pipeline.inputs import discover, elfchain, runner, services
 
 
 def _mk_rootfs(tmp_path: Path) -> Path:
@@ -58,6 +58,15 @@ def test_kb_default_grading_and_null_address(tmp_path):
     assert ent["needs_confirmation"] is True
     assert ent["address"] is None
     assert ent["autostart"] is False
+
+
+def test_needed_closure_marks_unresolved_sonames(tmp_path):
+    root = _mk_rootfs(tmp_path)
+    (root / "lib" / "libc.so.6").write_bytes(b"x")
+    needed = ["libc.so.6", "libmissing.so.1"]
+    mapped = elfchain.resolve_libs(root, needed)
+    assert mapped[0] == "lib/libc.so.6"
+    assert elfchain.unresolved_needed(needed, mapped) == ["libmissing.so.1"]
 
 
 def test_loopback_bind_excluded_by_gate1(tmp_path):

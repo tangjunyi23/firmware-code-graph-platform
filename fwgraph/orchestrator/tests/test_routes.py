@@ -2,6 +2,7 @@
 
 import json
 import sqlite3
+from pathlib import Path
 
 from pipeline.routes import heuristics, runner
 
@@ -99,3 +100,84 @@ def test_route_injection_is_idempotent_and_preserves_external_nodes(tmp_path):
     assert external == 1
     assert len(edges) == 1
     assert json.loads(edges[0][1])["producer"] == runner.PRODUCER
+
+
+def test_resolve_ida_input_prefers_saved_idb(tmp_path):
+    job, md5 = "routejob", MD5
+    idb = tmp_path / "idb" / job / f"{md5}.i64"
+    idb.parent.mkdir(parents=True)
+    idb.write_bytes(b"idb")
+    elf = tmp_path / "extracted" / job / "bin" / "busybox"
+    elf.parent.mkdir(parents=True)
+    elf.write_bytes(b"elf")
+    assert runner.resolve_ida_input(
+        tmp_path, job, md5, {"path": "bin/busybox"}) == idb
+
+
+def test_resolve_ida_input_uses_rootfs_elf_database(tmp_path):
+    job, md5 = "routejob", MD5
+    saved = tmp_path / "pseudocode" / job / md5 / "database.i64"
+    saved.parent.mkdir(parents=True)
+    saved.write_bytes(b"idalib")
+    assert runner.resolve_ida_input(
+        tmp_path, job, md5, {"path": "bin/busybox"}) == saved
+
+
+def test_resolve_ida_input_stages_elf_when_idb_missing(tmp_path):
+    job, md5 = "routejob", MD5
+    elf = tmp_path / "extracted" / job / "usr" / "sbin" / "httpd"
+    elf.parent.mkdir(parents=True)
+    elf.write_bytes(b"\x7fELF")
+    staged = runner.resolve_ida_input(
+        tmp_path, job, md5, {"path": "usr/sbin/httpd"})
+    assert staged == tmp_path / "idb" / job / md5
+    assert staged.read_bytes() == b"\x7fELF"
+
+
+def test_run_job_skips_failed_binary_instead_of_aborting(tmp_path, monkeypatch):
+    job = "routejob"
+    other = "b" * 32
+    symbols = {
+        "binaries": {
+            MD5: {"path": "bin/busybox", "arch": "mips", "functions": [{
+                "addr": "0x1000", "name": "sub_1000", "decompile_ok": True,
+            }]},
+            other: {"path": "bin/b", "arch": "mips", "functions": [{
+                "addr": "0x1000", "name": "sub_1000", "decompile_ok": True,
+            }]},
+        }
+    }
+    pseudo = tmp_path / "pseudocode" / job
+    pseudo.mkdir(parents=True)
+    (pseudo / "symbols.json").write_text(json.dumps(symbols), encoding="utf-8")
+    for md5, path in ((MD5, "bin/busybox"), (other, "bin/b")):
+        elf = tmp_path / "extracted" / job / path
+        elf.parent.mkdir(parents=True, exist_ok=True)
+        elf.write_bytes(b"\x7fELF")
+
+    db = _database(tmp_path)
+    monkeypatch.setattr(runner.config, "ida_dir", lambda: tmp_path / "ida")
+    monkeypatch.setattr(runner.graph_ingest, "project_name", lambda j: PROJECT)
+    monkeypatch.setattr(runner.graph_ingest, "db_path", lambda p: db)
+    (tmp_path / "ida").mkdir()
+
+    def fake_run(command, stdout=None, stderr=None, env=None, timeout=None,
+                 check=False):
+        target = Path(command[-1]).name
+        class Proc:
+            returncode = 1 if target == other else 0
+        if Proc.returncode == 0:
+            out = Path(env["FWGRAPH_ROUTE_OUTPUT"])
+            out.parent.mkdir(parents=True, exist_ok=True)
+            out.write_text(json.dumps({
+                "status": "ok", "routes": [_route()], "meta": {},
+            }), encoding="utf-8")
+        return Proc()
+
+    monkeypatch.setattr(runner.subprocess, "run", fake_run)
+    done = runner.run_job(job, tmp_path, scan=True)
+    by_md5 = {row["binary_md5"]: row for row in done["binaries"]}
+    assert by_md5[MD5]["status"] == "ok"
+    assert by_md5[other]["status"] == "failed"
+    assert done["status"] == "ok"
+    assert done["injection"]["inserted"] == 1

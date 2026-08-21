@@ -98,7 +98,7 @@ def _category_matches(rule, func, call_terms, strings, code, semantic_terms):
     return evidence
 
 
-def analyze(symbols, pseudo_root, config=None):
+def analyze(symbols, pseudo_root, config=None, job_id=None, data_dir=None):
     config = config or load_config()
     pseudo_root = Path(pseudo_root)
     nodes = {}
@@ -107,10 +107,12 @@ def analyze(symbols, pseudo_root, config=None):
     raw_calls = {}
     sources = Counter()
     sinks = Counter()
+    decompile_gaps = 0
 
     for md5, entry in symbols.get("binaries", {}).items():
         for func in entry.get("functions", []):
             if not func.get("decompile_ok"):
+                decompile_gaps += 1
                 continue
             key = function_key(md5, func.get("addr"))
             nodes[key] = {
@@ -131,6 +133,19 @@ def analyze(symbols, pseudo_root, config=None):
         md5 = nodes[key]["binary_md5"]
         for call in calls:
             adjacency[key].update(names.get((md5, _norm(call)), set()))
+    ida_edges = sum(len(targets) for targets in adjacency.values())
+    extra_stats = {"cbm": 0, "cfg": 0, "cbm_scanned": 0, "cfg_scanned": 0}
+    if job_id and data_dir:
+        from pipeline.attack import edges as extra_edges
+        extra_stats = extra_edges.collect_extra(job_id, data_dir, symbols)
+        for src, dst in extra_stats.get("extra") or ():
+            if src not in adjacency or dst not in nodes or src == dst:
+                continue
+            if nodes[src]["binary_md5"] != nodes[dst]["binary_md5"]:
+                continue
+            adjacency[src].add(dst)
+    extra_stats.pop("extra", None)
+    union_edges = sum(len(targets) for targets in adjacency.values())
 
     sanitizer_terms = tuple(
         _norm(value) for value in config.get("scoring", {}).get("sanitizers", []))
@@ -174,10 +189,20 @@ def analyze(symbols, pseudo_root, config=None):
             if any(token in term for token in sanitizer_terms)})
 
     return {
-        "config_version": config.get("version"), "nodes": nodes,
+        "config_version": config.get("version"), "job_id": job_id,
+        "nodes": nodes,
         "adjacency": {key: sorted(value) for key, value in adjacency.items()},
         "source_counts": dict(sorted(sources.items())),
         "sink_counts": dict(sorted(sinks.items())),
+        "decompile_gaps": decompile_gaps,
+        "edge_stats": {
+            "ida": ida_edges,
+            "cbm": extra_stats.get("cbm", 0),
+            "cfg": extra_stats.get("cfg", 0),
+            "cbm_scanned": extra_stats.get("cbm_scanned", 0),
+            "cfg_scanned": extra_stats.get("cfg_scanned", 0),
+            "union": union_edges,
+        },
     }
 
 

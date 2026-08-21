@@ -63,21 +63,14 @@
         </el-form-item>
 
         <h4 class="sec-title">引擎与模型</h4>
-        <el-form-item label="漏洞挖掘引擎（VULNAGENT_ENGINE）">
-          <el-select v-model="form.VULNAGENT_ENGINE" placeholder="默认" style="width: 260px">
-            <el-option label="默认" value="" />
-            <el-option label="dsh" value="dsh" />
-            <el-option label="builtin" value="builtin" />
-          </el-select>
+        <el-form-item label="漏洞挖掘引擎">
+          <el-tag effect="dark">DeepSeek Harness（dsh）</el-tag>
         </el-form-item>
         <el-form-item label="LLM 模型（LLM_MODEL）">
           <el-input v-model="form.LLM_MODEL" style="width: 320px" />
         </el-form-item>
         <el-form-item label="LLM Base URL（LLM_BASE_URL）">
           <el-input v-model="form.LLM_BASE_URL" style="width: 320px" />
-        </el-form-item>
-        <el-form-item label="单任务 LLM 函数上限">
-          <el-input-number v-model="form.AI_MAX_FUNCS_PER_JOB" :min="1" :max="100000" />
         </el-form-item>
         <el-form-item label="IDA 并发数（IDA_WORKERS）">
           <el-input-number v-model="form.IDA_WORKERS" :min="1" :max="64" />
@@ -114,6 +107,7 @@ const AUTO_KEYS = [
   { key: 'AUTO_ROUTES', label: '自动路由识别（AUTO_ROUTES）' },
   { key: 'AUTO_SURFACES', label: '自动攻击面导出（AUTO_SURFACES）' },
   { key: 'AUTO_GRAPHEXT', label: '自动图谱扩展（AUTO_GRAPHEXT）' },
+  { key: 'AUTO_ATTACK_AI', label: '攻击路径 AI 分诊（AUTO_ATTACK_AI）' },
   { key: 'AUTO_FULL', label: '全自动分析链（AUTO_FULL）' }
 ]
 const autoFlags = reactive({})
@@ -121,7 +115,6 @@ const form = reactive({
   VULNAGENT_ENGINE: '',
   LLM_MODEL: '',
   LLM_BASE_URL: '',
-  AI_MAX_FUNCS_PER_JOB: 300,
   IDA_WORKERS: 3,
   EMBA_TIMEOUT: 7200
 })
@@ -191,7 +184,6 @@ async function loadConfig () {
     form.VULNAGENT_ENGINE = cfg.VULNAGENT_ENGINE || ''
     form.LLM_MODEL = cfg.LLM_MODEL || ''
     form.LLM_BASE_URL = cfg.LLM_BASE_URL || ''
-    form.AI_MAX_FUNCS_PER_JOB = parseInt(cfg.AI_MAX_FUNCS_PER_JOB, 10) || 300
     form.IDA_WORKERS = parseInt(cfg.IDA_WORKERS, 10) || 3
     form.EMBA_TIMEOUT = parseInt(cfg.EMBA_TIMEOUT, 10) || 7200
   } catch (e) {
@@ -205,7 +197,6 @@ async function save () {
     VULNAGENT_ENGINE: form.VULNAGENT_ENGINE,
     LLM_MODEL: form.LLM_MODEL,
     LLM_BASE_URL: form.LLM_BASE_URL,
-    AI_MAX_FUNCS_PER_JOB: String(form.AI_MAX_FUNCS_PER_JOB),
     IDA_WORKERS: String(form.IDA_WORKERS),
     EMBA_TIMEOUT: String(form.EMBA_TIMEOUT)
   }

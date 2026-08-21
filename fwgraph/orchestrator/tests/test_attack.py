@@ -57,6 +57,9 @@ def test_paths_are_bounded_scored_and_deterministic(tmp_path):
     assert first["summary"]["paths_returned"] == 2
     assert first["paths"][0]["edge_count"] == 1
     assert len(first["paths"][0]["path_id"]) == 16
+    assert first["paths"][0]["source"]["evidence_address"]["addr"] == "0x1000"
+    assert first["paths"][0]["danger_calls"] >= 1
+    assert "attribution" in first["paths"][0]
     surface.apply_annotations(symbols, analysis, first["path_ids_by_key"])
     first_func = symbols["binaries"][MD5]["functions"][0]
     assert first_func["on_attack_path"] is True
@@ -175,3 +178,58 @@ def test_cross_validation_skips_bad_traces_and_isolates_binaries(tmp_path):
     assert analysis["nodes"][key_a]["observed_in_trace"] is False
     assert analysis["nodes"][key_b]["trace_ids"] == ["valid"]
     assert result["paths"][0]["verified_reachable"] is True
+
+
+def test_cfg_call_edges_union_and_ignore_indirect_jump(tmp_path):
+    pseudo, symbols = _fixture(tmp_path)
+    functions = symbols["binaries"][MD5]["functions"]
+    functions[0]["calls"] = []
+    functions[0]["size"] = 64
+    functions[2]["size"] = 32
+    cfg_dir = tmp_path / "graphext" / "job" / "cfg"
+    cfg_dir.mkdir(parents=True)
+    (cfg_dir / f"{MD5}.json").write_text(json.dumps({
+        "0x1000": {"edges": [
+            ["0x1000", "0x3004", "call"],
+            ["0x1008", "0x9999", "indirect_jump"],
+            ["0x1000", "0x1004", "fall"],
+        ]},
+    }), encoding="utf-8")
+    analysis = surface.analyze(
+        symbols, pseudo, job_id="job", data_dir=tmp_path)
+    src = f"{MD5}:0x1000"
+    sink = f"{MD5}:0x3000"
+    assert sink in analysis["adjacency"][src]
+    assert analysis["edge_stats"]["cfg"] >= 1
+    assert all("0x9999" not in key for key in analysis["adjacency"][src])
+
+
+def test_cbm_calls_same_binary_only(tmp_path, monkeypatch):
+    from pipeline.graph import ingest as graph_ingest
+    pseudo, symbols = _fixture(tmp_path)
+    functions = symbols["binaries"][MD5]["functions"]
+    functions[0]["calls"] = []
+    cache = tmp_path / "cbmcache"
+    cache.mkdir()
+    monkeypatch.setattr(graph_ingest, "CBM_CACHE_DIR", cache)
+    proj = graph_ingest.project_name("job")
+    dirname = graph_ingest._binary_dirname(MD5, symbols["binaries"][MD5])
+    db = sqlite3.connect(graph_ingest.db_path(proj))
+    db.execute("CREATE TABLE nodes (id INTEGER PRIMARY KEY, project TEXT, "
+               "label TEXT, file_path TEXT, properties TEXT)")
+    db.execute("CREATE TABLE edges (project TEXT, source_id INTEGER, "
+               "target_id INTEGER, type TEXT)")
+    db.execute("INSERT INTO nodes VALUES (1,?,?,?,?)",
+               (proj, "Function", f"{dirname}/0x1000_sub_1000.c",
+                json.dumps({"addr": "0x1000"})))
+    db.execute("INSERT INTO nodes VALUES (2,?,?,?,?)",
+               (proj, "Function", f"{dirname}/0x3000_sub_3000.c",
+                json.dumps({"addr": "0x3000"})))
+    db.execute("INSERT INTO edges VALUES (?,?,?,?)",
+               (proj, 1, 2, "CALLS"))
+    db.commit()
+    db.close()
+    analysis = surface.analyze(
+        symbols, pseudo, job_id="job", data_dir=tmp_path)
+    assert f"{MD5}:0x3000" in analysis["adjacency"][f"{MD5}:0x1000"]
+    assert analysis["edge_stats"]["cbm"] >= 1

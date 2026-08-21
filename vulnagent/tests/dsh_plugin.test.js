@@ -38,10 +38,11 @@ test("registers the fw_* series incl. fw_browse_firmware; static mode drops dyna
   const names = ctx._tools.map((t) => t.name);
   for (const required of [
     "fw_get_identification", "fw_list_surfaces", "fw_get_surface",
-    "fw_get_function_source", "fw_attack_surface", "fw_search", "fw_call_trace",
+    "fw_get_function_source", "fw_attack_surface", "fw_compose_evidence",
+    "fw_search", "fw_call_trace",
     "fw_routes", "fw_list_traces", "fw_browse_firmware",
     "fw_request_trace", "fw_request_fuzz", "fw_request_frida",
-    "fw_get_fuzz_run", "fw_request_reanalysis", "fw_get_cfg", "fw_get_ast",
+    "fw_get_fuzz_run", "fw_get_cfg", "fw_get_ast",
     "record_finding",
   ]) {
     assert.ok(names.includes(required), `missing ${required}`);

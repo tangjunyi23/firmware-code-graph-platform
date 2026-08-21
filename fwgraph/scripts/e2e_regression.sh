@@ -2,10 +2,9 @@
 # e2e_regression.sh — fwgraph full-pipeline regression (M6).
 #
 # Synthetic firmware (2x busybox ELF + 1 text file, tar.gz) ->
-# upload -> [auto] extract -> [auto] decompile -> ailift tags (capped) -> graph
+# upload -> [auto] extract -> [auto] decompile -> graph
 # -> attack surface -> routes -> verify query/source contracts.
 #
-# Runs on the Ubuntu VM. Cost control: AI_MAX_FUNCS_PER_BIN=20 per binary.
 # Usage: bash fwgraph/scripts/e2e_regression.sh
 set -uo pipefail
 
@@ -40,12 +39,7 @@ wait_status() { # wait_status <job> <target1,target2> <timeout_s>
 say "== fwgraph e2e regression $(date -Is)"
 say "workdir: $WORK"
 
-# --- 0. restart orchestrator with capped AI budget -----------------------
-say "-- restart orchestrator with AI_MAX_FUNCS_PER_BIN=20"
-[ -f data/orchestrator.pid ] && kill "$(cat data/orchestrator.pid)" 2>/dev/null
-sleep 2
-AI_MAX_FUNCS_PER_BIN=20 bash scripts/run_orchestrator.sh >/dev/null
-sleep 3
+# --- 0. health -----------------------------------------------------------
 api /healthz | grep -q ok
 check "orchestrator healthz" $?
 
@@ -83,26 +77,7 @@ r = dec/tot if tot else 0
 print("OK" if r>0.95 else "BAD", f"{dec}/{tot}={r:.3f}")' | tee "$WORK/ds.check"
 grep -q OK "$WORK/ds.check"; check "decompile success rate >95%" $?
 
-# --- 3. ailift (capped at 20/bin) ----------------------------------------
-post /jobs/$JOB/ailift >/dev/null
-ST="$(wait_status "$JOB" ailifted 1800)"
-say "status after ailift: $ST"
-[ "$ST" = "ailifted" ]; check "ailift chain" $?
-
-api /jobs/$JOB/ailift | python3 -c '
-import json,sys
-d=json.load(sys.stdin)
-s=d.get("summary",{})
-tagged=sum(b.get("tagged",0) for b in (s.get("binaries") or {}).values())
-sent=sum(b.get("llm_sent",0) for b in (s.get("binaries") or {}).values())
-done=(d.get("registry") or {}).get("done",0)
-samples=d.get("tag_samples") or []
-renamed=[x.get("new_name") for x in samples if x.get("new_name")]
-print("OK" if tagged>0 and done>0 and not renamed else "BAD",
-      f"tagged={tagged} done={done} sent={sent} renamed={renamed[:3]}")' | tee "$WORK/ai.check"
-grep -q OK "$WORK/ai.check"; check "ailift tags done, no new names" $?
-
-# --- 4. graph -------------------------------------------------------------
+# --- 3. graph -------------------------------------------------------------
 post /jobs/$JOB/graph >/dev/null
 ST="$(wait_status "$JOB" routed 1800)"
 say "status after graph: $ST"

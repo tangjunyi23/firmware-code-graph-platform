@@ -24,7 +24,6 @@ import json
 import hashlib
 import os
 import re
-import shutil
 import sqlite3
 import subprocess
 import time
@@ -134,23 +133,25 @@ def _sanitize_source(text: str):
     return text, fixes
 
 
+_KEEP_TREE_FILES = frozenset({"graph_done.json"})
+
+
 def build_tree(job_id: str, data_dir) -> dict:
-    """Copy pseudocode into data/cbm/<job>/; return per-binary stats."""
+    """Copy pseudocode into data/cbm/<job>/; return per-binary stats.
+
+    Incremental: skip writes when the sanitized dest already matches, and
+    delete dest files that are no longer in symbols. `.git` and
+    `graph_done.json` are left in place.
+    """
     data_dir = Path(data_dir)
     pseudo_root = data_dir / "pseudocode" / job_id
     symbols = json.loads((pseudo_root / "symbols.json").read_text(encoding="utf-8"))
     tree_root = data_dir / "cbm" / job_id
-    if tree_root.is_dir():
-        # rebuild from scratch but keep .git (CBM watcher/incremental state)
-        for child in tree_root.iterdir():
-            if child.name == ".git":
-                continue
-            if child.is_dir():
-                shutil.rmtree(child)
-            else:
-                child.unlink()
+    tree_root.mkdir(parents=True, exist_ok=True)
     stats = {"tree_root": str(tree_root), "binaries": {}, "files_copied": 0,
-             "skipped": 0, "sanitized": 0}
+             "skipped": 0, "sanitized": 0, "written": 0, "unchanged": 0,
+             "deleted": 0}
+    wanted = set()
     for md5 in sorted(symbols.get("binaries", {})):
         entry = symbols["binaries"][md5]
         dirname = _binary_dirname(md5, entry)
@@ -167,15 +168,40 @@ def build_tree(job_id: str, data_dir) -> dict:
                 stats["skipped"] += 1
                 continue
             fname = _function_filename(func)
+            rel = f"{dirname}/{fname}"
+            wanted.add(rel)
             text = src.read_text(encoding="utf-8", errors="replace")
             text, fixes = _sanitize_source(text)
             if fixes:
                 stats["sanitized"] += 1
-            (dest_dir / fname).write_text(text, encoding="utf-8")
+            dest = dest_dir / fname
+            if dest.is_file() and dest.read_text(
+                    encoding="utf-8", errors="replace") == text:
+                stats["unchanged"] += 1
+            else:
+                dest.write_text(text, encoding="utf-8")
+                stats["written"] += 1
             copied += 1
         stats["binaries"][md5] = {"dir": dirname, "arch": entry.get("arch"),
                                   "files": copied}
         stats["files_copied"] += copied
+    if tree_root.is_dir():
+        for path in tree_root.rglob("*"):
+            if not path.is_file() or ".git" in path.parts:
+                continue
+            if path.name in _KEEP_TREE_FILES:
+                continue
+            rel = path.relative_to(tree_root).as_posix()
+            if rel not in wanted:
+                path.unlink()
+                stats["deleted"] += 1
+        for path in sorted(tree_root.rglob("*"), reverse=True):
+            if not path.is_dir() or ".git" in path.parts or path == tree_root:
+                continue
+            try:
+                next(path.iterdir())
+            except StopIteration:
+                path.rmdir()
     return stats
 
 
@@ -183,15 +209,26 @@ def build_tree(job_id: str, data_dir) -> dict:
 # b. git init (enables CBM watcher/incremental indexing)
 # ---------------------------------------------------------------------------
 
-def _git(tree_root: Path, *args):
+def _git(tree_root: Path, *args, timeout=600):
     return subprocess.run(
         ["git", "-C", str(tree_root), *args], capture_output=True, text=True,
-        timeout=60)
+        timeout=timeout)
 
 
-def git_init_commit(tree_root) -> dict:
-    """git init + commit-all; idempotent (skips the commit when clean)."""
+def git_init_commit(tree_root, files_copied=0) -> dict:
+    """git init + commit-all; idempotent (skips the commit when clean).
+
+    CBM index_repository does not require git. Skip when CBM_GIT=0 or the
+    tree is larger than CBM_GIT_MAX_FILES (default 20000) so large firmware
+    ingest is not blocked by `git add -A`.
+    """
     tree_root = Path(tree_root)
+    if _cfg("CBM_GIT", "1") == "0":
+        return {"ok": True, "committed": False, "skipped": "CBM_GIT=0"}
+    max_files = max(0, int(_cfg("CBM_GIT_MAX_FILES", "20000")))
+    if files_copied > max_files:
+        return {"ok": True, "committed": False,
+                "skipped": f"files_copied={files_copied}>{max_files}"}
     if not (tree_root / ".git").is_dir():
         proc = _git(tree_root, "init")
         if proc.returncode != 0:
@@ -362,8 +399,10 @@ def run_job(job_id: str, data_dir) -> dict:
     tree_root = Path(tree["tree_root"])
 
     # b. git init + commit (watcher/incremental support)
-    git_res = git_init_commit(tree_root)
+    git_res = git_init_commit(tree_root, files_copied=tree["files_copied"])
     summary["git"] = git_res
+    if git_res.get("skipped"):
+        summary["warnings"].append(f"git skipped: {git_res['skipped']}")
     if not git_res.get("ok"):
         summary["warnings"].append(f"git init/commit failed: "
                                    f"{git_res.get('error')}")

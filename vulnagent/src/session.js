@@ -311,13 +311,20 @@ export class Session {
       lines.push(`- **漏洞位置**：${f.function_name ?? "?"} @ ${f.function_addr}`);
       lines.push(`- **可达性**：${f.reachability ?? "static-only"}`);
       lines.push(`- **漏洞描述**：${f.summary}`);
-      if (f.source_summary || f.sink_function) {
-        lines.push(`- **攻击路径**：${f.source_summary ?? "?"} → sink：${f.sink_function ?? "?"}`);
-      }
       if (f.sanitization) lines.push(`- **消毒与防护现状**：${f.sanitization}`);
       lines.push("- **漏洞证据**：");
       for (const [j, e] of (f.evidence ?? []).entries()) lines.push(`  ${j + 1}. ${e}`);
-      if (f.exploit_sketch) lines.push(`- **利用思路**：${f.exploit_sketch}`);
+      let chain = (f.call_chain || "").trim();
+      if (!chain) {
+        const src = (f.source_summary || "").trim();
+        const sink = (f.sink_function || "").trim();
+        if (src || sink) chain = `${src || "入口未知"} → ${sink || "sink 未知"}`;
+      }
+      lines.push("", "**调用链**：", "", chain || "（未给出调用链）", "");
+      const poc = (f.poc || f.exploit_sketch || "").trim();
+      lines.push("**漏洞 PoC**：", "");
+      if (poc) lines.push("```", poc, "```", "");
+      else lines.push("（未给出可复现 PoC）", "");
       if (f.remediation) lines.push(`- **修复建议**：${f.remediation}`);
       lines.push("");
     });

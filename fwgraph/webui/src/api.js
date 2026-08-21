@@ -72,6 +72,51 @@ export async function api (path, { method = 'GET', body, formData, signal } = {}
   return ct.includes('application/json') ? resp.json() : resp.text()
 }
 
+function _xhrDetail (xhr) {
+  let detail = `${xhr.status}`
+  try {
+    const j = JSON.parse(xhr.responseText)
+    if (j && j.detail) detail = j.detail
+  } catch { /* non-JSON */ }
+  return detail
+}
+
+/** Multipart firmware upload with progress. Job is created only after the
+ *  body is fully received, so callers should show percent until resolve. */
+export function uploadFirmware (file, { auto = true, onProgress } = {}) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest()
+    const q = auto ? '?auto=1' : ''
+    xhr.open('POST', `/firmware${q}`)
+    const token = getToken()
+    if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`)
+    xhr.upload.onprogress = (ev) => {
+      if (onProgress && ev.lengthComputable) onProgress(ev.loaded, ev.total)
+    }
+    xhr.onload = () => {
+      if (xhr.status === 401) {
+        if (onUnauthorized) onUnauthorized()
+        reject(new ApiError(401, '登录状态已失效，请重新登录'))
+        return
+      }
+      if (xhr.status < 200 || xhr.status >= 300) {
+        reject(new ApiError(xhr.status, _xhrDetail(xhr)))
+        return
+      }
+      try {
+        resolve(JSON.parse(xhr.responseText))
+      } catch {
+        reject(new ApiError(xhr.status, '上传响应无法解析'))
+      }
+    }
+    xhr.onerror = () => reject(new ApiError(0, '网络错误，固件未上传完成'))
+    xhr.onabort = () => reject(new ApiError(0, '上传已取消'))
+    const fd = new FormData()
+    fd.append('file', file)
+    xhr.send(fd)
+  })
+}
+
 // ---- auth helpers ----------------------------------------------------------
 
 export async function login (username, password) {

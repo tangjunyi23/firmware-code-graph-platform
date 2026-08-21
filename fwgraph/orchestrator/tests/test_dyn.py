@@ -41,6 +41,10 @@ class _FakeProc:
 
 def test_fuzz_writes_summary(tmp_path, monkeypatch):
     data_dir, md5 = _mk_job(tmp_path)
+    # 固定宿主直跑：docker 可用且沙箱镜像存在时 fuzz 会改走容器路径
+    # （Phase 2 起），本用例语义是宿主 afl 输出解析
+    monkeypatch.setattr(fuzz_runner.sandbox, "backend_for",
+                        lambda _component: "none")
     monkeypatch.setenv("FUZZ_AFL_QEMU", "/bin/true")  # pretend runtime exists
 
     def fake_popen(cmd, **kw):

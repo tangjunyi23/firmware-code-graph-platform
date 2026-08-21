@@ -1,0 +1,5323 @@
+{
+  "job_id": "6df0ba4135c9",
+  "generated_at": "2026-08-21T08:41:38.711064+00:00",
+  "config_version": 1,
+  "summary": {
+    "sources": 874,
+    "sinks": 3597,
+    "path_candidates": 5000,
+    "paths_returned": 50,
+    "max_depth": 8,
+    "source_counts": {
+      "argv": 44,
+      "env": 34,
+      "file": 182,
+      "network": 627,
+      "nvram": 1,
+      "serial": 20
+    },
+    "sink_counts": {
+      "cmdexec": 275,
+      "filewrite": 438,
+      "fmt": 520,
+      "fwupdate": 1,
+      "memunsafe": 2658,
+      "memunsafe_like": 89
+    },
+    "edge_stats": {
+      "ida": 113259,
+      "cbm": 140925,
+      "cfg": 0,
+      "cbm_scanned": 141414,
+      "cfg_scanned": 0,
+      "union": 147523
+    },
+    "decompile_gaps": 4193,
+    "ai_review": {
+      "status": "ok",
+      "requested": 20,
+      "reviewed": 20,
+      "dropped": 0
+    }
+  },
+  "paths": [
+    {
+      "path_id": "2c3d3b796fdb9ccf",
+      "binary_md5": "013126995a8c8228fc47c9d7a6ca9699",
+      "score": 6.05,
+      "edge_count": 0,
+      "source": {
+        "addr": "0x7590c",
+        "name": "ff_udp_set_remote_url",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [
+          "network"
+        ],
+        "asink": [
+          "memunsafe"
+        ],
+        "binary_md5": "013126995a8c8228fc47c9d7a6ca9699",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "013126995a8c8228fc47c9d7a6ca9699",
+          "addr": "0x7590c",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sink": {
+        "addr": "0x7590c",
+        "name": "ff_udp_set_remote_url",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [
+          "network"
+        ],
+        "asink": [
+          "memunsafe"
+        ],
+        "binary_md5": "013126995a8c8228fc47c9d7a6ca9699",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "013126995a8c8228fc47c9d7a6ca9699",
+          "addr": "0x7590c",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sanitizers": [],
+      "chain": [
+        {
+          "addr": "0x7590c",
+          "name": "ff_udp_set_remote_url",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [
+            "network"
+          ],
+          "asink": [
+            "memunsafe"
+          ],
+          "binary_md5": "013126995a8c8228fc47c9d7a6ca9699",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "013126995a8c8228fc47c9d7a6ca9699",
+            "addr": "0x7590c",
+            "job_id": "6df0ba4135c9"
+          }
+        }
+      ],
+      "entry_outdegree": 11,
+      "danger_calls": 1,
+      "attribution": "static_only",
+      "verified_reachable": false,
+      "trace_ids": [],
+      "observed_node_count": 0,
+      "observed_trace_ids": [],
+      "ai_review": {
+        "path_id": "2c3d3b796fdb9ccf",
+        "priority": "P1",
+        "vuln_class_hint": "bof",
+        "cwe_hint": "CWE-121",
+        "sanitizer_effective": null,
+        "dataflow": "unclear",
+        "reason": "ff_udp_set_remote_url 中 memcpy 将 getaddrinfo 返回的 ai_addr 复制到固定偏移 v4+28，长度 ai_addrlen 由 DNS/网络响应决定，未显示目标缓冲区大小校验。攻击者可能通过控制 DNS 响应或 URL 影响 ai_addrlen，导致栈/堆溢出。但 ai_addrlen 通常受协议限制，且无调用上下文，数据流不明确。",
+        "source": "llm"
+      }
+    },
+    {
+      "path_id": "88f968c902172308",
+      "binary_md5": "013126995a8c8228fc47c9d7a6ca9699",
+      "score": 6.05,
+      "edge_count": 0,
+      "source": {
+        "addr": "0x75b20",
+        "name": "udp_open",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [
+          "network"
+        ],
+        "asink": [
+          "memunsafe"
+        ],
+        "binary_md5": "013126995a8c8228fc47c9d7a6ca9699",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "013126995a8c8228fc47c9d7a6ca9699",
+          "addr": "0x75b20",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sink": {
+        "addr": "0x75b20",
+        "name": "udp_open",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [
+          "network"
+        ],
+        "asink": [
+          "memunsafe"
+        ],
+        "binary_md5": "013126995a8c8228fc47c9d7a6ca9699",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "013126995a8c8228fc47c9d7a6ca9699",
+          "addr": "0x75b20",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sanitizers": [],
+      "chain": [
+        {
+          "addr": "0x75b20",
+          "name": "udp_open",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [
+            "network"
+          ],
+          "asink": [
+            "memunsafe"
+          ],
+          "binary_md5": "013126995a8c8228fc47c9d7a6ca9699",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "013126995a8c8228fc47c9d7a6ca9699",
+            "addr": "0x75b20",
+            "job_id": "6df0ba4135c9"
+          }
+        }
+      ],
+      "entry_outdegree": 27,
+      "danger_calls": 1,
+      "attribution": "static_only",
+      "verified_reachable": false,
+      "trace_ids": [],
+      "observed_node_count": 0,
+      "observed_trace_ids": [],
+      "ai_review": {
+        "path_id": "88f968c902172308",
+        "priority": "P1",
+        "vuln_class_hint": "bof",
+        "cwe_hint": "CWE-121",
+        "sanitizer_effective": null,
+        "dataflow": "unclear",
+        "reason": "udp_open 中两处 memcpy：line 150 复制 ai_addr 到 dest，line 233 复制固定大小 sizeof(v53) 到 v53。前者长度 ai_addrlen 来自网络解析，目标 dest 大小未知，存在溢出风险；后者源 v5+36 可能来自网络数据，但目标大小固定，若源超限则溢出。需确认 dest 和 v53 缓冲区大小及数据来源。",
+        "source": "llm"
+      }
+    },
+    {
+      "path_id": "b30fcc1fad45a25b",
+      "binary_md5": "013126995a8c8228fc47c9d7a6ca9699",
+      "score": 6.05,
+      "edge_count": 0,
+      "source": {
+        "addr": "0x6d968",
+        "name": "ff_rtsp_connect",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [
+          "network"
+        ],
+        "asink": [
+          "memunsafe"
+        ],
+        "binary_md5": "013126995a8c8228fc47c9d7a6ca9699",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "013126995a8c8228fc47c9d7a6ca9699",
+          "addr": "0x6d968",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sink": {
+        "addr": "0x6d968",
+        "name": "ff_rtsp_connect",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [
+          "network"
+        ],
+        "asink": [
+          "memunsafe"
+        ],
+        "binary_md5": "013126995a8c8228fc47c9d7a6ca9699",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "013126995a8c8228fc47c9d7a6ca9699",
+          "addr": "0x6d968",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sanitizers": [],
+      "chain": [
+        {
+          "addr": "0x6d968",
+          "name": "ff_rtsp_connect",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [
+            "network"
+          ],
+          "asink": [
+            "memunsafe"
+          ],
+          "binary_md5": "013126995a8c8228fc47c9d7a6ca9699",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "013126995a8c8228fc47c9d7a6ca9699",
+            "addr": "0x6d968",
+            "job_id": "6df0ba4135c9"
+          }
+        }
+      ],
+      "entry_outdegree": 25,
+      "danger_calls": 1,
+      "attribution": "static_only",
+      "verified_reachable": false,
+      "trace_ids": [],
+      "observed_node_count": 0,
+      "observed_trace_ids": [],
+      "ai_review": {
+        "path_id": "b30fcc1fad45a25b",
+        "priority": "P1",
+        "vuln_class_hint": "bof",
+        "cwe_hint": "CWE-121",
+        "sanitizer_effective": null,
+        "dataflow": "unclear",
+        "reason": "ff_rtsp_connect 中 strcpy 将 s[1601] 处字符串复制到 dest，源可能来自 RTSP URL 或网络响应，目标 dest 大小未显示。若 dest 缓冲区小于源字符串长度，可导致栈溢出。需确认 dest 大小及 s[1601] 是否受攻击者控制，数据流不明确。",
+        "source": "llm"
+      }
+    },
+    {
+      "path_id": "13ad3af11ed2d97b",
+      "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+      "score": 6.05,
+      "edge_count": 0,
+      "source": {
+        "addr": "0x4114d0",
+        "name": "network_thread",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [
+          "network"
+        ],
+        "asink": [
+          "memunsafe"
+        ],
+        "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "addr": "0x4114d0",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sink": {
+        "addr": "0x4114d0",
+        "name": "network_thread",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [
+          "network"
+        ],
+        "asink": [
+          "memunsafe"
+        ],
+        "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "addr": "0x4114d0",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sanitizers": [],
+      "chain": [
+        {
+          "addr": "0x4114d0",
+          "name": "network_thread",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [
+            "network"
+          ],
+          "asink": [
+            "memunsafe"
+          ],
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+            "addr": "0x4114d0",
+            "job_id": "6df0ba4135c9"
+          }
+        }
+      ],
+      "entry_outdegree": 25,
+      "danger_calls": 1,
+      "attribution": "static_only",
+      "verified_reachable": false,
+      "trace_ids": [],
+      "observed_node_count": 0,
+      "observed_trace_ids": [],
+      "ai_review": {
+        "path_id": "13ad3af11ed2d97b",
+        "priority": "P1",
+        "vuln_class_hint": "bof",
+        "cwe_hint": "CWE-121",
+        "sanitizer_effective": null,
+        "dataflow": "likely",
+        "reason": "network_thread 中 strcpy 将 v10 复制到 j+916，v10 可能来自网络接收的数据（如协议字段），目标缓冲区大小未显示。network_thread 处理网络输入，攻击者可能控制 v10 内容，若长度超过目标缓冲区则栈溢出。数据流较可能，需确认 v10 来源和缓冲区大小。",
+        "source": "llm"
+      }
+    },
+    {
+      "path_id": "eef2c374170989df",
+      "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+      "score": 6.0,
+      "edge_count": 0,
+      "source": {
+        "addr": "0x403af8",
+        "name": "sub_403AF8",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [
+          "network"
+        ],
+        "asink": [
+          "memunsafe"
+        ],
+        "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "addr": "0x403af8",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sink": {
+        "addr": "0x403af8",
+        "name": "sub_403AF8",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [
+          "network"
+        ],
+        "asink": [
+          "memunsafe"
+        ],
+        "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "addr": "0x403af8",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sanitizers": [],
+      "chain": [
+        {
+          "addr": "0x403af8",
+          "name": "sub_403AF8",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [
+            "network"
+          ],
+          "asink": [
+            "memunsafe"
+          ],
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+            "addr": "0x403af8",
+            "job_id": "6df0ba4135c9"
+          }
+        }
+      ],
+      "entry_outdegree": 7,
+      "danger_calls": 1,
+      "attribution": "static_only",
+      "verified_reachable": false,
+      "trace_ids": [],
+      "observed_node_count": 0,
+      "observed_trace_ids": [],
+      "ai_review": {
+        "path_id": "eef2c374170989df",
+        "priority": "P2",
+        "vuln_class_hint": "bof",
+        "cwe_hint": "CWE-121",
+        "sanitizer_effective": null,
+        "dataflow": "unclear",
+        "reason": "sub_403AF8 中 memmove 将 hostent 的 h_addr_list 复制到局部变量 dest（8 字节），长度 h_length 通常为 4（IPv4）或 16（IPv6），dest 大小可能不足。但 h_length 由 DNS 解析结果决定，攻击者难以直接控制，且 dest 为局部变量，溢出影响有限。数据流不明确，优先级较低。",
+        "source": "llm"
+      }
+    },
+    {
+      "path_id": "6f917b4f830b35da",
+      "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+      "score": 5.98,
+      "edge_count": 1,
+      "source": {
+        "addr": "0x40190c",
+        "name": "main",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [
+          "argv",
+          "network"
+        ],
+        "asink": [
+          "filewrite"
+        ],
+        "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+          "addr": "0x40190c",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sink": {
+        "addr": "0x4010f0",
+        "name": "sub_4010F0",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [],
+        "asink": [
+          "memunsafe"
+        ],
+        "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+          "addr": "0x4010f0",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sanitizers": [],
+      "chain": [
+        {
+          "addr": "0x40190c",
+          "name": "main",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [
+            "argv",
+            "network"
+          ],
+          "asink": [
+            "filewrite"
+          ],
+          "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+            "addr": "0x40190c",
+            "job_id": "6df0ba4135c9"
+          }
+        },
+        {
+          "addr": "0x4010f0",
+          "name": "sub_4010F0",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [],
+          "asink": [
+            "memunsafe"
+          ],
+          "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+            "addr": "0x4010f0",
+            "job_id": "6df0ba4135c9"
+          }
+        }
+      ],
+      "entry_outdegree": 20,
+      "danger_calls": 2,
+      "attribution": "static_only",
+      "verified_reachable": false,
+      "trace_ids": [],
+      "observed_node_count": 0,
+      "observed_trace_ids": [],
+      "ai_review": {
+        "path_id": "6f917b4f830b35da",
+        "priority": "P1",
+        "vuln_class_hint": "bof",
+        "cwe_hint": "CWE-121",
+        "sanitizer_effective": null,
+        "dataflow": "unclear",
+        "reason": "main 调用 sub_4010F0，sink 处 memcpy(v14, src, v12) 长度 v12 可能来自外部输入（argv/network），但未显示边界检查。需确认 v12 是否受控及目标缓冲区大小。",
+        "source": "llm"
+      }
+    },
+    {
+      "path_id": "b6da8ce82f553ae8",
+      "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+      "score": 5.98,
+      "edge_count": 1,
+      "source": {
+        "addr": "0x40190c",
+        "name": "main",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [
+          "argv",
+          "network"
+        ],
+        "asink": [
+          "filewrite"
+        ],
+        "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+          "addr": "0x40190c",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sink": {
+        "addr": "0x400c40",
+        "name": "sub_400C40",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [],
+        "asink": [
+          "memunsafe"
+        ],
+        "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+          "addr": "0x400c40",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sanitizers": [],
+      "chain": [
+        {
+          "addr": "0x40190c",
+          "name": "main",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [
+            "argv",
+            "network"
+          ],
+          "asink": [
+            "filewrite"
+          ],
+          "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+            "addr": "0x40190c",
+            "job_id": "6df0ba4135c9"
+          }
+        },
+        {
+          "addr": "0x400c40",
+          "name": "sub_400C40",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [],
+          "asink": [
+            "memunsafe"
+          ],
+          "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+            "addr": "0x400c40",
+            "job_id": "6df0ba4135c9"
+          }
+        }
+      ],
+      "entry_outdegree": 20,
+      "danger_calls": 2,
+      "attribution": "static_only",
+      "verified_reachable": false,
+      "trace_ids": [],
+      "observed_node_count": 0,
+      "observed_trace_ids": [],
+      "ai_review": {
+        "path_id": "b6da8ce82f553ae8",
+        "priority": "P1",
+        "vuln_class_hint": "bof",
+        "cwe_hint": "CWE-121",
+        "sanitizer_effective": null,
+        "dataflow": "unclear",
+        "reason": "main 调用 sub_400C40，sink 处 memcpy(v9, src, v8) 长度 v8 可能来自文件或网络数据，未显示消毒。需分析 v8 来源及目标缓冲区容量。",
+        "source": "llm"
+      }
+    },
+    {
+      "path_id": "61f3f4e16a8a1075",
+      "binary_md5": "013126995a8c8228fc47c9d7a6ca9699",
+      "score": 5.98,
+      "edge_count": 1,
+      "source": {
+        "addr": "0x75b20",
+        "name": "udp_open",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [
+          "network"
+        ],
+        "asink": [
+          "memunsafe"
+        ],
+        "binary_md5": "013126995a8c8228fc47c9d7a6ca9699",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "013126995a8c8228fc47c9d7a6ca9699",
+          "addr": "0x75b20",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sink": {
+        "addr": "0x7590c",
+        "name": "ff_udp_set_remote_url",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [
+          "network"
+        ],
+        "asink": [
+          "memunsafe"
+        ],
+        "binary_md5": "013126995a8c8228fc47c9d7a6ca9699",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "013126995a8c8228fc47c9d7a6ca9699",
+          "addr": "0x7590c",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sanitizers": [],
+      "chain": [
+        {
+          "addr": "0x75b20",
+          "name": "udp_open",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [
+            "network"
+          ],
+          "asink": [
+            "memunsafe"
+          ],
+          "binary_md5": "013126995a8c8228fc47c9d7a6ca9699",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "013126995a8c8228fc47c9d7a6ca9699",
+            "addr": "0x75b20",
+            "job_id": "6df0ba4135c9"
+          }
+        },
+        {
+          "addr": "0x7590c",
+          "name": "ff_udp_set_remote_url",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [
+            "network"
+          ],
+          "asink": [
+            "memunsafe"
+          ],
+          "binary_md5": "013126995a8c8228fc47c9d7a6ca9699",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "013126995a8c8228fc47c9d7a6ca9699",
+            "addr": "0x7590c",
+            "job_id": "6df0ba4135c9"
+          }
+        }
+      ],
+      "entry_outdegree": 27,
+      "danger_calls": 2,
+      "attribution": "static_only",
+      "verified_reachable": false,
+      "trace_ids": [],
+      "observed_node_count": 0,
+      "observed_trace_ids": [],
+      "ai_review": {
+        "path_id": "61f3f4e16a8a1075",
+        "priority": "P1",
+        "vuln_class_hint": "bof",
+        "cwe_hint": "CWE-121",
+        "sanitizer_effective": null,
+        "dataflow": "likely",
+        "reason": "udp_open 调用 ff_udp_set_remote_url，sink 处 memcpy((void *)(v4 + 28), v5->ai_addr, v5->ai_addrlen) 长度来自 addrinfo，可能受网络输入影响。需确认目标缓冲区大小是否足够。",
+        "source": "llm"
+      }
+    },
+    {
+      "path_id": "a67a4aaa488729ee",
+      "binary_md5": "013126995a8c8228fc47c9d7a6ca9699",
+      "score": 5.98,
+      "edge_count": 1,
+      "source": {
+        "addr": "0x6d968",
+        "name": "ff_rtsp_connect",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [
+          "network"
+        ],
+        "asink": [
+          "memunsafe"
+        ],
+        "binary_md5": "013126995a8c8228fc47c9d7a6ca9699",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "013126995a8c8228fc47c9d7a6ca9699",
+          "addr": "0x6d968",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sink": {
+        "addr": "0x23a0c",
+        "name": "ff_http_init_auth_state",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [],
+        "asink": [
+          "memunsafe"
+        ],
+        "binary_md5": "013126995a8c8228fc47c9d7a6ca9699",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "013126995a8c8228fc47c9d7a6ca9699",
+          "addr": "0x23a0c",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sanitizers": [],
+      "chain": [
+        {
+          "addr": "0x6d968",
+          "name": "ff_rtsp_connect",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [
+            "network"
+          ],
+          "asink": [
+            "memunsafe"
+          ],
+          "binary_md5": "013126995a8c8228fc47c9d7a6ca9699",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "013126995a8c8228fc47c9d7a6ca9699",
+            "addr": "0x6d968",
+            "job_id": "6df0ba4135c9"
+          }
+        },
+        {
+          "addr": "0x23a0c",
+          "name": "ff_http_init_auth_state",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [],
+          "asink": [
+            "memunsafe"
+          ],
+          "binary_md5": "013126995a8c8228fc47c9d7a6ca9699",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "013126995a8c8228fc47c9d7a6ca9699",
+            "addr": "0x23a0c",
+            "job_id": "6df0ba4135c9"
+          }
+        }
+      ],
+      "entry_outdegree": 25,
+      "danger_calls": 2,
+      "attribution": "static_only",
+      "verified_reachable": false,
+      "trace_ids": [],
+      "observed_node_count": 0,
+      "observed_trace_ids": [],
+      "ai_review": {
+        "path_id": "a67a4aaa488729ee",
+        "priority": "P2",
+        "vuln_class_hint": "unknown",
+        "cwe_hint": null,
+        "sanitizer_effective": null,
+        "dataflow": "unlikely",
+        "reason": "ff_rtsp_connect 调用 ff_http_init_auth_state，sink 处 memcpy 使用固定长度 0x360u，且源和目标均为结构体偏移，可能为内部状态复制，攻击者数据难以直接影响长度。",
+        "source": "llm"
+      }
+    },
+    {
+      "path_id": "c1e52595cd7c742c",
+      "binary_md5": "013126995a8c8228fc47c9d7a6ca9699",
+      "score": 5.98,
+      "edge_count": 1,
+      "source": {
+        "addr": "0x6d968",
+        "name": "ff_rtsp_connect",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [
+          "network"
+        ],
+        "asink": [
+          "memunsafe"
+        ],
+        "binary_md5": "013126995a8c8228fc47c9d7a6ca9699",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "013126995a8c8228fc47c9d7a6ca9699",
+          "addr": "0x6d968",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sink": {
+        "addr": "0x15abc",
+        "name": "ffurl_alloc",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [],
+        "asink": [
+          "memunsafe"
+        ],
+        "binary_md5": "013126995a8c8228fc47c9d7a6ca9699",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "013126995a8c8228fc47c9d7a6ca9699",
+          "addr": "0x15abc",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sanitizers": [],
+      "chain": [
+        {
+          "addr": "0x6d968",
+          "name": "ff_rtsp_connect",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [
+            "network"
+          ],
+          "asink": [
+            "memunsafe"
+          ],
+          "binary_md5": "013126995a8c8228fc47c9d7a6ca9699",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "013126995a8c8228fc47c9d7a6ca9699",
+            "addr": "0x6d968",
+            "job_id": "6df0ba4135c9"
+          }
+        },
+        {
+          "addr": "0x15abc",
+          "name": "ffurl_alloc",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [],
+          "asink": [
+            "memunsafe"
+          ],
+          "binary_md5": "013126995a8c8228fc47c9d7a6ca9699",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "013126995a8c8228fc47c9d7a6ca9699",
+            "addr": "0x15abc",
+            "job_id": "6df0ba4135c9"
+          }
+        }
+      ],
+      "entry_outdegree": 25,
+      "danger_calls": 2,
+      "attribution": "static_only",
+      "verified_reachable": false,
+      "trace_ids": [],
+      "observed_node_count": 0,
+      "observed_trace_ids": [],
+      "ai_review": {
+        "path_id": "c1e52595cd7c742c",
+        "priority": "P2",
+        "vuln_class_hint": "unknown",
+        "cwe_hint": null,
+        "sanitizer_effective": null,
+        "dataflow": "unlikely",
+        "reason": "ff_rtsp_connect 调用 ffurl_alloc，sink 处 strcpy(dest, \"file\") 为常量字符串，无攻击者数据流入，属于误报。",
+        "source": "llm"
+      }
+    },
+    {
+      "path_id": "16f3b0fb55ecb4cc",
+      "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+      "score": 5.98,
+      "edge_count": 1,
+      "source": {
+        "addr": "0x4114d0",
+        "name": "network_thread",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [
+          "network"
+        ],
+        "asink": [
+          "memunsafe"
+        ],
+        "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "addr": "0x4114d0",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sink": {
+        "addr": "0x4041b4",
+        "name": "do_control",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [
+          "file"
+        ],
+        "asink": [
+          "memunsafe"
+        ],
+        "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "addr": "0x4041b4",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sanitizers": [],
+      "chain": [
+        {
+          "addr": "0x4114d0",
+          "name": "network_thread",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [
+            "network"
+          ],
+          "asink": [
+            "memunsafe"
+          ],
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+            "addr": "0x4114d0",
+            "job_id": "6df0ba4135c9"
+          }
+        },
+        {
+          "addr": "0x4041b4",
+          "name": "do_control",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [
+            "file"
+          ],
+          "asink": [
+            "memunsafe"
+          ],
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+            "addr": "0x4041b4",
+            "job_id": "6df0ba4135c9"
+          }
+        }
+      ],
+      "entry_outdegree": 25,
+      "danger_calls": 2,
+      "attribution": "static_only",
+      "verified_reachable": false,
+      "trace_ids": [],
+      "observed_node_count": 0,
+      "observed_trace_ids": [],
+      "ai_review": {
+        "path_id": "16f3b0fb55ecb4cc",
+        "priority": "P1",
+        "vuln_class_hint": "bof",
+        "cwe_hint": "CWE-121",
+        "sanitizer_effective": null,
+        "dataflow": "unclear",
+        "reason": "network_thread 中 strcpy((char *)(j + 916), v10) 将网络数据复制到固定偏移，do_control 中 strcpy((char *)dial_no_tmp, v8) 可能接收该数据。两处均无长度限制，存在栈溢出风险。但路径链仅 1 条边，且未验证可达性，需确认 v10 是否直接来自网络输入。",
+        "source": "llm"
+      }
+    },
+    {
+      "path_id": "fdde89c5028e769c",
+      "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+      "score": 5.98,
+      "edge_count": 1,
+      "source": {
+        "addr": "0x4114d0",
+        "name": "network_thread",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [
+          "network"
+        ],
+        "asink": [
+          "memunsafe"
+        ],
+        "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "addr": "0x4114d0",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sink": {
+        "addr": "0x40f9e8",
+        "name": "get_call",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [],
+        "asink": [
+          "memunsafe"
+        ],
+        "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "addr": "0x40f9e8",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sanitizers": [],
+      "chain": [
+        {
+          "addr": "0x4114d0",
+          "name": "network_thread",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [
+            "network"
+          ],
+          "asink": [
+            "memunsafe"
+          ],
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+            "addr": "0x4114d0",
+            "job_id": "6df0ba4135c9"
+          }
+        },
+        {
+          "addr": "0x40f9e8",
+          "name": "get_call",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [],
+          "asink": [
+            "memunsafe"
+          ],
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+            "addr": "0x40f9e8",
+            "job_id": "6df0ba4135c9"
+          }
+        }
+      ],
+      "entry_outdegree": 25,
+      "danger_calls": 2,
+      "attribution": "static_only",
+      "verified_reachable": false,
+      "trace_ids": [],
+      "observed_node_count": 0,
+      "observed_trace_ids": [],
+      "ai_review": {
+        "path_id": "fdde89c5028e769c",
+        "priority": "P1",
+        "vuln_class_hint": "bof",
+        "cwe_hint": "CWE-121",
+        "sanitizer_effective": null,
+        "dataflow": "unclear",
+        "reason": "network_thread 的 strcpy 将数据写入 j+916，get_call 中 memmove((void *)(v12 + 76), &src, 4u) 固定长度复制，本身安全。但源 strcpy 可能溢出覆盖相邻结构，影响 get_call 的 src 数据。路径链短，需进一步分析 network_thread 中 v10 的来源及目标缓冲区大小。",
+        "source": "llm"
+      }
+    },
+    {
+      "path_id": "d4bc1d37b46bd044",
+      "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+      "score": 5.93,
+      "edge_count": 1,
+      "source": {
+        "addr": "0x403af8",
+        "name": "sub_403AF8",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [
+          "network"
+        ],
+        "asink": [
+          "memunsafe"
+        ],
+        "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "addr": "0x403af8",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sink": {
+        "addr": "0x40f9e8",
+        "name": "get_call",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [],
+        "asink": [
+          "memunsafe"
+        ],
+        "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "addr": "0x40f9e8",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sanitizers": [],
+      "chain": [
+        {
+          "addr": "0x403af8",
+          "name": "sub_403AF8",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [
+            "network"
+          ],
+          "asink": [
+            "memunsafe"
+          ],
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+            "addr": "0x403af8",
+            "job_id": "6df0ba4135c9"
+          }
+        },
+        {
+          "addr": "0x40f9e8",
+          "name": "get_call",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [],
+          "asink": [
+            "memunsafe"
+          ],
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+            "addr": "0x40f9e8",
+            "job_id": "6df0ba4135c9"
+          }
+        }
+      ],
+      "entry_outdegree": 7,
+      "danger_calls": 2,
+      "attribution": "static_only",
+      "verified_reachable": false,
+      "trace_ids": [],
+      "observed_node_count": 0,
+      "observed_trace_ids": [],
+      "ai_review": {
+        "path_id": "d4bc1d37b46bd044",
+        "priority": "P2",
+        "vuln_class_hint": "bof",
+        "cwe_hint": "CWE-121",
+        "sanitizer_effective": null,
+        "dataflow": "unlikely",
+        "reason": "sub_403AF8 中 memmove(&dest, *(const void **)v7->h_addr_list, v7->h_length) 从 DNS 解析结果复制，h_length 通常为 4，风险低。get_call 的 memmove 固定 4 字节。路径链短，且源为 DNS 响应，攻击者控制有限，优先级较低。",
+        "source": "llm"
+      }
+    },
+    {
+      "path_id": "64e4810de2ca2801",
+      "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+      "score": 5.91,
+      "edge_count": 2,
+      "source": {
+        "addr": "0x40190c",
+        "name": "main",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [
+          "argv",
+          "network"
+        ],
+        "asink": [
+          "filewrite"
+        ],
+        "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+          "addr": "0x40190c",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sink": {
+        "addr": "0x401f50",
+        "name": "base64_decodestring",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [],
+        "asink": [
+          "memunsafe"
+        ],
+        "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+          "addr": "0x401f50",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sanitizers": [],
+      "chain": [
+        {
+          "addr": "0x40190c",
+          "name": "main",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [
+            "argv",
+            "network"
+          ],
+          "asink": [
+            "filewrite"
+          ],
+          "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+            "addr": "0x40190c",
+            "job_id": "6df0ba4135c9"
+          }
+        },
+        {
+          "addr": "0x400c40",
+          "name": "sub_400C40",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [],
+          "asink": [
+            "memunsafe"
+          ],
+          "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+            "addr": "0x400c40",
+            "job_id": "6df0ba4135c9"
+          }
+        },
+        {
+          "addr": "0x401f50",
+          "name": "base64_decodestring",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [],
+          "asink": [
+            "memunsafe"
+          ],
+          "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+            "addr": "0x401f50",
+            "job_id": "6df0ba4135c9"
+          }
+        }
+      ],
+      "entry_outdegree": 20,
+      "danger_calls": 3,
+      "attribution": "static_only",
+      "verified_reachable": false,
+      "trace_ids": [],
+      "observed_node_count": 0,
+      "observed_trace_ids": [],
+      "ai_review": {
+        "path_id": "64e4810de2ca2801",
+        "priority": "P1",
+        "vuln_class_hint": "bof",
+        "cwe_hint": "CWE-121",
+        "sanitizer_effective": null,
+        "dataflow": "likely",
+        "reason": "main 接收 argv 和网络数据，经 sub_400C40 传入 base64_decodestring，其中 memcpy(v4, v10, v22) 无长度校验。攻击者可控制 base64 输入长度，导致栈溢出。路径链 2 条边，数据流较清晰，值得深入分析 v22 的计算是否可被操纵。",
+        "source": "llm"
+      }
+    },
+    {
+      "path_id": "303aa09211abaadc",
+      "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+      "score": 5.91,
+      "edge_count": 2,
+      "source": {
+        "addr": "0x4114d0",
+        "name": "network_thread",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [
+          "network"
+        ],
+        "asink": [
+          "memunsafe"
+        ],
+        "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "addr": "0x4114d0",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sink": {
+        "addr": "0x403668",
+        "name": "sub_403668",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [],
+        "asink": [
+          "memunsafe"
+        ],
+        "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "addr": "0x403668",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sanitizers": [],
+      "chain": [
+        {
+          "addr": "0x4114d0",
+          "name": "network_thread",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [
+            "network"
+          ],
+          "asink": [
+            "memunsafe"
+          ],
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+            "addr": "0x4114d0",
+            "job_id": "6df0ba4135c9"
+          }
+        },
+        {
+          "addr": "0x4041b4",
+          "name": "do_control",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [
+            "file"
+          ],
+          "asink": [
+            "memunsafe"
+          ],
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+            "addr": "0x4041b4",
+            "job_id": "6df0ba4135c9"
+          }
+        },
+        {
+          "addr": "0x403668",
+          "name": "sub_403668",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [],
+          "asink": [
+            "memunsafe"
+          ],
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+            "addr": "0x403668",
+            "job_id": "6df0ba4135c9"
+          }
+        }
+      ],
+      "entry_outdegree": 25,
+      "danger_calls": 3,
+      "attribution": "static_only",
+      "verified_reachable": false,
+      "trace_ids": [],
+      "observed_node_count": 0,
+      "observed_trace_ids": [],
+      "ai_review": {
+        "path_id": "303aa09211abaadc",
+        "priority": "P1",
+        "vuln_class_hint": "bof",
+        "cwe_hint": "CWE-121",
+        "sanitizer_effective": null,
+        "dataflow": "unclear",
+        "reason": "network_thread 的 strcpy 写入 j+916，do_control 中 strcpy((char *)dial_no_tmp, v8) 可能传递数据，最终 sub_403668 中 strcpy(v7 + 1200, (const char *)dial_no_tmp) 再次复制。多处 strcpy 无长度限制，存在栈溢出链。但需确认 dial_no_tmp 是否被网络数据污染",
+        "source": "llm"
+      }
+    },
+    {
+      "path_id": "91adf2638cb35222",
+      "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+      "score": 5.91,
+      "edge_count": 2,
+      "source": {
+        "addr": "0x4114d0",
+        "name": "network_thread",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [
+          "network"
+        ],
+        "asink": [
+          "memunsafe"
+        ],
+        "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "addr": "0x4114d0",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sink": {
+        "addr": "0x403124",
+        "name": "sub_403124",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [],
+        "asink": [
+          "memunsafe"
+        ],
+        "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "addr": "0x403124",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sanitizers": [],
+      "chain": [
+        {
+          "addr": "0x4114d0",
+          "name": "network_thread",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [
+            "network"
+          ],
+          "asink": [
+            "memunsafe"
+          ],
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+            "addr": "0x4114d0",
+            "job_id": "6df0ba4135c9"
+          }
+        },
+        {
+          "addr": "0x4041b4",
+          "name": "do_control",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [
+            "file"
+          ],
+          "asink": [
+            "memunsafe"
+          ],
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+            "addr": "0x4041b4",
+            "job_id": "6df0ba4135c9"
+          }
+        },
+        {
+          "addr": "0x403124",
+          "name": "sub_403124",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [],
+          "asink": [
+            "memunsafe"
+          ],
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+            "addr": "0x403124",
+            "job_id": "6df0ba4135c9"
+          }
+        }
+      ],
+      "entry_outdegree": 25,
+      "danger_calls": 3,
+      "attribution": "static_only",
+      "verified_reachable": false,
+      "trace_ids": [],
+      "observed_node_count": 0,
+      "observed_trace_ids": [],
+      "ai_review": {
+        "path_id": "91adf2638cb35222",
+        "priority": "P1",
+        "vuln_class_hint": "bof",
+        "cwe_hint": "CWE-121",
+        "sanitizer_effective": null,
+        "dataflow": "unclear",
+        "reason": "network_thread 中 strcpy((char *)(j + 916), v10) 将网络数据 v10 复制到偏移 916 处，可能溢出。sink sub_403124 中也有 strcpy((char *)(v2 + 916), \"Goodbye!\")，但源为常量，非攻击者数据。路径经 do_control 调用，但未验证 v10 长度或目标缓冲区大小，存在栈/堆溢出风险。",
+        "source": "llm"
+      }
+    },
+    {
+      "path_id": "ad19c82d65adfdb5",
+      "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+      "score": 5.91,
+      "edge_count": 2,
+      "source": {
+        "addr": "0x4114d0",
+        "name": "network_thread",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [
+          "network"
+        ],
+        "asink": [
+          "memunsafe"
+        ],
+        "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "addr": "0x4114d0",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sink": {
+        "addr": "0x403af8",
+        "name": "sub_403AF8",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [
+          "network"
+        ],
+        "asink": [
+          "memunsafe"
+        ],
+        "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "addr": "0x403af8",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sanitizers": [],
+      "chain": [
+        {
+          "addr": "0x4114d0",
+          "name": "network_thread",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [
+            "network"
+          ],
+          "asink": [
+            "memunsafe"
+          ],
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+            "addr": "0x4114d0",
+            "job_id": "6df0ba4135c9"
+          }
+        },
+        {
+          "addr": "0x4041b4",
+          "name": "do_control",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [
+            "file"
+          ],
+          "asink": [
+            "memunsafe"
+          ],
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+            "addr": "0x4041b4",
+            "job_id": "6df0ba4135c9"
+          }
+        },
+        {
+          "addr": "0x403af8",
+          "name": "sub_403AF8",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [
+            "network"
+          ],
+          "asink": [
+            "memunsafe"
+          ],
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+            "addr": "0x403af8",
+            "job_id": "6df0ba4135c9"
+          }
+        }
+      ],
+      "entry_outdegree": 25,
+      "danger_calls": 3,
+      "attribution": "static_only",
+      "verified_reachable": false,
+      "trace_ids": [],
+      "observed_node_count": 0,
+      "observed_trace_ids": [],
+      "ai_review": {
+        "path_id": "ad19c82d65adfdb5",
+        "priority": "P1",
+        "vuln_class_hint": "bof",
+        "cwe_hint": "CWE-121",
+        "sanitizer_effective": null,
+        "dataflow": "unclear",
+        "reason": "network_thread 中 strcpy 复制网络数据到偏移 916，可能溢出。sink sub_403AF8 中 memmove(&dest, *(const void **)v7->h_addr_list, v7->h_length) 将 DNS 解析结果复制到栈变量 dest，h_length 可能大于 dest 大小，存在栈溢出。路径经 do_control 调用，但 dest 大小",
+        "source": "llm"
+      }
+    },
+    {
+      "path_id": "e5e72b93076552f7",
+      "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+      "score": 5.91,
+      "edge_count": 2,
+      "source": {
+        "addr": "0x4114d0",
+        "name": "network_thread",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [
+          "network"
+        ],
+        "asink": [
+          "memunsafe"
+        ],
+        "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "addr": "0x4114d0",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sink": {
+        "addr": "0x403520",
+        "name": "sub_403520",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [],
+        "asink": [
+          "memunsafe"
+        ],
+        "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "addr": "0x403520",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sanitizers": [],
+      "chain": [
+        {
+          "addr": "0x4114d0",
+          "name": "network_thread",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [
+            "network"
+          ],
+          "asink": [
+            "memunsafe"
+          ],
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+            "addr": "0x4114d0",
+            "job_id": "6df0ba4135c9"
+          }
+        },
+        {
+          "addr": "0x4041b4",
+          "name": "do_control",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [
+            "file"
+          ],
+          "asink": [
+            "memunsafe"
+          ],
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+            "addr": "0x4041b4",
+            "job_id": "6df0ba4135c9"
+          }
+        },
+        {
+          "addr": "0x403520",
+          "name": "sub_403520",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [],
+          "asink": [
+            "memunsafe"
+          ],
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+            "addr": "0x403520",
+            "job_id": "6df0ba4135c9"
+          }
+        }
+      ],
+      "entry_outdegree": 25,
+      "danger_calls": 3,
+      "attribution": "static_only",
+      "verified_reachable": false,
+      "trace_ids": [],
+      "observed_node_count": 0,
+      "observed_trace_ids": [],
+      "ai_review": {
+        "path_id": "e5e72b93076552f7",
+        "priority": "P1",
+        "vuln_class_hint": "bof",
+        "cwe_hint": "CWE-121",
+        "sanitizer_effective": null,
+        "dataflow": "unclear",
+        "reason": "network_thread 中 strcpy 复制网络数据到偏移 916，可能溢出。sink sub_403520 中 strcpy((char *)(v3 + 916), \"Goodbye!\") 源为常量，非攻击者数据，但目标偏移相同，可能覆盖相邻数据。路径经 do_control 调用，但 v3 来源未明确，需确认是否受网络数据影响。",
+        "source": "llm"
+      }
+    },
+    {
+      "path_id": "3e291f7786fe3d9d",
+      "binary_md5": "013126995a8c8228fc47c9d7a6ca9699",
+      "score": 5.85,
+      "edge_count": 0,
+      "source": {
+        "addr": "0x6aa5c",
+        "name": "get_sockaddr",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [
+          "network"
+        ],
+        "asink": [
+          "memunsafe"
+        ],
+        "binary_md5": "013126995a8c8228fc47c9d7a6ca9699",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "013126995a8c8228fc47c9d7a6ca9699",
+          "addr": "0x6aa5c",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sink": {
+        "addr": "0x6aa5c",
+        "name": "get_sockaddr",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [
+          "network"
+        ],
+        "asink": [
+          "memunsafe"
+        ],
+        "binary_md5": "013126995a8c8228fc47c9d7a6ca9699",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "013126995a8c8228fc47c9d7a6ca9699",
+          "addr": "0x6aa5c",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sanitizers": [],
+      "chain": [
+        {
+          "addr": "0x6aa5c",
+          "name": "get_sockaddr",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [
+            "network"
+          ],
+          "asink": [
+            "memunsafe"
+          ],
+          "binary_md5": "013126995a8c8228fc47c9d7a6ca9699",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "013126995a8c8228fc47c9d7a6ca9699",
+            "addr": "0x6aa5c",
+            "job_id": "6df0ba4135c9"
+          }
+        }
+      ],
+      "entry_outdegree": 4,
+      "danger_calls": 1,
+      "attribution": "static_only",
+      "verified_reachable": false,
+      "trace_ids": [],
+      "observed_node_count": 0,
+      "observed_trace_ids": [],
+      "ai_review": {
+        "path_id": "3e291f7786fe3d9d",
+        "priority": "P1",
+        "vuln_class_hint": "bof",
+        "cwe_hint": "CWE-121",
+        "sanitizer_effective": null,
+        "dataflow": "unclear",
+        "reason": "get_sockaddr 中 memcpy(dest, pai->ai_addr, ai_addrlen) 将 DNS 解析结果复制到 dest，ai_addrlen 可能大于 dest 大小，存在栈溢出。源 name 可能来自网络，但未验证 dest 大小，需确认调用者是否提供足够缓冲区。",
+        "source": "llm"
+      }
+    },
+    {
+      "path_id": "965844b2df60e7b0",
+      "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+      "score": 5.84,
+      "edge_count": 3,
+      "source": {
+        "addr": "0x4114d0",
+        "name": "network_thread",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [
+          "network"
+        ],
+        "asink": [
+          "memunsafe"
+        ],
+        "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "addr": "0x4114d0",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sink": {
+        "addr": "0x40f9e8",
+        "name": "get_call",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [],
+        "asink": [
+          "memunsafe"
+        ],
+        "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "addr": "0x40f9e8",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sanitizers": [],
+      "chain": [
+        {
+          "addr": "0x4114d0",
+          "name": "network_thread",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [
+            "network"
+          ],
+          "asink": [
+            "memunsafe"
+          ],
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+            "addr": "0x4114d0",
+            "job_id": "6df0ba4135c9"
+          }
+        },
+        {
+          "addr": "0x4041b4",
+          "name": "do_control",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [
+            "file"
+          ],
+          "asink": [
+            "memunsafe"
+          ],
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+            "addr": "0x4041b4",
+            "job_id": "6df0ba4135c9"
+          }
+        },
+        {
+          "addr": "0x403af8",
+          "name": "sub_403AF8",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [
+            "network"
+          ],
+          "asink": [
+            "memunsafe"
+          ],
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+            "addr": "0x403af8",
+            "job_id": "6df0ba4135c9"
+          }
+        },
+        {
+          "addr": "0x40f9e8",
+          "name": "get_call",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [],
+          "asink": [
+            "memunsafe"
+          ],
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+            "addr": "0x40f9e8",
+            "job_id": "6df0ba4135c9"
+          }
+        }
+      ],
+      "entry_outdegree": 25,
+      "danger_calls": 4,
+      "attribution": "static_only",
+      "verified_reachable": false,
+      "trace_ids": [],
+      "observed_node_count": 0,
+      "observed_trace_ids": [],
+      "ai_review": {
+        "path_id": "965844b2df60e7b0",
+        "priority": "P1",
+        "vuln_class_hint": "bof",
+        "cwe_hint": "CWE-121",
+        "sanitizer_effective": null,
+        "dataflow": "unclear",
+        "reason": "network_thread 中 strcpy 复制网络数据到偏移 916，可能溢出。sink get_call 中 memmove((void *)(v12 + 76), &src, 4u) 复制固定 4 字节，但 v12 来源未明确，可能受网络数据影响。路径经 do_control 和 sub_403AF8 调用，但 src 大小固定，风险较低，需确认 v12 是否指向足够空间。",
+        "source": "llm"
+      }
+    },
+    {
+      "path_id": "95550d355a2c7b4f",
+      "binary_md5": "013126995a8c8228fc47c9d7a6ca9699",
+      "score": 5.76,
+      "edge_count": 2,
+      "source": {
+        "addr": "0x6d968",
+        "name": "ff_rtsp_connect",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [
+          "network"
+        ],
+        "asink": [
+          "memunsafe"
+        ],
+        "binary_md5": "013126995a8c8228fc47c9d7a6ca9699",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "013126995a8c8228fc47c9d7a6ca9699",
+          "addr": "0x6d968",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sink": {
+        "addr": "0x15abc",
+        "name": "ffurl_alloc",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [],
+        "asink": [
+          "memunsafe"
+        ],
+        "binary_md5": "013126995a8c8228fc47c9d7a6ca9699",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "013126995a8c8228fc47c9d7a6ca9699",
+          "addr": "0x15abc",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sanitizers": [],
+      "chain": [
+        {
+          "addr": "0x6d968",
+          "name": "ff_rtsp_connect",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [
+            "network"
+          ],
+          "asink": [
+            "memunsafe"
+          ],
+          "binary_md5": "013126995a8c8228fc47c9d7a6ca9699",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "013126995a8c8228fc47c9d7a6ca9699",
+            "addr": "0x6d968",
+            "job_id": "6df0ba4135c9"
+          }
+        },
+        {
+          "addr": "0x15dc0",
+          "name": "ffurl_open",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [],
+          "asink": [],
+          "binary_md5": "013126995a8c8228fc47c9d7a6ca9699",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "013126995a8c8228fc47c9d7a6ca9699",
+            "addr": "0x15dc0",
+            "job_id": "6df0ba4135c9"
+          }
+        },
+        {
+          "addr": "0x15abc",
+          "name": "ffurl_alloc",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [],
+          "asink": [
+            "memunsafe"
+          ],
+          "binary_md5": "013126995a8c8228fc47c9d7a6ca9699",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "013126995a8c8228fc47c9d7a6ca9699",
+            "addr": "0x15abc",
+            "job_id": "6df0ba4135c9"
+          }
+        }
+      ],
+      "entry_outdegree": 25,
+      "danger_calls": 2,
+      "attribution": "static_only",
+      "verified_reachable": false,
+      "trace_ids": [],
+      "observed_node_count": 0,
+      "observed_trace_ids": []
+    },
+    {
+      "path_id": "33203efdff4ab56d",
+      "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+      "score": 5.69,
+      "edge_count": 3,
+      "source": {
+        "addr": "0x40190c",
+        "name": "main",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [
+          "argv",
+          "network"
+        ],
+        "asink": [
+          "filewrite"
+        ],
+        "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+          "addr": "0x40190c",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sink": {
+        "addr": "0x402e9c",
+        "name": "sub_402E9C",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [],
+        "asink": [
+          "memunsafe"
+        ],
+        "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+          "addr": "0x402e9c",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sanitizers": [],
+      "chain": [
+        {
+          "addr": "0x40190c",
+          "name": "main",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [
+            "argv",
+            "network"
+          ],
+          "asink": [
+            "filewrite"
+          ],
+          "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+            "addr": "0x40190c",
+            "job_id": "6df0ba4135c9"
+          }
+        },
+        {
+          "addr": "0x4010f0",
+          "name": "sub_4010F0",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [],
+          "asink": [
+            "memunsafe"
+          ],
+          "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+            "addr": "0x4010f0",
+            "job_id": "6df0ba4135c9"
+          }
+        },
+        {
+          "addr": "0x403520",
+          "name": "dhcp6_calc_mac",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [],
+          "asink": [],
+          "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+            "addr": "0x403520",
+            "job_id": "6df0ba4135c9"
+          }
+        },
+        {
+          "addr": "0x402e9c",
+          "name": "sub_402E9C",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [],
+          "asink": [
+            "memunsafe"
+          ],
+          "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+            "addr": "0x402e9c",
+            "job_id": "6df0ba4135c9"
+          }
+        }
+      ],
+      "entry_outdegree": 20,
+      "danger_calls": 3,
+      "attribution": "static_only",
+      "verified_reachable": false,
+      "trace_ids": [],
+      "observed_node_count": 0,
+      "observed_trace_ids": []
+    },
+    {
+      "path_id": "cccaea6fdadb50f3",
+      "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+      "score": 5.69,
+      "edge_count": 3,
+      "source": {
+        "addr": "0x40190c",
+        "name": "main",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [
+          "argv",
+          "network"
+        ],
+        "asink": [
+          "filewrite"
+        ],
+        "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+          "addr": "0x40190c",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sink": {
+        "addr": "0x403270",
+        "name": "sub_403270",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [],
+        "asink": [
+          "memunsafe"
+        ],
+        "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+          "addr": "0x403270",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sanitizers": [],
+      "chain": [
+        {
+          "addr": "0x40190c",
+          "name": "main",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [
+            "argv",
+            "network"
+          ],
+          "asink": [
+            "filewrite"
+          ],
+          "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+            "addr": "0x40190c",
+            "job_id": "6df0ba4135c9"
+          }
+        },
+        {
+          "addr": "0x4010f0",
+          "name": "sub_4010F0",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [],
+          "asink": [
+            "memunsafe"
+          ],
+          "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+            "addr": "0x4010f0",
+            "job_id": "6df0ba4135c9"
+          }
+        },
+        {
+          "addr": "0x403520",
+          "name": "dhcp6_calc_mac",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [],
+          "asink": [],
+          "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+            "addr": "0x403520",
+            "job_id": "6df0ba4135c9"
+          }
+        },
+        {
+          "addr": "0x403270",
+          "name": "sub_403270",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [],
+          "asink": [
+            "memunsafe"
+          ],
+          "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+            "addr": "0x403270",
+            "job_id": "6df0ba4135c9"
+          }
+        }
+      ],
+      "entry_outdegree": 20,
+      "danger_calls": 3,
+      "attribution": "static_only",
+      "verified_reachable": false,
+      "trace_ids": [],
+      "observed_node_count": 0,
+      "observed_trace_ids": []
+    },
+    {
+      "path_id": "0404e799b9ff116d",
+      "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+      "score": 5.69,
+      "edge_count": 3,
+      "source": {
+        "addr": "0x4114d0",
+        "name": "network_thread",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [
+          "network"
+        ],
+        "asink": [
+          "memunsafe"
+        ],
+        "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "addr": "0x4114d0",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sink": {
+        "addr": "0x403668",
+        "name": "sub_403668",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [],
+        "asink": [
+          "memunsafe"
+        ],
+        "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "addr": "0x403668",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sanitizers": [],
+      "chain": [
+        {
+          "addr": "0x4114d0",
+          "name": "network_thread",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [
+            "network"
+          ],
+          "asink": [
+            "memunsafe"
+          ],
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+            "addr": "0x4114d0",
+            "job_id": "6df0ba4135c9"
+          }
+        },
+        {
+          "addr": "0x4041b4",
+          "name": "do_control",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [
+            "file"
+          ],
+          "asink": [
+            "memunsafe"
+          ],
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+            "addr": "0x4041b4",
+            "job_id": "6df0ba4135c9"
+          }
+        },
+        {
+          "addr": "0x403d3c",
+          "name": "magic_lac_dial",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [],
+          "asink": [],
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+            "addr": "0x403d3c",
+            "job_id": "6df0ba4135c9"
+          }
+        },
+        {
+          "addr": "0x403668",
+          "name": "sub_403668",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [],
+          "asink": [
+            "memunsafe"
+          ],
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+            "addr": "0x403668",
+            "job_id": "6df0ba4135c9"
+          }
+        }
+      ],
+      "entry_outdegree": 25,
+      "danger_calls": 3,
+      "attribution": "static_only",
+      "verified_reachable": false,
+      "trace_ids": [],
+      "observed_node_count": 0,
+      "observed_trace_ids": []
+    },
+    {
+      "path_id": "9ec7632647113c0f",
+      "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+      "score": 5.69,
+      "edge_count": 3,
+      "source": {
+        "addr": "0x4114d0",
+        "name": "network_thread",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [
+          "network"
+        ],
+        "asink": [
+          "memunsafe"
+        ],
+        "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "addr": "0x4114d0",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sink": {
+        "addr": "0x403af8",
+        "name": "sub_403AF8",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [
+          "network"
+        ],
+        "asink": [
+          "memunsafe"
+        ],
+        "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "addr": "0x403af8",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sanitizers": [],
+      "chain": [
+        {
+          "addr": "0x4114d0",
+          "name": "network_thread",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [
+            "network"
+          ],
+          "asink": [
+            "memunsafe"
+          ],
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+            "addr": "0x4114d0",
+            "job_id": "6df0ba4135c9"
+          }
+        },
+        {
+          "addr": "0x4041b4",
+          "name": "do_control",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [
+            "file"
+          ],
+          "asink": [
+            "memunsafe"
+          ],
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+            "addr": "0x4041b4",
+            "job_id": "6df0ba4135c9"
+          }
+        },
+        {
+          "addr": "0x403d3c",
+          "name": "magic_lac_dial",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [],
+          "asink": [],
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+            "addr": "0x403d3c",
+            "job_id": "6df0ba4135c9"
+          }
+        },
+        {
+          "addr": "0x403af8",
+          "name": "sub_403AF8",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [
+            "network"
+          ],
+          "asink": [
+            "memunsafe"
+          ],
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+            "addr": "0x403af8",
+            "job_id": "6df0ba4135c9"
+          }
+        }
+      ],
+      "entry_outdegree": 25,
+      "danger_calls": 3,
+      "attribution": "static_only",
+      "verified_reachable": false,
+      "trace_ids": [],
+      "observed_node_count": 0,
+      "observed_trace_ids": []
+    },
+    {
+      "path_id": "31d5fd40d73972f9",
+      "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+      "score": 5.65,
+      "edge_count": 0,
+      "source": {
+        "addr": "0x404db0",
+        "name": "start_pppd",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [
+          "network",
+          "serial"
+        ],
+        "asink": [
+          "cmdexec"
+        ],
+        "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "addr": "0x404db0",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sink": {
+        "addr": "0x404db0",
+        "name": "start_pppd",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [
+          "network",
+          "serial"
+        ],
+        "asink": [
+          "cmdexec"
+        ],
+        "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "addr": "0x404db0",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sanitizers": [
+        ".strlen",
+        "strlen"
+      ],
+      "chain": [
+        {
+          "addr": "0x404db0",
+          "name": "start_pppd",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [
+            "network",
+            "serial"
+          ],
+          "asink": [
+            "cmdexec"
+          ],
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+            "addr": "0x404db0",
+            "job_id": "6df0ba4135c9"
+          }
+        }
+      ],
+      "entry_outdegree": 22,
+      "danger_calls": 1,
+      "attribution": "static_only",
+      "verified_reachable": false,
+      "trace_ids": [],
+      "observed_node_count": 0,
+      "observed_trace_ids": []
+    },
+    {
+      "path_id": "56c4fd7a60b79510",
+      "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+      "score": 5.62,
+      "edge_count": 4,
+      "source": {
+        "addr": "0x40190c",
+        "name": "main",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [
+          "argv",
+          "network"
+        ],
+        "asink": [
+          "filewrite"
+        ],
+        "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+          "addr": "0x40190c",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sink": {
+        "addr": "0x402e9c",
+        "name": "sub_402E9C",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [],
+        "asink": [
+          "memunsafe"
+        ],
+        "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+          "addr": "0x402e9c",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sanitizers": [],
+      "chain": [
+        {
+          "addr": "0x40190c",
+          "name": "main",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [
+            "argv",
+            "network"
+          ],
+          "asink": [
+            "filewrite"
+          ],
+          "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+            "addr": "0x40190c",
+            "job_id": "6df0ba4135c9"
+          }
+        },
+        {
+          "addr": "0x4010f0",
+          "name": "sub_4010F0",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [],
+          "asink": [
+            "memunsafe"
+          ],
+          "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+            "addr": "0x4010f0",
+            "job_id": "6df0ba4135c9"
+          }
+        },
+        {
+          "addr": "0x403520",
+          "name": "dhcp6_calc_mac",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [],
+          "asink": [],
+          "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+            "addr": "0x403520",
+            "job_id": "6df0ba4135c9"
+          }
+        },
+        {
+          "addr": "0x403270",
+          "name": "sub_403270",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [],
+          "asink": [
+            "memunsafe"
+          ],
+          "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+            "addr": "0x403270",
+            "job_id": "6df0ba4135c9"
+          }
+        },
+        {
+          "addr": "0x402e9c",
+          "name": "sub_402E9C",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [],
+          "asink": [
+            "memunsafe"
+          ],
+          "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+            "addr": "0x402e9c",
+            "job_id": "6df0ba4135c9"
+          }
+        }
+      ],
+      "entry_outdegree": 20,
+      "danger_calls": 4,
+      "attribution": "static_only",
+      "verified_reachable": false,
+      "trace_ids": [],
+      "observed_node_count": 0,
+      "observed_trace_ids": []
+    },
+    {
+      "path_id": "09455a2a7fe16c22",
+      "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+      "score": 5.62,
+      "edge_count": 4,
+      "source": {
+        "addr": "0x4114d0",
+        "name": "network_thread",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [
+          "network"
+        ],
+        "asink": [
+          "memunsafe"
+        ],
+        "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "addr": "0x4114d0",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sink": {
+        "addr": "0x40f9e8",
+        "name": "get_call",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [],
+        "asink": [
+          "memunsafe"
+        ],
+        "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "addr": "0x40f9e8",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sanitizers": [],
+      "chain": [
+        {
+          "addr": "0x4114d0",
+          "name": "network_thread",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [
+            "network"
+          ],
+          "asink": [
+            "memunsafe"
+          ],
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+            "addr": "0x4114d0",
+            "job_id": "6df0ba4135c9"
+          }
+        },
+        {
+          "addr": "0x4041b4",
+          "name": "do_control",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [
+            "file"
+          ],
+          "asink": [
+            "memunsafe"
+          ],
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+            "addr": "0x4041b4",
+            "job_id": "6df0ba4135c9"
+          }
+        },
+        {
+          "addr": "0x403d3c",
+          "name": "magic_lac_dial",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [],
+          "asink": [],
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+            "addr": "0x403d3c",
+            "job_id": "6df0ba4135c9"
+          }
+        },
+        {
+          "addr": "0x403af8",
+          "name": "sub_403AF8",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [
+            "network"
+          ],
+          "asink": [
+            "memunsafe"
+          ],
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+            "addr": "0x403af8",
+            "job_id": "6df0ba4135c9"
+          }
+        },
+        {
+          "addr": "0x40f9e8",
+          "name": "get_call",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [],
+          "asink": [
+            "memunsafe"
+          ],
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+            "addr": "0x40f9e8",
+            "job_id": "6df0ba4135c9"
+          }
+        }
+      ],
+      "entry_outdegree": 25,
+      "danger_calls": 4,
+      "attribution": "static_only",
+      "verified_reachable": false,
+      "trace_ids": [],
+      "observed_node_count": 0,
+      "observed_trace_ids": []
+    },
+    {
+      "path_id": "ba22f6efbd4184e4",
+      "binary_md5": "013126995a8c8228fc47c9d7a6ca9699",
+      "score": 5.61,
+      "edge_count": 2,
+      "source": {
+        "addr": "0x6b640",
+        "name": "ff_rtsp_parse_line",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [
+          "network"
+        ],
+        "asink": [],
+        "binary_md5": "013126995a8c8228fc47c9d7a6ca9699",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "013126995a8c8228fc47c9d7a6ca9699",
+          "addr": "0x6b640",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sink": {
+        "addr": "0x6aa5c",
+        "name": "get_sockaddr",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [
+          "network"
+        ],
+        "asink": [
+          "memunsafe"
+        ],
+        "binary_md5": "013126995a8c8228fc47c9d7a6ca9699",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "013126995a8c8228fc47c9d7a6ca9699",
+          "addr": "0x6aa5c",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sanitizers": [],
+      "chain": [
+        {
+          "addr": "0x6b640",
+          "name": "ff_rtsp_parse_line",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [
+            "network"
+          ],
+          "asink": [],
+          "binary_md5": "013126995a8c8228fc47c9d7a6ca9699",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "013126995a8c8228fc47c9d7a6ca9699",
+            "addr": "0x6b640",
+            "job_id": "6df0ba4135c9"
+          }
+        },
+        {
+          "addr": "0x6ab40",
+          "name": "rtsp_parse_transport",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [],
+          "asink": [],
+          "binary_md5": "013126995a8c8228fc47c9d7a6ca9699",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "013126995a8c8228fc47c9d7a6ca9699",
+            "addr": "0x6ab40",
+            "job_id": "6df0ba4135c9"
+          }
+        },
+        {
+          "addr": "0x6aa5c",
+          "name": "get_sockaddr",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [
+            "network"
+          ],
+          "asink": [
+            "memunsafe"
+          ],
+          "binary_md5": "013126995a8c8228fc47c9d7a6ca9699",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "013126995a8c8228fc47c9d7a6ca9699",
+            "addr": "0x6aa5c",
+            "job_id": "6df0ba4135c9"
+          }
+        }
+      ],
+      "entry_outdegree": 12,
+      "danger_calls": 1,
+      "attribution": "static_only",
+      "verified_reachable": false,
+      "trace_ids": [],
+      "observed_node_count": 0,
+      "observed_trace_ids": []
+    },
+    {
+      "path_id": "2bff819b94ee9400",
+      "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+      "score": 5.48,
+      "edge_count": 1,
+      "source": {
+        "addr": "0x40190c",
+        "name": "main",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [
+          "argv",
+          "network"
+        ],
+        "asink": [
+          "filewrite"
+        ],
+        "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+          "addr": "0x40190c",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sink": {
+        "addr": "0x403dd0",
+        "name": ".printf",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [],
+        "asink": [
+          "fmt"
+        ],
+        "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+          "addr": "0x403dd0",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sanitizers": [],
+      "chain": [
+        {
+          "addr": "0x40190c",
+          "name": "main",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [
+            "argv",
+            "network"
+          ],
+          "asink": [
+            "filewrite"
+          ],
+          "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+            "addr": "0x40190c",
+            "job_id": "6df0ba4135c9"
+          }
+        },
+        {
+          "addr": "0x403dd0",
+          "name": ".printf",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [],
+          "asink": [
+            "fmt"
+          ],
+          "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+            "addr": "0x403dd0",
+            "job_id": "6df0ba4135c9"
+          }
+        }
+      ],
+      "entry_outdegree": 20,
+      "danger_calls": 2,
+      "attribution": "static_only",
+      "verified_reachable": false,
+      "trace_ids": [],
+      "observed_node_count": 0,
+      "observed_trace_ids": []
+    },
+    {
+      "path_id": "315060e57c967883",
+      "binary_md5": "013126995a8c8228fc47c9d7a6ca9699",
+      "score": 5.48,
+      "edge_count": 1,
+      "source": {
+        "addr": "0x6d968",
+        "name": "ff_rtsp_connect",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [
+          "network"
+        ],
+        "asink": [
+          "memunsafe"
+        ],
+        "binary_md5": "013126995a8c8228fc47c9d7a6ca9699",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "013126995a8c8228fc47c9d7a6ca9699",
+          "addr": "0x6d968",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sink": {
+        "addr": "0x8c1b0",
+        "name": ".snprintf",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [],
+        "asink": [
+          "fmt"
+        ],
+        "binary_md5": "013126995a8c8228fc47c9d7a6ca9699",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "013126995a8c8228fc47c9d7a6ca9699",
+          "addr": "0x8c1b0",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sanitizers": [],
+      "chain": [
+        {
+          "addr": "0x6d968",
+          "name": "ff_rtsp_connect",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [
+            "network"
+          ],
+          "asink": [
+            "memunsafe"
+          ],
+          "binary_md5": "013126995a8c8228fc47c9d7a6ca9699",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "013126995a8c8228fc47c9d7a6ca9699",
+            "addr": "0x6d968",
+            "job_id": "6df0ba4135c9"
+          }
+        },
+        {
+          "addr": "0x8c1b0",
+          "name": ".snprintf",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [],
+          "asink": [
+            "fmt"
+          ],
+          "binary_md5": "013126995a8c8228fc47c9d7a6ca9699",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "013126995a8c8228fc47c9d7a6ca9699",
+            "addr": "0x8c1b0",
+            "job_id": "6df0ba4135c9"
+          }
+        }
+      ],
+      "entry_outdegree": 25,
+      "danger_calls": 2,
+      "attribution": "static_only",
+      "verified_reachable": false,
+      "trace_ids": [],
+      "observed_node_count": 0,
+      "observed_trace_ids": []
+    },
+    {
+      "path_id": "3e825e5daeb3d7cf",
+      "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+      "score": 5.48,
+      "edge_count": 1,
+      "source": {
+        "addr": "0x4114d0",
+        "name": "network_thread",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [
+          "network"
+        ],
+        "asink": [
+          "memunsafe"
+        ],
+        "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "addr": "0x4114d0",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sink": {
+        "addr": "0x405f84",
+        "name": "do_packet_dump",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [],
+        "asink": [
+          "fmt"
+        ],
+        "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "addr": "0x405f84",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sanitizers": [],
+      "chain": [
+        {
+          "addr": "0x4114d0",
+          "name": "network_thread",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [
+            "network"
+          ],
+          "asink": [
+            "memunsafe"
+          ],
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+            "addr": "0x4114d0",
+            "job_id": "6df0ba4135c9"
+          }
+        },
+        {
+          "addr": "0x405f84",
+          "name": "do_packet_dump",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [],
+          "asink": [
+            "fmt"
+          ],
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+            "addr": "0x405f84",
+            "job_id": "6df0ba4135c9"
+          }
+        }
+      ],
+      "entry_outdegree": 25,
+      "danger_calls": 2,
+      "attribution": "static_only",
+      "verified_reachable": false,
+      "trace_ids": [],
+      "observed_node_count": 0,
+      "observed_trace_ids": []
+    },
+    {
+      "path_id": "8f6f5037965010c0",
+      "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+      "score": 5.48,
+      "edge_count": 1,
+      "source": {
+        "addr": "0x4114d0",
+        "name": "network_thread",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [
+          "network"
+        ],
+        "asink": [
+          "memunsafe"
+        ],
+        "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "addr": "0x4114d0",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sink": {
+        "addr": "0x406268",
+        "name": "l2tp_log",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [],
+        "asink": [
+          "fmt"
+        ],
+        "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "addr": "0x406268",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sanitizers": [],
+      "chain": [
+        {
+          "addr": "0x4114d0",
+          "name": "network_thread",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [
+            "network"
+          ],
+          "asink": [
+            "memunsafe"
+          ],
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+            "addr": "0x4114d0",
+            "job_id": "6df0ba4135c9"
+          }
+        },
+        {
+          "addr": "0x406268",
+          "name": "l2tp_log",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [],
+          "asink": [
+            "fmt"
+          ],
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+            "addr": "0x406268",
+            "job_id": "6df0ba4135c9"
+          }
+        }
+      ],
+      "entry_outdegree": 25,
+      "danger_calls": 2,
+      "attribution": "static_only",
+      "verified_reachable": false,
+      "trace_ids": [],
+      "observed_node_count": 0,
+      "observed_trace_ids": []
+    },
+    {
+      "path_id": "7cacf0e0fc926678",
+      "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+      "score": 5.47,
+      "edge_count": 4,
+      "source": {
+        "addr": "0x40190c",
+        "name": "main",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [
+          "argv",
+          "network"
+        ],
+        "asink": [
+          "filewrite"
+        ],
+        "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+          "addr": "0x40190c",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sink": {
+        "addr": "0x402e9c",
+        "name": "sub_402E9C",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [],
+        "asink": [
+          "memunsafe"
+        ],
+        "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+          "addr": "0x402e9c",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sanitizers": [],
+      "chain": [
+        {
+          "addr": "0x40190c",
+          "name": "main",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [
+            "argv",
+            "network"
+          ],
+          "asink": [
+            "filewrite"
+          ],
+          "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+            "addr": "0x40190c",
+            "job_id": "6df0ba4135c9"
+          }
+        },
+        {
+          "addr": "0x4010f0",
+          "name": "sub_4010F0",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [],
+          "asink": [
+            "memunsafe"
+          ],
+          "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+            "addr": "0x4010f0",
+            "job_id": "6df0ba4135c9"
+          }
+        },
+        {
+          "addr": "0x403520",
+          "name": "dhcp6_calc_mac",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [],
+          "asink": [],
+          "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+            "addr": "0x403520",
+            "job_id": "6df0ba4135c9"
+          }
+        },
+        {
+          "addr": "0x4033f0",
+          "name": "sub_4033F0",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [],
+          "asink": [],
+          "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+            "addr": "0x4033f0",
+            "job_id": "6df0ba4135c9"
+          }
+        },
+        {
+          "addr": "0x402e9c",
+          "name": "sub_402E9C",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [],
+          "asink": [
+            "memunsafe"
+          ],
+          "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+            "addr": "0x402e9c",
+            "job_id": "6df0ba4135c9"
+          }
+        }
+      ],
+      "entry_outdegree": 20,
+      "danger_calls": 3,
+      "attribution": "static_only",
+      "verified_reachable": false,
+      "trace_ids": [],
+      "observed_node_count": 0,
+      "observed_trace_ids": []
+    },
+    {
+      "path_id": "d6d5a9feeaa05f60",
+      "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+      "score": 5.43,
+      "edge_count": 1,
+      "source": {
+        "addr": "0x403af8",
+        "name": "sub_403AF8",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [
+          "network"
+        ],
+        "asink": [
+          "memunsafe"
+        ],
+        "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "addr": "0x403af8",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sink": {
+        "addr": "0x406268",
+        "name": "l2tp_log",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [],
+        "asink": [
+          "fmt"
+        ],
+        "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "addr": "0x406268",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sanitizers": [],
+      "chain": [
+        {
+          "addr": "0x403af8",
+          "name": "sub_403AF8",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [
+            "network"
+          ],
+          "asink": [
+            "memunsafe"
+          ],
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+            "addr": "0x403af8",
+            "job_id": "6df0ba4135c9"
+          }
+        },
+        {
+          "addr": "0x406268",
+          "name": "l2tp_log",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [],
+          "asink": [
+            "fmt"
+          ],
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+            "addr": "0x406268",
+            "job_id": "6df0ba4135c9"
+          }
+        }
+      ],
+      "entry_outdegree": 7,
+      "danger_calls": 2,
+      "attribution": "static_only",
+      "verified_reachable": false,
+      "trace_ids": [],
+      "observed_node_count": 0,
+      "observed_trace_ids": []
+    },
+    {
+      "path_id": "3b532a26da16bf9f",
+      "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+      "score": 5.41,
+      "edge_count": 2,
+      "source": {
+        "addr": "0x40190c",
+        "name": "main",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [
+          "argv",
+          "network"
+        ],
+        "asink": [
+          "filewrite"
+        ],
+        "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+          "addr": "0x40190c",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sink": {
+        "addr": "0x403dd0",
+        "name": ".printf",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [],
+        "asink": [
+          "fmt"
+        ],
+        "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+          "addr": "0x403dd0",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sanitizers": [],
+      "chain": [
+        {
+          "addr": "0x40190c",
+          "name": "main",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [
+            "argv",
+            "network"
+          ],
+          "asink": [
+            "filewrite"
+          ],
+          "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+            "addr": "0x40190c",
+            "job_id": "6df0ba4135c9"
+          }
+        },
+        {
+          "addr": "0x4010f0",
+          "name": "sub_4010F0",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [],
+          "asink": [
+            "memunsafe"
+          ],
+          "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+            "addr": "0x4010f0",
+            "job_id": "6df0ba4135c9"
+          }
+        },
+        {
+          "addr": "0x403dd0",
+          "name": ".printf",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [],
+          "asink": [
+            "fmt"
+          ],
+          "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+            "addr": "0x403dd0",
+            "job_id": "6df0ba4135c9"
+          }
+        }
+      ],
+      "entry_outdegree": 20,
+      "danger_calls": 3,
+      "attribution": "static_only",
+      "verified_reachable": false,
+      "trace_ids": [],
+      "observed_node_count": 0,
+      "observed_trace_ids": []
+    },
+    {
+      "path_id": "382bd99c25cd7785",
+      "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+      "score": 5.41,
+      "edge_count": 2,
+      "source": {
+        "addr": "0x4114d0",
+        "name": "network_thread",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [
+          "network"
+        ],
+        "asink": [
+          "memunsafe"
+        ],
+        "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "addr": "0x4114d0",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sink": {
+        "addr": "0x417ed0",
+        "name": ".perror",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [],
+        "asink": [
+          "fmt"
+        ],
+        "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "addr": "0x417ed0",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sanitizers": [],
+      "chain": [
+        {
+          "addr": "0x4114d0",
+          "name": "network_thread",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [
+            "network"
+          ],
+          "asink": [
+            "memunsafe"
+          ],
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+            "addr": "0x4114d0",
+            "job_id": "6df0ba4135c9"
+          }
+        },
+        {
+          "addr": "0x4041b4",
+          "name": "do_control",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [
+            "file"
+          ],
+          "asink": [
+            "memunsafe"
+          ],
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+            "addr": "0x4041b4",
+            "job_id": "6df0ba4135c9"
+          }
+        },
+        {
+          "addr": "0x417ed0",
+          "name": ".perror",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [],
+          "asink": [
+            "fmt"
+          ],
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+            "addr": "0x417ed0",
+            "job_id": "6df0ba4135c9"
+          }
+        }
+      ],
+      "entry_outdegree": 25,
+      "danger_calls": 3,
+      "attribution": "static_only",
+      "verified_reachable": false,
+      "trace_ids": [],
+      "observed_node_count": 0,
+      "observed_trace_ids": []
+    },
+    {
+      "path_id": "5d772bc4648444d0",
+      "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+      "score": 5.41,
+      "edge_count": 2,
+      "source": {
+        "addr": "0x4114d0",
+        "name": "network_thread",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [
+          "network"
+        ],
+        "asink": [
+          "memunsafe"
+        ],
+        "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "addr": "0x4114d0",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sink": {
+        "addr": "0x418000",
+        "name": ".printf",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [],
+        "asink": [
+          "fmt"
+        ],
+        "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "addr": "0x418000",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sanitizers": [],
+      "chain": [
+        {
+          "addr": "0x4114d0",
+          "name": "network_thread",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [
+            "network"
+          ],
+          "asink": [
+            "memunsafe"
+          ],
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+            "addr": "0x4114d0",
+            "job_id": "6df0ba4135c9"
+          }
+        },
+        {
+          "addr": "0x405f84",
+          "name": "do_packet_dump",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [],
+          "asink": [
+            "fmt"
+          ],
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+            "addr": "0x405f84",
+            "job_id": "6df0ba4135c9"
+          }
+        },
+        {
+          "addr": "0x418000",
+          "name": ".printf",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [],
+          "asink": [
+            "fmt"
+          ],
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+            "addr": "0x418000",
+            "job_id": "6df0ba4135c9"
+          }
+        }
+      ],
+      "entry_outdegree": 25,
+      "danger_calls": 3,
+      "attribution": "static_only",
+      "verified_reachable": false,
+      "trace_ids": [],
+      "observed_node_count": 0,
+      "observed_trace_ids": []
+    },
+    {
+      "path_id": "62e8bf20afb29ec5",
+      "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+      "score": 5.41,
+      "edge_count": 2,
+      "source": {
+        "addr": "0x4114d0",
+        "name": "network_thread",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [
+          "network"
+        ],
+        "asink": [
+          "memunsafe"
+        ],
+        "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "addr": "0x4114d0",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sink": {
+        "addr": "0x417f20",
+        "name": ".syslog",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [],
+        "asink": [
+          "fmt"
+        ],
+        "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "addr": "0x417f20",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sanitizers": [],
+      "chain": [
+        {
+          "addr": "0x4114d0",
+          "name": "network_thread",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [
+            "network"
+          ],
+          "asink": [
+            "memunsafe"
+          ],
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+            "addr": "0x4114d0",
+            "job_id": "6df0ba4135c9"
+          }
+        },
+        {
+          "addr": "0x406268",
+          "name": "l2tp_log",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [],
+          "asink": [
+            "fmt"
+          ],
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+            "addr": "0x406268",
+            "job_id": "6df0ba4135c9"
+          }
+        },
+        {
+          "addr": "0x417f20",
+          "name": ".syslog",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [],
+          "asink": [
+            "fmt"
+          ],
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+            "addr": "0x417f20",
+            "job_id": "6df0ba4135c9"
+          }
+        }
+      ],
+      "entry_outdegree": 25,
+      "danger_calls": 3,
+      "attribution": "static_only",
+      "verified_reachable": false,
+      "trace_ids": [],
+      "observed_node_count": 0,
+      "observed_trace_ids": []
+    },
+    {
+      "path_id": "8150e13f6229e040",
+      "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+      "score": 5.41,
+      "edge_count": 2,
+      "source": {
+        "addr": "0x4114d0",
+        "name": "network_thread",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [
+          "network"
+        ],
+        "asink": [
+          "memunsafe"
+        ],
+        "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "addr": "0x4114d0",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sink": {
+        "addr": "0x406268",
+        "name": "l2tp_log",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [],
+        "asink": [
+          "fmt"
+        ],
+        "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "addr": "0x406268",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sanitizers": [],
+      "chain": [
+        {
+          "addr": "0x4114d0",
+          "name": "network_thread",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [
+            "network"
+          ],
+          "asink": [
+            "memunsafe"
+          ],
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+            "addr": "0x4114d0",
+            "job_id": "6df0ba4135c9"
+          }
+        },
+        {
+          "addr": "0x4041b4",
+          "name": "do_control",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [
+            "file"
+          ],
+          "asink": [
+            "memunsafe"
+          ],
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+            "addr": "0x4041b4",
+            "job_id": "6df0ba4135c9"
+          }
+        },
+        {
+          "addr": "0x406268",
+          "name": "l2tp_log",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [],
+          "asink": [
+            "fmt"
+          ],
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+            "addr": "0x406268",
+            "job_id": "6df0ba4135c9"
+          }
+        }
+      ],
+      "entry_outdegree": 25,
+      "danger_calls": 3,
+      "attribution": "static_only",
+      "verified_reachable": false,
+      "trace_ids": [],
+      "observed_node_count": 0,
+      "observed_trace_ids": []
+    },
+    {
+      "path_id": "adf62557ef443033",
+      "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+      "score": 5.41,
+      "edge_count": 2,
+      "source": {
+        "addr": "0x4114d0",
+        "name": "network_thread",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [
+          "network"
+        ],
+        "asink": [
+          "memunsafe"
+        ],
+        "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "addr": "0x4114d0",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sink": {
+        "addr": "0x406268",
+        "name": "l2tp_log",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [],
+        "asink": [
+          "fmt"
+        ],
+        "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "addr": "0x406268",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sanitizers": [],
+      "chain": [
+        {
+          "addr": "0x4114d0",
+          "name": "network_thread",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [
+            "network"
+          ],
+          "asink": [
+            "memunsafe"
+          ],
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+            "addr": "0x4114d0",
+            "job_id": "6df0ba4135c9"
+          }
+        },
+        {
+          "addr": "0x40f9e8",
+          "name": "get_call",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [],
+          "asink": [
+            "memunsafe"
+          ],
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+            "addr": "0x40f9e8",
+            "job_id": "6df0ba4135c9"
+          }
+        },
+        {
+          "addr": "0x406268",
+          "name": "l2tp_log",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [],
+          "asink": [
+            "fmt"
+          ],
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+            "addr": "0x406268",
+            "job_id": "6df0ba4135c9"
+          }
+        }
+      ],
+      "entry_outdegree": 25,
+      "danger_calls": 3,
+      "attribution": "static_only",
+      "verified_reachable": false,
+      "trace_ids": [],
+      "observed_node_count": 0,
+      "observed_trace_ids": []
+    },
+    {
+      "path_id": "e491fa0e7d9509c2",
+      "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+      "score": 5.41,
+      "edge_count": 2,
+      "source": {
+        "addr": "0x4114d0",
+        "name": "network_thread",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [
+          "network"
+        ],
+        "asink": [
+          "memunsafe"
+        ],
+        "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "addr": "0x4114d0",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sink": {
+        "addr": "0x406268",
+        "name": "l2tp_log",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [],
+        "asink": [
+          "fmt"
+        ],
+        "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "addr": "0x406268",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sanitizers": [],
+      "chain": [
+        {
+          "addr": "0x4114d0",
+          "name": "network_thread",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [
+            "network"
+          ],
+          "asink": [
+            "memunsafe"
+          ],
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+            "addr": "0x4114d0",
+            "job_id": "6df0ba4135c9"
+          }
+        },
+        {
+          "addr": "0x40a728",
+          "name": "handle_packet",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [],
+          "asink": [
+            "filewrite"
+          ],
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+            "addr": "0x40a728",
+            "job_id": "6df0ba4135c9"
+          }
+        },
+        {
+          "addr": "0x406268",
+          "name": "l2tp_log",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [],
+          "asink": [
+            "fmt"
+          ],
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+            "addr": "0x406268",
+            "job_id": "6df0ba4135c9"
+          }
+        }
+      ],
+      "entry_outdegree": 25,
+      "danger_calls": 3,
+      "attribution": "static_only",
+      "verified_reachable": false,
+      "trace_ids": [],
+      "observed_node_count": 0,
+      "observed_trace_ids": []
+    },
+    {
+      "path_id": "eb4180c70211afe2",
+      "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+      "score": 5.41,
+      "edge_count": 2,
+      "source": {
+        "addr": "0x4114d0",
+        "name": "network_thread",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [
+          "network"
+        ],
+        "asink": [
+          "memunsafe"
+        ],
+        "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "addr": "0x4114d0",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sink": {
+        "addr": "0x417f10",
+        "name": ".vsnprintf",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [],
+        "asink": [
+          "fmt"
+        ],
+        "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "addr": "0x417f10",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sanitizers": [],
+      "chain": [
+        {
+          "addr": "0x4114d0",
+          "name": "network_thread",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [
+            "network"
+          ],
+          "asink": [
+            "memunsafe"
+          ],
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+            "addr": "0x4114d0",
+            "job_id": "6df0ba4135c9"
+          }
+        },
+        {
+          "addr": "0x406268",
+          "name": "l2tp_log",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [],
+          "asink": [
+            "fmt"
+          ],
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+            "addr": "0x406268",
+            "job_id": "6df0ba4135c9"
+          }
+        },
+        {
+          "addr": "0x417f10",
+          "name": ".vsnprintf",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [],
+          "asink": [
+            "fmt"
+          ],
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+            "addr": "0x417f10",
+            "job_id": "6df0ba4135c9"
+          }
+        }
+      ],
+      "entry_outdegree": 25,
+      "danger_calls": 3,
+      "attribution": "static_only",
+      "verified_reachable": false,
+      "trace_ids": [],
+      "observed_node_count": 0,
+      "observed_trace_ids": []
+    },
+    {
+      "path_id": "f3c292a56cba9874",
+      "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+      "score": 5.41,
+      "edge_count": 2,
+      "source": {
+        "addr": "0x4114d0",
+        "name": "network_thread",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [
+          "network"
+        ],
+        "asink": [
+          "memunsafe"
+        ],
+        "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "addr": "0x4114d0",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sink": {
+        "addr": "0x417ee0",
+        "name": ".fprintf",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [],
+        "asink": [
+          "fmt"
+        ],
+        "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "addr": "0x417ee0",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sanitizers": [],
+      "chain": [
+        {
+          "addr": "0x4114d0",
+          "name": "network_thread",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [
+            "network"
+          ],
+          "asink": [
+            "memunsafe"
+          ],
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+            "addr": "0x4114d0",
+            "job_id": "6df0ba4135c9"
+          }
+        },
+        {
+          "addr": "0x406268",
+          "name": "l2tp_log",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [],
+          "asink": [
+            "fmt"
+          ],
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+            "addr": "0x406268",
+            "job_id": "6df0ba4135c9"
+          }
+        },
+        {
+          "addr": "0x417ee0",
+          "name": ".fprintf",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [],
+          "asink": [
+            "fmt"
+          ],
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+            "addr": "0x417ee0",
+            "job_id": "6df0ba4135c9"
+          }
+        }
+      ],
+      "entry_outdegree": 25,
+      "danger_calls": 3,
+      "attribution": "static_only",
+      "verified_reachable": false,
+      "trace_ids": [],
+      "observed_node_count": 0,
+      "observed_trace_ids": []
+    },
+    {
+      "path_id": "010c0154b367a7ab",
+      "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+      "score": 5.36,
+      "edge_count": 2,
+      "source": {
+        "addr": "0x403af8",
+        "name": "sub_403AF8",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [
+          "network"
+        ],
+        "asink": [
+          "memunsafe"
+        ],
+        "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "addr": "0x403af8",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sink": {
+        "addr": "0x406268",
+        "name": "l2tp_log",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [],
+        "asink": [
+          "fmt"
+        ],
+        "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "addr": "0x406268",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sanitizers": [],
+      "chain": [
+        {
+          "addr": "0x403af8",
+          "name": "sub_403AF8",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [
+            "network"
+          ],
+          "asink": [
+            "memunsafe"
+          ],
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+            "addr": "0x403af8",
+            "job_id": "6df0ba4135c9"
+          }
+        },
+        {
+          "addr": "0x40f9e8",
+          "name": "get_call",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [],
+          "asink": [
+            "memunsafe"
+          ],
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+            "addr": "0x40f9e8",
+            "job_id": "6df0ba4135c9"
+          }
+        },
+        {
+          "addr": "0x406268",
+          "name": "l2tp_log",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [],
+          "asink": [
+            "fmt"
+          ],
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+            "addr": "0x406268",
+            "job_id": "6df0ba4135c9"
+          }
+        }
+      ],
+      "entry_outdegree": 7,
+      "danger_calls": 3,
+      "attribution": "static_only",
+      "verified_reachable": false,
+      "trace_ids": [],
+      "observed_node_count": 0,
+      "observed_trace_ids": []
+    },
+    {
+      "path_id": "1b13f0e903b7a9f0",
+      "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+      "score": 5.36,
+      "edge_count": 2,
+      "source": {
+        "addr": "0x403af8",
+        "name": "sub_403AF8",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [
+          "network"
+        ],
+        "asink": [
+          "memunsafe"
+        ],
+        "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "addr": "0x403af8",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sink": {
+        "addr": "0x417f10",
+        "name": ".vsnprintf",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [],
+        "asink": [
+          "fmt"
+        ],
+        "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "addr": "0x417f10",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sanitizers": [],
+      "chain": [
+        {
+          "addr": "0x403af8",
+          "name": "sub_403AF8",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [
+            "network"
+          ],
+          "asink": [
+            "memunsafe"
+          ],
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+            "addr": "0x403af8",
+            "job_id": "6df0ba4135c9"
+          }
+        },
+        {
+          "addr": "0x406268",
+          "name": "l2tp_log",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [],
+          "asink": [
+            "fmt"
+          ],
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+            "addr": "0x406268",
+            "job_id": "6df0ba4135c9"
+          }
+        },
+        {
+          "addr": "0x417f10",
+          "name": ".vsnprintf",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [],
+          "asink": [
+            "fmt"
+          ],
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+            "addr": "0x417f10",
+            "job_id": "6df0ba4135c9"
+          }
+        }
+      ],
+      "entry_outdegree": 7,
+      "danger_calls": 3,
+      "attribution": "static_only",
+      "verified_reachable": false,
+      "trace_ids": [],
+      "observed_node_count": 0,
+      "observed_trace_ids": []
+    },
+    {
+      "path_id": "b6cec639e2f6c652",
+      "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+      "score": 5.36,
+      "edge_count": 2,
+      "source": {
+        "addr": "0x403af8",
+        "name": "sub_403AF8",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [
+          "network"
+        ],
+        "asink": [
+          "memunsafe"
+        ],
+        "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "addr": "0x403af8",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sink": {
+        "addr": "0x417f20",
+        "name": ".syslog",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [],
+        "asink": [
+          "fmt"
+        ],
+        "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "addr": "0x417f20",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sanitizers": [],
+      "chain": [
+        {
+          "addr": "0x403af8",
+          "name": "sub_403AF8",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [
+            "network"
+          ],
+          "asink": [
+            "memunsafe"
+          ],
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+            "addr": "0x403af8",
+            "job_id": "6df0ba4135c9"
+          }
+        },
+        {
+          "addr": "0x406268",
+          "name": "l2tp_log",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [],
+          "asink": [
+            "fmt"
+          ],
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+            "addr": "0x406268",
+            "job_id": "6df0ba4135c9"
+          }
+        },
+        {
+          "addr": "0x417f20",
+          "name": ".syslog",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [],
+          "asink": [
+            "fmt"
+          ],
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+            "addr": "0x417f20",
+            "job_id": "6df0ba4135c9"
+          }
+        }
+      ],
+      "entry_outdegree": 7,
+      "danger_calls": 3,
+      "attribution": "static_only",
+      "verified_reachable": false,
+      "trace_ids": [],
+      "observed_node_count": 0,
+      "observed_trace_ids": []
+    },
+    {
+      "path_id": "b8aeb7b2fa42c453",
+      "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+      "score": 5.36,
+      "edge_count": 2,
+      "source": {
+        "addr": "0x403af8",
+        "name": "sub_403AF8",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [
+          "network"
+        ],
+        "asink": [
+          "memunsafe"
+        ],
+        "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "addr": "0x403af8",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sink": {
+        "addr": "0x417ee0",
+        "name": ".fprintf",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [],
+        "asink": [
+          "fmt"
+        ],
+        "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "addr": "0x417ee0",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sanitizers": [],
+      "chain": [
+        {
+          "addr": "0x403af8",
+          "name": "sub_403AF8",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [
+            "network"
+          ],
+          "asink": [
+            "memunsafe"
+          ],
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+            "addr": "0x403af8",
+            "job_id": "6df0ba4135c9"
+          }
+        },
+        {
+          "addr": "0x406268",
+          "name": "l2tp_log",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [],
+          "asink": [
+            "fmt"
+          ],
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+            "addr": "0x406268",
+            "job_id": "6df0ba4135c9"
+          }
+        },
+        {
+          "addr": "0x417ee0",
+          "name": ".fprintf",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [],
+          "asink": [
+            "fmt"
+          ],
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+            "addr": "0x417ee0",
+            "job_id": "6df0ba4135c9"
+          }
+        }
+      ],
+      "entry_outdegree": 7,
+      "danger_calls": 3,
+      "attribution": "static_only",
+      "verified_reachable": false,
+      "trace_ids": [],
+      "observed_node_count": 0,
+      "observed_trace_ids": []
+    },
+    {
+      "path_id": "8b2e62652c23daa0",
+      "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+      "score": 5.34,
+      "edge_count": 3,
+      "source": {
+        "addr": "0x40190c",
+        "name": "main",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [
+          "argv",
+          "network"
+        ],
+        "asink": [
+          "filewrite"
+        ],
+        "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+          "addr": "0x40190c",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sink": {
+        "addr": "0x403dc0",
+        "name": ".strchr",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [],
+        "asink": [
+          "fmt"
+        ],
+        "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+          "addr": "0x403dc0",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sanitizers": [],
+      "chain": [
+        {
+          "addr": "0x40190c",
+          "name": "main",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [
+            "argv",
+            "network"
+          ],
+          "asink": [
+            "filewrite"
+          ],
+          "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+            "addr": "0x40190c",
+            "job_id": "6df0ba4135c9"
+          }
+        },
+        {
+          "addr": "0x400c40",
+          "name": "sub_400C40",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [],
+          "asink": [
+            "memunsafe"
+          ],
+          "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+            "addr": "0x400c40",
+            "job_id": "6df0ba4135c9"
+          }
+        },
+        {
+          "addr": "0x401f50",
+          "name": "base64_decodestring",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [],
+          "asink": [
+            "memunsafe"
+          ],
+          "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+            "addr": "0x401f50",
+            "job_id": "6df0ba4135c9"
+          }
+        },
+        {
+          "addr": "0x403dc0",
+          "name": ".strchr",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [],
+          "asink": [
+            "fmt"
+          ],
+          "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+            "addr": "0x403dc0",
+            "job_id": "6df0ba4135c9"
+          }
+        }
+      ],
+      "entry_outdegree": 20,
+      "danger_calls": 4,
+      "attribution": "static_only",
+      "verified_reachable": false,
+      "trace_ids": [],
+      "observed_node_count": 0,
+      "observed_trace_ids": []
+    },
+    {
+      "path_id": "0ad6cae64302bede",
+      "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+      "score": 5.34,
+      "edge_count": 3,
+      "source": {
+        "addr": "0x4114d0",
+        "name": "network_thread",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [
+          "network"
+        ],
+        "asink": [
+          "memunsafe"
+        ],
+        "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "addr": "0x4114d0",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sink": {
+        "addr": "0x417ee0",
+        "name": ".fprintf",
+        "ai_name": null,
+        "libc_equiv": null,
+        "asrc": [],
+        "asink": [
+          "fmt"
+        ],
+        "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+        "evidence_address": {
+          "schema": "fwgraph.evidence-address.v1",
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "addr": "0x417ee0",
+          "job_id": "6df0ba4135c9"
+        }
+      },
+      "sanitizers": [],
+      "chain": [
+        {
+          "addr": "0x4114d0",
+          "name": "network_thread",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [
+            "network"
+          ],
+          "asink": [
+            "memunsafe"
+          ],
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+            "addr": "0x4114d0",
+            "job_id": "6df0ba4135c9"
+          }
+        },
+        {
+          "addr": "0x40a728",
+          "name": "handle_packet",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [],
+          "asink": [
+            "filewrite"
+          ],
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+            "addr": "0x40a728",
+            "job_id": "6df0ba4135c9"
+          }
+        },
+        {
+          "addr": "0x406268",
+          "name": "l2tp_log",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [],
+          "asink": [
+            "fmt"
+          ],
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+            "addr": "0x406268",
+            "job_id": "6df0ba4135c9"
+          }
+        },
+        {
+          "addr": "0x417ee0",
+          "name": ".fprintf",
+          "ai_name": null,
+          "libc_equiv": null,
+          "asrc": [],
+          "asink": [
+            "fmt"
+          ],
+          "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+          "evidence_address": {
+            "schema": "fwgraph.evidence-address.v1",
+            "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+            "addr": "0x417ee0",
+            "job_id": "6df0ba4135c9"
+          }
+        }
+      ],
+      "entry_outdegree": 25,
+      "danger_calls": 4,
+      "attribution": "static_only",
+      "verified_reachable": false,
+      "trace_ids": [],
+      "observed_node_count": 0,
+      "observed_trace_ids": []
+    }
+  ],
+  "cross_validation": {
+    "traces_considered": 0,
+    "observed_functions": 0,
+    "verified_functions": 0,
+    "verified_paths": 0
+  }
+}

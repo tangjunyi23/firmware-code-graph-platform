@@ -10,10 +10,14 @@ ARG AFL_REPO=https://github.com/AFLplusplus/AFLplusplus
 # （requirements.txt 未固定 frida；以对齐 .venv 实装版本 17.17.0 为默认）
 ARG FRIDA_VERSION=17.17.0
 
-# qemu-user: trace 用 qemu-<arch>；gcc/make/git-core: 构建 AFL++；
-# python3: 下载/解压 frida-server（避免额外装 curl/xz-utils）
+# qemu-user: trace 用 qemu-<arch>；gcc/g++/make/libc6-dev/git-core: 构建 AFL++
+# （--no-install-recommends 下 gcc 不带 libc6-dev，缺 -lm 会链接失败；afl-cc 的
+# GCC 插件模式需要 gcc-13-plugin-dev + g++ 编译 afl-gcc-pass.so，缺 g++ 报
+# Error 127，最终 test_build 报 "no compiler mode available"；noble 无
+# gcc-plugin-dev 元包，需带版本）；python3: 下载/解压 frida-server
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        qemu-user gcc make git-core ca-certificates python3 \
+        qemu-user gcc g++ make libc6-dev gcc-13-plugin-dev git-core \
+        ca-certificates python3 \
     && rm -rf /var/lib/apt/lists/*
 
 # 仅编译 AFL++ 核心（afl-fuzz 等，容器内路径 /opt/AFLplusplus/afl-fuzz）；
@@ -35,5 +39,9 @@ EOF
 RUN chmod 755 /usr/local/bin/frida-server
 
 # 非 root 运行；docker run 时再叠加 --read-only/--cap-drop ALL 等隔离参数
-RUN useradd -m -u 1000 sandbox
+# （ubuntu:24.04 自带 uid 1000 的 ubuntu 用户，先删掉再建 sandbox）
+RUN userdel -r ubuntu 2>/dev/null || true; useradd -m -u 1000 sandbox
 USER sandbox
+# afl-fuzz 等工具进 PATH（编排器用绝对路径 /opt/AFLplusplus/afl-fuzz，PATH
+# 方便手工调试与冒烟）
+ENV PATH="/opt/AFLplusplus:$PATH"

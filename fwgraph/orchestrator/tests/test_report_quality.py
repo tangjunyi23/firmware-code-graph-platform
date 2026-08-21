@@ -56,6 +56,20 @@ def test_esc_line_start_pipe_backslash():
     assert report._esc(None) == ""
 
 
+def test_finding_report_has_chinese_poc_and_call_chain(vuln_home, tmp_path):
+    _write_finding(vuln_home, _mk_finding(
+        "F-poc-0001",
+        summary="httpd 未校验长度",
+        call_chain="httpd_main@0x401000 → handle_form@0x402000 → strcpy@0x403000",
+        poc="POST /goform/setMac HTTP/1.1\nHost: 192.168.0.1\n\nmac=" + "A" * 80,
+    ))
+    md = _gen("job1", tmp_path / "data")
+    assert "**调用链**" in md
+    assert "httpd_main@0x401000 → handle_form@0x402000 → strcpy@0x403000" in md
+    assert "**漏洞 PoC**" in md
+    assert "POST /goform/setMac" in md
+
+
 def test_finding_fields_escaped(vuln_home, tmp_path):
     evil = _mk_finding(
         "F-evil-0001",

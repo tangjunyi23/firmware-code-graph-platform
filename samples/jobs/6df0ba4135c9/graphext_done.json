@@ -1,0 +1,33 @@
+{
+  "job_id": "6df0ba4135c9",
+  "status": "ok",
+  "generated_at": "2026-08-21T08:41:22.830586+00:00",
+  "binaries": 64,
+  "cfg_functions": 0,
+  "ast_functions": 39654,
+  "ast_skipped": 0,
+  "cfg_failed": 0,
+  "cfg_stats": {
+    "total_blocks": 0,
+    "orphan_blocks": 0,
+    "ret_edges": 0,
+    "indirect_jump_edges": 0,
+    "orphan_rate": 0.0
+  },
+  "ast_stats": {
+    "total": 39654,
+    "has_error": 132,
+    "error_nodes": 584,
+    "truncated": 126,
+    "error_rate": 0.0033
+  },
+  "ast_error_samples": [
+    "sub_40ABCC(aa3d98e2:0x40abcc)",
+    "sub_420D2C(aa3d98e2:0x420d2c)",
+    "sub_4215A8(aa3d98e2:0x4215a8)",
+    "sub_42281C(aa3d98e2:0x42281c)",
+    "sub_426730(aa3d98e2:0x426730)"
+  ],
+  "ast_failed_samples": [],
+  "elapsed_seconds": 43.06
+}

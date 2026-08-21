@@ -86,9 +86,12 @@ def _build_entry(idx, cand, rootfs, prefix):
                         f"applet selected via argv[0]"})
         needed, undef = elfchain.elf_facts(real)
         libs = elfchain.resolve_libs(rootfs, needed) if needed else []
+        unresolved = elfchain.unresolved_needed(needed, libs) if needed else []
         processing_chain.append(
             {"file": (prefix + real_rel) if prefix else real_rel,
-             "libs": libs})
+             "libs": libs,
+             "unresolved_needed": unresolved,
+             "needed_complete": not unresolved})
         for ref in elfchain.exec_paths(real, rootfs):
             if ref.lstrip("/") == cand.path:
                 continue

@@ -6,6 +6,7 @@ from pipeline.sandbox.docker_backend import (
     backend_for,
     configured_backend,
     docker_available,
+    host_mount_path,
     run_sandboxed,
     sandbox_image_present,
 )
@@ -19,6 +20,7 @@ __all__ = [
     "configured_backend",
     "docker_available",
     "ensure_image",
+    "host_mount_path",
     "run_sandboxed",
     "sandbox_image_present",
 ]

@@ -107,7 +107,7 @@ node dsh/verify_tools.mjs      # 实boot fwgraph profile 打印注册工具清�
 
 0. `fw_get_identification` 取外部输入清单（IN-xxx，公网可达、零遗漏）→ `fw_list_surfaces` / `fw_get_surface` 按面推进
 1. `fw_attack_surface` 取评分路径（verified 优先；大范围扫描用 `brief=true` 只取分诊字段）+ `fw_get_manifest` 看 checksec 加固画像
-2. 逐条路径筛查：**先 `fw_get_function_source brief=true`**（约 1KB 分诊卡：攻击面元数据 + 伪代码头 + 危险调用行号 + callees），命中疑点再拉全文（Hex-Rays 原始伪代码是唯一可引用证据；`kind=ai` 的增强 overlay 只做调用链/攻击面理解辅助，**其重命名符号禁止引用**），沿 source→sink 追攻击者可控数据流（栈溢出/命令注入/格式化字符串/路径穿越/整数溢出）
+2. 逐条路径筛查：**先 `fw_get_function_source brief=true`**（约 1KB 分诊卡：攻击面元数据 + 伪代码头 + 危险调用行号 + callees），命中疑点再拉全文（Hex-Rays 原始伪代码是唯一可引用证据），沿 source→sink 追攻击者可控数据流（栈溢出/命令注入/格式化字符串/路径穿越/整数溢出）
 3. `fw_routes` 定位触发路由、`fw_trace_flow` 拿运行时证据、`fw_call_trace` 沿调用链确认入口与 sink；`fw_get_cfg/fw_get_ast`（可加 `max_nodes/max_depth` 截断）做精确控制流/数据流推理
 4. `fw_dangerous_callsites` / `fw_cypher` 扩大同类模式审查
 5. 每个确认的漏洞 `record_finding`（证据必须具体到函数地址、伪代码行、路径评分、trace_id）
@@ -128,7 +128,7 @@ LLM_BASE_URL=https://opencode.ai/zen/go/v1
 LLM_API_STYLE=anthropic
 LLM_MODEL=deepseek-v4-flash
 LLM_API_KEY=<key>
-LLM_THINKING=0        # 推理模型 reasoning 会先烧输出额度；aienrich 侧已提至 16384
+LLM_THINKING=0        # 推理模型 reasoning 会先烧输出额度
 NODE_EXTRA_CA_CERTS=../fwgraph/data/tls/cert.pem   # Node fetch 信任自签证书
 # FWGRAPH_EXTRACTED_ROOT=<固件解包根>   # 默认 ../fwgraph/data/extracted；fw_browse_firmware（dsh）监禁于 <root>/<job_id>/
 # VULNAGENT_COMPACT_THRESHOLD=1200 / VULNAGENT_COMPACT_KEEP_RECENT=6  # 历史压缩可调

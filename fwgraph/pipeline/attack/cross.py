@@ -4,6 +4,7 @@ import json
 from collections import defaultdict
 from pathlib import Path
 
+from pipeline import evidence as ev
 from pipeline.attack.surface import function_key
 
 
@@ -62,7 +63,12 @@ def apply(analysis, path_result, trace_root):
         path["trace_ids"] = full_trace_ids
         path["verified_reachable"] = bool(full_trace_ids)
         if full_trace_ids:
+            path["attribution"] = ev.ATTRIBUTION_VERIFIED
             verified_paths += 1
+        elif observed_nodes:
+            path["attribution"] = ev.ATTRIBUTION_OBSERVED
+        else:
+            path["attribution"] = ev.ATTRIBUTION_STATIC
 
     return {
         "traces_considered": len(observations),

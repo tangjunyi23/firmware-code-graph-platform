@@ -445,6 +445,9 @@ class TestTraceFlow:
         assert body["dangerous_count"] == 1
         assert body["dangerous"][0]["matched"] == "strcpy"
         assert body["dangerous"][0]["addr"] == "0x42b78c"
+        assert body["attribution"] == "observed_in_window"
+        assert body["envelope"]["pagination"]["analysis_complete"] is True
+        assert body["sequence"][0]["evidence_address"]["addr"] == "0x40029c"
 
     def test_missing_trace_404(self, client):
         http, _ = client

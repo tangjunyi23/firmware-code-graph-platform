@@ -1,0 +1,1858 @@
+{
+  "job_id": "6df0ba4135c9",
+  "created_at": "2026-08-21T08:40:00.970048+00:00",
+  "exporter": "rootfs_elf",
+  "only_md5s": [
+    "0053d7fc7364adceb609520a6f7c9560",
+    "013126995a8c8228fc47c9d7a6ca9699",
+    "04f37f38627d3d38b40ea03e2b04aca5",
+    "08b0860102c4b034bfbae2238115a7e6",
+    "08e91ce81002bc83b768f483b5d63c97",
+    "0b3a37ef404b079bb6442a19b5fd597b",
+    "0deafb24ce1cb044a979cf33e904e0e7",
+    "1236a199291ead41164e5aa69c323a9b",
+    "1529b5ebd660214cf435e57b1d215d65",
+    "1828ed2214c2658786cbaa42ea64826f",
+    "20b0c4d2f690383204ed5651733bae9e",
+    "21cf650faa573039553551f066d1980a",
+    "21eccb088773393faa70270236c90b46",
+    "23e3796091277a8be1e69dc8f5093dbd",
+    "2c508f48e714f8276fee71652f19b4ba",
+    "2cadcf12372117a47685c235aedeab3f",
+    "2f0876307c83c41265384106e6ccfc49",
+    "2fc15d11a6d84d3f80c70d81c9e26118",
+    "367a9db7638010f43c55d2eb45a543dc",
+    "382b780ca8226f451fe70730ef327267",
+    "3bfc472767e220fa003a15934ca5da7f",
+    "3e3258c907b4b461c90472e1fcd6cddb",
+    "3f888c74a5604790f8fde8d2f65657f5",
+    "450afc711facc86492a955bf7967b594",
+    "49990799009ddbe4acbdccafb6e91f72",
+    "4f07e369be60488ddd22e55be4cc9d7b",
+    "50ac29f36d448568e1744d8cee00835d",
+    "53a5015af68ecf517285cb18d3aeab27",
+    "553f0e2eb39a71fbc51daa5597563304",
+    "5b0a4cf0bac38d777e81c773e29393d6",
+    "5b5144eda99757cd4f2d1a24e124a079",
+    "5bf87d074af47ea6dd761274cae3527b",
+    "6102ba6a30b9415c48300043ef7a732e",
+    "62289f97d2fea15ddb4438d2c4390588",
+    "64af7bc8ff977918d5c2d17e4ccce088",
+    "6718c0229a1f51b2ab55a1ff6471b927",
+    "685dc005d070bcc84e2201bb385553f3",
+    "7201c7fc04370bbcb7d57c704516da1e",
+    "78023622b84b6241bb5208a82785de7c",
+    "7f731580da33cbc3a622a1d2f1e6e426",
+    "7fabf07a7c7c304bdee3f34beaca0259",
+    "831411ed7e1770609b0ab9837d576e2f",
+    "8a14fa55d5e8683fc44d19caab1413ce",
+    "8de9773f9eb69f9ed433c6a50d053ea2",
+    "9582aa23b0bc2de099b9997b09457d01",
+    "962028543ed270727dbdd72342433efd",
+    "9f63d5449a74674e8b29c191ecd657ca",
+    "aa3d98e20b0f5904d08b51eed6a9536a",
+    "ae35a53ccab71de6af881926d121c0a9",
+    "b4483e719e0c1b35c386cb9f8b73b9e0",
+    "bcce3cb737ac6869076de8aeec92d038",
+    "cb0bfc5c9044ab606afcee5dfb7abd61",
+    "cb5be0b294ec41ad7e37f9a98524d1e0",
+    "d0b5ab58cc82a4d1a4fcfc208e224a1e",
+    "d61e67ed20163b7fee8bd3c606fb0331",
+    "d69803d59bf830a6a3095acfd3c5dd0b",
+    "d7d7fcbcc4873ef2a829b0e60a314f3a",
+    "de12dc34b794073519aa339c1813f5b3",
+    "dfbd46b8a9cfdeb15f49446a85cecf7f",
+    "e1f800843c4e89ee18755e8ceb1e195e",
+    "f18e24e1ea1cf6e512801cf0c44801da",
+    "f507bf14c2e4785cc916f077983f32ef",
+    "f8a1d1f62eef2e1e73cbbeadd5d51900",
+    "f8dc296c73157774b2617b1d130639f5"
+  ],
+  "total_binaries": 64,
+  "succeeded": 64,
+  "failed": 0,
+  "timed_out": 0,
+  "total_functions": 43847,
+  "total_decompiled": 39654,
+  "workers": 3,
+  "binaries": [
+    {
+      "md5": "4f07e369be60488ddd22e55be4cc9d7b",
+      "path": "firmware/binwalk_extracted/firmware.extracted/100000/squashfs-root/bin/arpping",
+      "status": "ok",
+      "error": null,
+      "idb_reused": false,
+      "elapsed_seconds": 2.01,
+      "exporter": "rootfs_elf",
+      "functions": 16,
+      "decompiled": 10,
+      "export_errors": 0,
+      "naming": null
+    },
+    {
+      "md5": "aa3d98e20b0f5904d08b51eed6a9536a",
+      "path": "firmware/binwalk_extracted/firmware.extracted/100000/squashfs-root/bin/busybox",
+      "status": "ok",
+      "error": null,
+      "idb_reused": false,
+      "elapsed_seconds": 34.09,
+      "exporter": "rootfs_elf",
+      "functions": 996,
+      "decompiled": 759,
+      "export_errors": 0,
+      "naming": null
+    },
+    {
+      "md5": "f18e24e1ea1cf6e512801cf0c44801da",
+      "path": "firmware/binwalk_extracted/firmware.extracted/100000/squashfs-root/bin/isgnsta",
+      "status": "ok",
+      "error": null,
+      "idb_reused": false,
+      "elapsed_seconds": 2.01,
+      "exporter": "rootfs_elf",
+      "functions": 52,
+      "decompiled": 30,
+      "export_errors": 0,
+      "naming": null
+    },
+    {
+      "md5": "3e3258c907b4b461c90472e1fcd6cddb",
+      "path": "firmware/binwalk_extracted/firmware.extracted/100000/squashfs-root/bin/minidlnad",
+      "status": "ok",
+      "error": null,
+      "idb_reused": false,
+      "elapsed_seconds": 44.08,
+      "exporter": "rootfs_elf",
+      "functions": 814,
+      "decompiled": 569,
+      "export_errors": 0,
+      "naming": null
+    },
+    {
+      "md5": "04f37f38627d3d38b40ea03e2b04aca5",
+      "path": "firmware/binwalk_extracted/firmware.extracted/100000/squashfs-root/bin/ntfs-3g",
+      "status": "ok",
+      "error": null,
+      "idb_reused": false,
+      "elapsed_seconds": 18.05,
+      "exporter": "rootfs_elf",
+      "functions": 630,
+      "decompiled": 467,
+      "export_errors": 0,
+      "naming": null
+    },
+    {
+      "md5": "1236a199291ead41164e5aa69c323a9b",
+      "path": "firmware/binwalk_extracted/firmware.extracted/100000/squashfs-root/lib/ld-uClibc-0.9.30.so",
+      "status": "ok",
+      "error": null,
+      "idb_reused": false,
+      "elapsed_seconds": 4.01,
+      "exporter": "rootfs_elf",
+      "functions": 34,
+      "decompiled": 34,
+      "export_errors": 0,
+      "naming": null
+    },
+    {
+      "md5": "20b0c4d2f690383204ed5651733bae9e",
+      "path": "firmware/binwalk_extracted/firmware.extracted/100000/squashfs-root/lib/libFLAC.so.8.2.0",
+      "status": "ok",
+      "error": null,
+      "idb_reused": false,
+      "elapsed_seconds": 72.06,
+      "exporter": "rootfs_elf",
+      "functions": 576,
+      "decompiled": 509,
+      "export_errors": 0,
+      "naming": null
+    },
+    {
+      "md5": "bcce3cb737ac6869076de8aeec92d038",
+      "path": "firmware/binwalk_extracted/firmware.extracted/100000/squashfs-root/lib/libavcodec.so.54.23.100",
+      "status": "ok",
+      "error": null,
+      "idb_reused": false,
+      "elapsed_seconds": 326.32,
+      "exporter": "rootfs_elf",
+      "functions": 2510,
+      "decompiled": 2380,
+      "export_errors": 0,
+      "naming": null
+    },
+    {
+      "md5": "dfbd46b8a9cfdeb15f49446a85cecf7f",
+      "path": "firmware/binwalk_extracted/firmware.extracted/100000/squashfs-root/lib/libavdevice.so.54.0.100",
+      "status": "ok",
+      "error": null,
+      "idb_reused": false,
+      "elapsed_seconds": 2.0,
+      "exporter": "rootfs_elf",
+      "functions": 13,
+      "decompiled": 9,
+      "export_errors": 0,
+      "naming": null
+    },
+    {
+      "md5": "013126995a8c8228fc47c9d7a6ca9699",
+      "path": "firmware/binwalk_extracted/firmware.extracted/100000/squashfs-root/lib/libavformat.so.54.6.100",
+      "status": "ok",
+      "error": null,
+      "idb_reused": false,
+      "elapsed_seconds": 102.14,
+      "exporter": "rootfs_elf",
+      "functions": 1342,
+      "decompiled": 1118,
+      "export_errors": 0,
+      "naming": null
+    },
+    {
+      "md5": "d7d7fcbcc4873ef2a829b0e60a314f3a",
+      "path": "firmware/binwalk_extracted/firmware.extracted/100000/squashfs-root/lib/libavutil.so.51.54.100",
+      "status": "ok",
+      "error": null,
+      "idb_reused": false,
+      "elapsed_seconds": 14.04,
+      "exporter": "rootfs_elf",
+      "functions": 414,
+      "decompiled": 344,
+      "export_errors": 0,
+      "naming": null
+    },
+    {
+      "md5": "367a9db7638010f43c55d2eb45a543dc",
+      "path": "firmware/binwalk_extracted/firmware.extracted/100000/squashfs-root/lib/libcrypt-0.9.30.so",
+      "status": "ok",
+      "error": null,
+      "idb_reused": false,
+      "elapsed_seconds": 2.01,
+      "exporter": "rootfs_elf",
+      "functions": 25,
+      "decompiled": 18,
+      "export_errors": 0,
+      "naming": null
+    },
+    {
+      "md5": "e1f800843c4e89ee18755e8ceb1e195e",
+      "path": "firmware/binwalk_extracted/firmware.extracted/100000/squashfs-root/lib/libdl-0.9.30.so",
+      "status": "ok",
+      "error": null,
+      "idb_reused": false,
+      "elapsed_seconds": 2.0,
+      "exporter": "rootfs_elf",
+      "functions": 32,
+      "decompiled": 19,
+      "export_errors": 0,
+      "naming": null
+    },
+    {
+      "md5": "382b780ca8226f451fe70730ef327267",
+      "path": "firmware/binwalk_extracted/firmware.extracted/100000/squashfs-root/lib/libexec/xtables/libip6t_HL.so",
+      "status": "ok",
+      "error": null,
+      "idb_reused": false,
+      "elapsed_seconds": 2.0,
+      "exporter": "rootfs_elf",
+      "functions": 25,
+      "decompiled": 16,
+      "export_errors": 0,
+      "naming": null
+    },
+    {
+      "md5": "64af7bc8ff977918d5c2d17e4ccce088",
+      "path": "firmware/binwalk_extracted/firmware.extracted/100000/squashfs-root/lib/libexec/xtables/libip6t_LOG.so",
+      "status": "ok",
+      "error": null,
+      "idb_reused": false,
+      "elapsed_seconds": 2.0,
+      "exporter": "rootfs_elf",
+      "functions": 33,
+      "decompiled": 20,
+      "export_errors": 0,
+      "naming": null
+    },
+    {
+      "md5": "2fc15d11a6d84d3f80c70d81c9e26118",
+      "path": "firmware/binwalk_extracted/firmware.extracted/100000/squashfs-root/lib/libexec/xtables/libip6t_REJECT.so",
+      "status": "ok",
+      "error": null,
+      "idb_reused": false,
+      "elapsed_seconds": 2.0,
+      "exporter": "rootfs_elf",
+      "functions": 29,
+      "decompiled": 18,
+      "export_errors": 0,
+      "naming": null
+    },
+    {
+      "md5": "0deafb24ce1cb044a979cf33e904e0e7",
+      "path": "firmware/binwalk_extracted/firmware.extracted/100000/squashfs-root/lib/libexec/xtables/libip6t_ah.so",
+      "status": "ok",
+      "error": null,
+      "idb_reused": false,
+      "elapsed_seconds": 2.0,
+      "exporter": "rootfs_elf",
+      "functions": 34,
+      "decompiled": 21,
+      "export_errors": 0,
+      "naming": null
+    },
+    {
+      "md5": "de12dc34b794073519aa339c1813f5b3",
+      "path": "firmware/binwalk_extracted/firmware.extracted/100000/squashfs-root/lib/libexec/xtables/libip6t_dst.so",
+      "status": "ok",
+      "error": null,
+      "idb_reused": false,
+      "elapsed_seconds": 2.0,
+      "exporter": "rootfs_elf",
+      "functions": 35,
+      "decompiled": 22,
+      "export_errors": 0,
+      "naming": null
+    },
+    {
+      "md5": "9f63d5449a74674e8b29c191ecd657ca",
+      "path": "firmware/binwalk_extracted/firmware.extracted/100000/squashfs-root/lib/libexec/xtables/libip6t_eui64.so",
+      "status": "ok",
+      "error": null,
+      "idb_reused": false,
+      "elapsed_seconds": 2.0,
+      "exporter": "rootfs_elf",
+      "functions": 12,
+      "decompiled": 7,
+      "export_errors": 0,
+      "naming": null
+    },
+    {
+      "md5": "5b0a4cf0bac38d777e81c773e29393d6",
+      "path": "firmware/binwalk_extracted/firmware.extracted/100000/squashfs-root/lib/libexec/xtables/libip6t_frag.so",
+      "status": "ok",
+      "error": null,
+      "idb_reused": false,
+      "elapsed_seconds": 2.01,
+      "exporter": "rootfs_elf",
+      "functions": 34,
+      "decompiled": 21,
+      "export_errors": 0,
+      "naming": null
+    },
+    {
+      "md5": "2f0876307c83c41265384106e6ccfc49",
+      "path": "firmware/binwalk_extracted/firmware.extracted/100000/squashfs-root/lib/libexec/xtables/libip6t_hbh.so",
+      "status": "ok",
+      "error": null,
+      "idb_reused": false,
+      "elapsed_seconds": 2.01,
+      "exporter": "rootfs_elf",
+      "functions": 35,
+      "decompiled": 22,
+      "export_errors": 0,
+      "naming": null
+    },
+    {
+      "md5": "5b5144eda99757cd4f2d1a24e124a079",
+      "path": "firmware/binwalk_extracted/firmware.extracted/100000/squashfs-root/lib/libexec/xtables/libip6t_hl.so",
+      "status": "ok",
+      "error": null,
+      "idb_reused": false,
+      "elapsed_seconds": 2.0,
+      "exporter": "rootfs_elf",
+      "functions": 25,
+      "decompiled": 16,
+      "export_errors": 0,
+      "naming": null
+    },
+    {
+      "md5": "7f731580da33cbc3a622a1d2f1e6e426",
+      "path": "firmware/binwalk_extracted/firmware.extracted/100000/squashfs-root/lib/libexec/xtables/libip6t_icmp6.so",
+      "status": "ok",
+      "error": null,
+      "idb_reused": false,
+      "elapsed_seconds": 2.01,
+      "exporter": "rootfs_elf",
+      "functions": 37,
+      "decompiled": 23,
+      "export_errors": 0,
+      "naming": null
+    },
+    {
+      "md5": "cb5be0b294ec41ad7e37f9a98524d1e0",
+      "path": "firmware/binwalk_extracted/firmware.extracted/100000/squashfs-root/lib/libexec/xtables/libip6t_ipv6header.so",
+      "status": "ok",
+      "error": null,
+      "idb_reused": false,
+      "elapsed_seconds": 2.0,
+      "exporter": "rootfs_elf",
+      "functions": 39,
+      "decompiled": 24,
+      "export_errors": 0,
+      "naming": null
+    },
+    {
+      "md5": "7201c7fc04370bbcb7d57c704516da1e",
+      "path": "firmware/binwalk_extracted/firmware.extracted/100000/squashfs-root/lib/libexec/xtables/libip6t_mh.so",
+      "status": "ok",
+      "error": null,
+      "idb_reused": false,
+      "elapsed_seconds": 2.0,
+      "exporter": "rootfs_elf",
+      "functions": 39,
+      "decompiled": 24,
+      "export_errors": 0,
+      "naming": null
+    },
+    {
+      "md5": "553f0e2eb39a71fbc51daa5597563304",
+      "path": "firmware/binwalk_extracted/firmware.extracted/100000/squashfs-root/sbin/80211stats",
+      "status": "ok",
+      "error": null,
+      "idb_reused": false,
+      "elapsed_seconds": 2.01,
+      "exporter": "rootfs_elf",
+      "functions": 40,
+      "decompiled": 23,
+      "export_errors": 0,
+      "naming": null
+    },
+    {
+      "md5": "f507bf14c2e4785cc916f077983f32ef",
+      "path": "firmware/binwalk_extracted/firmware.extracted/100000/squashfs-root/sbin/apstats",
+      "status": "ok",
+      "error": null,
+      "idb_reused": false,
+      "elapsed_seconds": 6.01,
+      "exporter": "rootfs_elf",
+      "functions": 78,
+      "decompiled": 51,
+      "export_errors": 0,
+      "naming": null
+    },
+    {
+      "md5": "53a5015af68ecf517285cb18d3aeab27",
+      "path": "firmware/binwalk_extracted/firmware.extracted/100000/squashfs-root/sbin/athadhoc",
+      "status": "ok",
+      "error": null,
+      "idb_reused": false,
+      "elapsed_seconds": 4.01,
+      "exporter": "rootfs_elf",
+      "functions": 76,
+      "decompiled": 55,
+      "export_errors": 0,
+      "naming": null
+    },
+    {
+      "md5": "21cf650faa573039553551f066d1980a",
+      "path": "firmware/binwalk_extracted/firmware.extracted/100000/squashfs-root/sbin/athdiag",
+      "status": "ok",
+      "error": null,
+      "idb_reused": false,
+      "elapsed_seconds": 12.03,
+      "exporter": "rootfs_elf",
+      "functions": 223,
+      "decompiled": 191,
+      "export_errors": 0,
+      "naming": null
+    },
+    {
+      "md5": "7fabf07a7c7c304bdee3f34beaca0259",
+      "path": "firmware/binwalk_extracted/firmware.extracted/100000/squashfs-root/sbin/athstats",
+      "status": "ok",
+      "error": null,
+      "idb_reused": false,
+      "elapsed_seconds": 6.01,
+      "exporter": "rootfs_elf",
+      "functions": 50,
+      "decompiled": 35,
+      "export_errors": 0,
+      "naming": null
+    },
+    {
+      "md5": "6102ba6a30b9415c48300043ef7a732e",
+      "path": "firmware/binwalk_extracted/firmware.extracted/100000/squashfs-root/sbin/athstatsclr",
+      "status": "ok",
+      "error": null,
+      "idb_reused": false,
+      "elapsed_seconds": 2.0,
+      "exporter": "rootfs_elf",
+      "functions": 22,
+      "decompiled": 13,
+      "export_errors": 0,
+      "naming": null
+    },
+    {
+      "md5": "3f888c74a5604790f8fde8d2f65657f5",
+      "path": "firmware/binwalk_extracted/firmware.extracted/100000/squashfs-root/sbin/hostapd",
+      "status": "ok",
+      "error": null,
+      "idb_reused": false,
+      "elapsed_seconds": 100.14,
+      "exporter": "rootfs_elf",
+      "functions": 1351,
+      "decompiled": 1242,
+      "export_errors": 0,
+      "naming": null
+    },
+    {
+      "md5": "21eccb088773393faa70270236c90b46",
+      "path": "firmware/binwalk_extracted/firmware.extracted/100000/squashfs-root/sbin/ip6tables-multi",
+      "status": "ok",
+      "error": null,
+      "idb_reused": false,
+      "elapsed_seconds": 12.02,
+      "exporter": "rootfs_elf",
+      "functions": 220,
+      "decompiled": 137,
+      "export_errors": 0,
+      "naming": null
+    },
+    {
+      "md5": "685dc005d070bcc84e2201bb385553f3",
+      "path": "firmware/binwalk_extracted/firmware.extracted/100000/squashfs-root/sbin/iptables-multi",
+      "status": "ok",
+      "error": null,
+      "idb_reused": false,
+      "elapsed_seconds": 14.03,
+      "exporter": "rootfs_elf",
+      "functions": 229,
+      "decompiled": 147,
+      "export_errors": 0,
+      "naming": null
+    },
+    {
+      "md5": "3bfc472767e220fa003a15934ca5da7f",
+      "path": "firmware/binwalk_extracted/firmware.extracted/100000/squashfs-root/sbin/iwconfig",
+      "status": "ok",
+      "error": null,
+      "idb_reused": false,
+      "elapsed_seconds": 4.01,
+      "exporter": "rootfs_elf",
+      "functions": 133,
+      "decompiled": 86,
+      "export_errors": 0,
+      "naming": null
+    },
+    {
+      "md5": "62289f97d2fea15ddb4438d2c4390588",
+      "path": "firmware/binwalk_extracted/firmware.extracted/100000/squashfs-root/sbin/iwlist",
+      "status": "ok",
+      "error": null,
+      "idb_reused": false,
+      "elapsed_seconds": 6.01,
+      "exporter": "rootfs_elf",
+      "functions": 134,
+      "decompiled": 88,
+      "export_errors": 0,
+      "naming": null
+    },
+    {
+      "md5": "d69803d59bf830a6a3095acfd3c5dd0b",
+      "path": "firmware/binwalk_extracted/firmware.extracted/100000/squashfs-root/sbin/iwpriv",
+      "status": "ok",
+      "error": null,
+      "idb_reused": false,
+      "elapsed_seconds": 4.01,
+      "exporter": "rootfs_elf",
+      "functions": 86,
+      "decompiled": 55,
+      "export_errors": 0,
+      "naming": null
+    },
+    {
+      "md5": "450afc711facc86492a955bf7967b594",
+      "path": "firmware/binwalk_extracted/firmware.extracted/100000/squashfs-root/sbin/pktlogconf",
+      "status": "ok",
+      "error": null,
+      "idb_reused": false,
+      "elapsed_seconds": 2.01,
+      "exporter": "rootfs_elf",
+      "functions": 44,
+      "decompiled": 26,
+      "export_errors": 0,
+      "naming": null
+    },
+    {
+      "md5": "8a14fa55d5e8683fc44d19caab1413ce",
+      "path": "firmware/binwalk_extracted/firmware.extracted/100000/squashfs-root/sbin/pktlogdump",
+      "status": "ok",
+      "error": null,
+      "idb_reused": false,
+      "elapsed_seconds": 4.01,
+      "exporter": "rootfs_elf",
+      "functions": 78,
+      "decompiled": 56,
+      "export_errors": 0,
+      "naming": null
+    },
+    {
+      "md5": "2c508f48e714f8276fee71652f19b4ba",
+      "path": "firmware/binwalk_extracted/firmware.extracted/100000/squashfs-root/sbin/radartool",
+      "status": "ok",
+      "error": null,
+      "idb_reused": false,
+      "elapsed_seconds": 2.0,
+      "exporter": "rootfs_elf",
+      "functions": 49,
+      "decompiled": 28,
+      "export_errors": 0,
+      "naming": null
+    },
+    {
+      "md5": "cb0bfc5c9044ab606afcee5dfb7abd61",
+      "path": "firmware/binwalk_extracted/firmware.extracted/100000/squashfs-root/sbin/ssdk_sh",
+      "status": "ok",
+      "error": null,
+      "idb_reused": false,
+      "elapsed_seconds": 42.08,
+      "exporter": "rootfs_elf",
+      "functions": 759,
+      "decompiled": 759,
+      "export_errors": 0,
+      "naming": null
+    },
+    {
+      "md5": "d0b5ab58cc82a4d1a4fcfc208e224a1e",
+      "path": "firmware/binwalk_extracted/firmware.extracted/100000/squashfs-root/sbin/tc",
+      "status": "ok",
+      "error": null,
+      "idb_reused": false,
+      "elapsed_seconds": 18.04,
+      "exporter": "rootfs_elf",
+      "functions": 446,
+      "decompiled": 369,
+      "export_errors": 0,
+      "naming": null
+    },
+    {
+      "md5": "1828ed2214c2658786cbaa42ea64826f",
+      "path": "firmware/binwalk_extracted/firmware.extracted/100000/squashfs-root/sbin/tphotplug",
+      "status": "ok",
+      "error": null,
+      "idb_reused": false,
+      "elapsed_seconds": 2.01,
+      "exporter": "rootfs_elf",
+      "functions": 105,
+      "decompiled": 58,
+      "export_errors": 0,
+      "naming": null
+    },
+    {
+      "md5": "1529b5ebd660214cf435e57b1d215d65",
+      "path": "firmware/binwalk_extracted/firmware.extracted/100000/squashfs-root/sbin/wifitool",
+      "status": "ok",
+      "error": null,
+      "idb_reused": false,
+      "elapsed_seconds": 6.01,
+      "exporter": "rootfs_elf",
+      "functions": 140,
+      "decompiled": 92,
+      "export_errors": 0,
+      "naming": null
+    },
+    {
+      "md5": "962028543ed270727dbdd72342433efd",
+      "path": "firmware/binwalk_extracted/firmware.extracted/100000/squashfs-root/sbin/wlanconfig",
+      "status": "ok",
+      "error": null,
+      "idb_reused": false,
+      "elapsed_seconds": 4.01,
+      "exporter": "rootfs_elf",
+      "functions": 79,
+      "decompiled": 49,
+      "export_errors": 0,
+      "naming": null
+    },
+    {
+      "md5": "f8dc296c73157774b2617b1d130639f5",
+      "path": "firmware/binwalk_extracted/firmware.extracted/100000/squashfs-root/sbin/wpa_supplicant",
+      "status": "ok",
+      "error": null,
+      "idb_reused": false,
+      "elapsed_seconds": 78.15,
+      "exporter": "rootfs_elf",
+      "functions": 1275,
+      "decompiled": 1173,
+      "export_errors": 0,
+      "naming": null
+    },
+    {
+      "md5": "9582aa23b0bc2de099b9997b09457d01",
+      "path": "firmware/binwalk_extracted/firmware.extracted/100000/squashfs-root/usr/bin/httpd",
+      "status": "ok",
+      "error": null,
+      "idb_reused": false,
+      "elapsed_seconds": 196.72,
+      "exporter": "rootfs_elf",
+      "functions": 4882,
+      "decompiled": 4643,
+      "export_errors": 0,
+      "naming": null
+    },
+    {
+      "md5": "6718c0229a1f51b2ab55a1ff6471b927",
+      "path": "firmware/binwalk_extracted/firmware.extracted/100000/squashfs-root/usr/bin/lld2d",
+      "status": "ok",
+      "error": null,
+      "idb_reused": false,
+      "elapsed_seconds": 10.02,
+      "exporter": "rootfs_elf",
+      "functions": 279,
+      "decompiled": 220,
+      "export_errors": 0,
+      "naming": null
+    },
+    {
+      "md5": "831411ed7e1770609b0ab9837d576e2f",
+      "path": "firmware/binwalk_extracted/firmware.extracted/100000/squashfs-root/usr/bin/scp",
+      "status": "ok",
+      "error": null,
+      "idb_reused": false,
+      "elapsed_seconds": 32.08,
+      "exporter": "rootfs_elf",
+      "functions": 833,
+      "decompiled": 681,
+      "export_errors": 0,
+      "naming": null
+    },
+    {
+      "md5": "d61e67ed20163b7fee8bd3c606fb0331",
+      "path": "firmware/binwalk_extracted/firmware.extracted/100000/squashfs-root/usr/bin/uclited",
+      "status": "ok",
+      "error": null,
+      "idb_reused": false,
+      "elapsed_seconds": 130.41,
+      "exporter": "rootfs_elf",
+      "functions": 3197,
+      "decompiled": 2991,
+      "export_errors": 0,
+      "naming": null
+    },
+    {
+      "md5": "78023622b84b6241bb5208a82785de7c",
+      "path": "firmware/binwalk_extracted/firmware.extracted/100000/squashfs-root/usr/bin/vsftpd",
+      "status": "ok",
+      "error": null,
+      "idb_reused": false,
+      "elapsed_seconds": 22.18,
+      "exporter": "rootfs_elf",
+      "functions": 845,
+      "decompiled": 709,
+      "export_errors": 0,
+      "naming": null
+    },
+    {
+      "md5": "f8a1d1f62eef2e1e73cbbeadd5d51900",
+      "path": "firmware/binwalk_extracted/firmware.extracted/100000/squashfs-root/usr/sbin/bpalogin",
+      "status": "ok",
+      "error": null,
+      "idb_reused": false,
+      "elapsed_seconds": 4.01,
+      "exporter": "rootfs_elf",
+      "functions": 136,
+      "decompiled": 90,
+      "export_errors": 0,
+      "naming": null
+    },
+    {
+      "md5": "ae35a53ccab71de6af881926d121c0a9",
+      "path": "firmware/binwalk_extracted/firmware.extracted/100000/squashfs-root/usr/sbin/dhcp6c",
+      "status": "ok",
+      "error": null,
+      "idb_reused": false,
+      "elapsed_seconds": 24.04,
+      "exporter": "rootfs_elf",
+      "functions": 452,
+      "decompiled": 358,
+      "export_errors": 0,
+      "naming": null
+    },
+    {
+      "md5": "0053d7fc7364adceb609520a6f7c9560",
+      "path": "firmware/binwalk_extracted/firmware.extracted/100000/squashfs-root/usr/sbin/dhcp6ctl",
+      "status": "ok",
+      "error": null,
+      "idb_reused": false,
+      "elapsed_seconds": 4.01,
+      "exporter": "rootfs_elf",
+      "functions": 94,
+      "decompiled": 57,
+      "export_errors": 0,
+      "naming": null
+    },
+    {
+      "md5": "23e3796091277a8be1e69dc8f5093dbd",
+      "path": "firmware/binwalk_extracted/firmware.extracted/100000/squashfs-root/usr/sbin/dhcp6s",
+      "status": "ok",
+      "error": null,
+      "idb_reused": false,
+      "elapsed_seconds": 22.14,
+      "exporter": "rootfs_elf",
+      "functions": 428,
+      "decompiled": 335,
+      "export_errors": 0,
+      "naming": null
+    },
+    {
+      "md5": "5bf87d074af47ea6dd761274cae3527b",
+      "path": "firmware/binwalk_extracted/firmware.extracted/100000/squashfs-root/usr/sbin/dnsproxy",
+      "status": "ok",
+      "error": null,
+      "idb_reused": false,
+      "elapsed_seconds": 4.01,
+      "exporter": "rootfs_elf",
+      "functions": 176,
+      "decompiled": 115,
+      "export_errors": 0,
+      "naming": null
+    },
+    {
+      "md5": "49990799009ddbe4acbdccafb6e91f72",
+      "path": "firmware/binwalk_extracted/firmware.extracted/100000/squashfs-root/usr/sbin/ip",
+      "status": "ok",
+      "error": null,
+      "idb_reused": false,
+      "elapsed_seconds": 30.05,
+      "exporter": "rootfs_elf",
+      "functions": 459,
+      "decompiled": 377,
+      "export_errors": 0,
+      "naming": null
+    },
+    {
+      "md5": "0b3a37ef404b079bb6442a19b5fd597b",
+      "path": "firmware/binwalk_extracted/firmware.extracted/100000/squashfs-root/usr/sbin/ipcserver",
+      "status": "ok",
+      "error": null,
+      "idb_reused": false,
+      "elapsed_seconds": 2.01,
+      "exporter": "rootfs_elf",
+      "functions": 36,
+      "decompiled": 20,
+      "export_errors": 0,
+      "naming": null
+    },
+    {
+      "md5": "50ac29f36d448568e1744d8cee00835d",
+      "path": "firmware/binwalk_extracted/firmware.extracted/100000/squashfs-root/usr/sbin/ping6",
+      "status": "ok",
+      "error": null,
+      "idb_reused": false,
+      "elapsed_seconds": 6.02,
+      "exporter": "rootfs_elf",
+      "functions": 187,
+      "decompiled": 120,
+      "export_errors": 0,
+      "naming": null
+    },
+    {
+      "md5": "b4483e719e0c1b35c386cb9f8b73b9e0",
+      "path": "firmware/binwalk_extracted/firmware.extracted/100000/squashfs-root/usr/sbin/pppd",
+      "status": "ok",
+      "error": null,
+      "idb_reused": false,
+      "elapsed_seconds": 36.07,
+      "exporter": "rootfs_elf",
+      "functions": 887,
+      "decompiled": 728,
+      "export_errors": 0,
+      "naming": null
+    },
+    {
+      "md5": "2cadcf12372117a47685c235aedeab3f",
+      "path": "firmware/binwalk_extracted/firmware.extracted/100000/squashfs-root/usr/sbin/radvd",
+      "status": "ok",
+      "error": null,
+      "idb_reused": false,
+      "elapsed_seconds": 8.02,
+      "exporter": "rootfs_elf",
+      "functions": 297,
+      "decompiled": 195,
+      "export_errors": 0,
+      "naming": null
+    },
+    {
+      "md5": "08e91ce81002bc83b768f483b5d63c97",
+      "path": "firmware/binwalk_extracted/firmware.extracted/100000/squashfs-root/usr/sbin/radvdctl",
+      "status": "ok",
+      "error": null,
+      "idb_reused": false,
+      "elapsed_seconds": 2.01,
+      "exporter": "rootfs_elf",
+      "functions": 82,
+      "decompiled": 46,
+      "export_errors": 0,
+      "naming": null
+    },
+    {
+      "md5": "8de9773f9eb69f9ed433c6a50d053ea2",
+      "path": "firmware/binwalk_extracted/firmware.extracted/100000/squashfs-root/usr/sbin/samba_multicall",
+      "status": "ok",
+      "error": null,
+      "idb_reused": false,
+      "elapsed_seconds": 955.61,
+      "exporter": "rootfs_elf",
+      "functions": 16755,
+      "decompiled": 16453,
+      "export_errors": 0,
+      "naming": null
+    },
+    {
+      "md5": "08b0860102c4b034bfbae2238115a7e6",
+      "path": "firmware/binwalk_extracted/firmware.extracted/100000/squashfs-root/usr/sbin/xl2tpd",
+      "status": "ok",
+      "error": null,
+      "idb_reused": false,
+      "elapsed_seconds": 14.03,
+      "exporter": "rootfs_elf",
+      "functions": 374,
+      "decompiled": 283,
+      "export_errors": 0,
+      "naming": null
+    }
+  ],
+  "annotate": {
+    "binaries": {
+      "4f07e369be60488ddd22e55be4cc9d7b": {
+        "functions": 16,
+        "sub_initial": 3,
+        "tagged": {
+          "calls_dangerous": 1,
+          "entrypoint": 4
+        },
+        "named": {
+          "export_symbol": 2
+        },
+        "named_total": 2,
+        "sub_remaining": 3
+      },
+      "aa3d98e20b0f5904d08b51eed6a9536a": {
+        "functions": 996,
+        "sub_initial": 318,
+        "tagged": {
+          "auth_related": 4,
+          "calls_dangerous": 41,
+          "entrypoint": 204,
+          "network_facing": 33
+        },
+        "named": {
+          "export_symbol": 23,
+          "libc_combo": 4,
+          "nvram_key": 4,
+          "string_xref": 24
+        },
+        "named_total": 55,
+        "sub_remaining": 286
+      },
+      "f18e24e1ea1cf6e512801cf0c44801da": {
+        "functions": 52,
+        "sub_initial": 6,
+        "tagged": {
+          "calls_dangerous": 5,
+          "entrypoint": 5,
+          "network_facing": 1
+        },
+        "named": {
+          "export_symbol": 3,
+          "libc_combo": 1,
+          "string_xref": 2
+        },
+        "named_total": 6,
+        "sub_remaining": 3
+      },
+      "3e3258c907b4b461c90472e1fcd6cddb": {
+        "functions": 814,
+        "sub_initial": 211,
+        "tagged": {
+          "calls_dangerous": 22,
+          "entrypoint": 118,
+          "network_facing": 36
+        },
+        "named": {
+          "export_symbol": 45,
+          "libc_combo": 13,
+          "string_xref": 9
+        },
+        "named_total": 67,
+        "sub_remaining": 189
+      },
+      "04f37f38627d3d38b40ea03e2b04aca5": {
+        "functions": 630,
+        "sub_initial": 181,
+        "tagged": {
+          "auth_related": 5,
+          "calls_dangerous": 12,
+          "entrypoint": 125
+        },
+        "named": {
+          "export_symbol": 5,
+          "libc_combo": 3,
+          "string_xref": 2
+        },
+        "named_total": 10,
+        "sub_remaining": 176
+      },
+      "1236a199291ead41164e5aa69c323a9b": {
+        "functions": 34,
+        "sub_initial": 5,
+        "tagged": {
+          "entrypoint": 28
+        },
+        "named": {
+          "export_symbol": 25
+        },
+        "named_total": 25,
+        "sub_remaining": 5
+      },
+      "20b0c4d2f690383204ed5651733bae9e": {
+        "functions": 576,
+        "sub_initial": 0,
+        "tagged": {
+          "calls_dangerous": 1,
+          "entrypoint": 324
+        },
+        "named": {
+          "export_symbol": 155
+        },
+        "named_total": 155,
+        "sub_remaining": 0
+      },
+      "bcce3cb737ac6869076de8aeec92d038": {
+        "functions": 2510,
+        "sub_initial": 5,
+        "tagged": {
+          "calls_dangerous": 4,
+          "entrypoint": 217
+        },
+        "named": {
+          "export_symbol": 3
+        },
+        "named_total": 3,
+        "sub_remaining": 5
+      },
+      "dfbd46b8a9cfdeb15f49446a85cecf7f": {
+        "functions": 13,
+        "sub_initial": 0,
+        "tagged": {
+          "entrypoint": 7
+        },
+        "named": {
+          "export_symbol": 3
+        },
+        "named_total": 3,
+        "sub_remaining": 0
+      },
+      "013126995a8c8228fc47c9d7a6ca9699": {
+        "functions": 1342,
+        "sub_initial": 1,
+        "tagged": {
+          "auth_related": 6,
+          "calls_dangerous": 12,
+          "entrypoint": 133,
+          "network_facing": 14
+        },
+        "named": {
+          "export_symbol": 3
+        },
+        "named_total": 3,
+        "sub_remaining": 1
+      },
+      "d7d7fcbcc4873ef2a829b0e60a314f3a": {
+        "functions": 414,
+        "sub_initial": 0,
+        "tagged": {
+          "calls_dangerous": 3,
+          "entrypoint": 223
+        },
+        "named": {
+          "export_symbol": 3
+        },
+        "named_total": 3,
+        "sub_remaining": 0
+      },
+      "367a9db7638010f43c55d2eb45a543dc": {
+        "functions": 25,
+        "sub_initial": 8,
+        "tagged": {
+          "calls_dangerous": 1,
+          "entrypoint": 3
+        },
+        "named": {
+          "libc_combo": 1
+        },
+        "named_total": 1,
+        "sub_remaining": 7
+      },
+      "e1f800843c4e89ee18755e8ceb1e195e": {
+        "functions": 32,
+        "sub_initial": 1,
+        "tagged": {
+          "entrypoint": 7
+        },
+        "named": {
+          "export_symbol": 1
+        },
+        "named_total": 1,
+        "sub_remaining": 1
+      },
+      "382b780ca8226f451fe70730ef327267": {
+        "functions": 25,
+        "sub_initial": 0,
+        "tagged": {
+          "entrypoint": 4
+        },
+        "named": {
+          "export_symbol": 3
+        },
+        "named_total": 3,
+        "sub_remaining": 0
+      },
+      "64af7bc8ff977918d5c2d17e4ccce088": {
+        "functions": 33,
+        "sub_initial": 0,
+        "tagged": {
+          "calls_dangerous": 1,
+          "entrypoint": 4
+        },
+        "named": {
+          "export_symbol": 3
+        },
+        "named_total": 3,
+        "sub_remaining": 0
+      },
+      "2fc15d11a6d84d3f80c70d81c9e26118": {
+        "functions": 29,
+        "sub_initial": 0,
+        "tagged": {
+          "entrypoint": 4
+        },
+        "named": {
+          "export_symbol": 3
+        },
+        "named_total": 3,
+        "sub_remaining": 0
+      },
+      "0deafb24ce1cb044a979cf33e904e0e7": {
+        "functions": 34,
+        "sub_initial": 0,
+        "tagged": {
+          "entrypoint": 4
+        },
+        "named": {
+          "export_symbol": 2
+        },
+        "named_total": 2,
+        "sub_remaining": 0
+      },
+      "de12dc34b794073519aa339c1813f5b3": {
+        "functions": 35,
+        "sub_initial": 0,
+        "tagged": {
+          "entrypoint": 4
+        },
+        "named": {
+          "export_symbol": 2
+        },
+        "named_total": 2,
+        "sub_remaining": 0
+      },
+      "9f63d5449a74674e8b29c191ecd657ca": {
+        "functions": 12,
+        "sub_initial": 0,
+        "tagged": {
+          "entrypoint": 4
+        },
+        "named": {
+          "export_symbol": 2
+        },
+        "named_total": 2,
+        "sub_remaining": 0
+      },
+      "5b0a4cf0bac38d777e81c773e29393d6": {
+        "functions": 34,
+        "sub_initial": 0,
+        "tagged": {
+          "entrypoint": 4
+        },
+        "named": {
+          "export_symbol": 2
+        },
+        "named_total": 2,
+        "sub_remaining": 0
+      },
+      "2f0876307c83c41265384106e6ccfc49": {
+        "functions": 35,
+        "sub_initial": 0,
+        "tagged": {
+          "entrypoint": 4
+        },
+        "named": {
+          "export_symbol": 2
+        },
+        "named_total": 2,
+        "sub_remaining": 0
+      },
+      "5b5144eda99757cd4f2d1a24e124a079": {
+        "functions": 25,
+        "sub_initial": 0,
+        "tagged": {
+          "entrypoint": 4
+        },
+        "named": {
+          "export_symbol": 2
+        },
+        "named_total": 2,
+        "sub_remaining": 0
+      },
+      "7f731580da33cbc3a622a1d2f1e6e426": {
+        "functions": 37,
+        "sub_initial": 0,
+        "tagged": {
+          "calls_dangerous": 1,
+          "entrypoint": 4
+        },
+        "named": {
+          "export_symbol": 2
+        },
+        "named_total": 2,
+        "sub_remaining": 0
+      },
+      "cb5be0b294ec41ad7e37f9a98524d1e0": {
+        "functions": 39,
+        "sub_initial": 0,
+        "tagged": {
+          "entrypoint": 4
+        },
+        "named": {
+          "export_symbol": 2
+        },
+        "named_total": 2,
+        "sub_remaining": 0
+      },
+      "7201c7fc04370bbcb7d57c704516da1e": {
+        "functions": 39,
+        "sub_initial": 0,
+        "tagged": {
+          "entrypoint": 4
+        },
+        "named": {
+          "export_symbol": 2
+        },
+        "named_total": 2,
+        "sub_remaining": 0
+      },
+      "553f0e2eb39a71fbc51daa5597563304": {
+        "functions": 40,
+        "sub_initial": 5,
+        "tagged": {
+          "auth_related": 1,
+          "entrypoint": 4,
+          "network_facing": 1
+        },
+        "named": {
+          "export_symbol": 2
+        },
+        "named_total": 2,
+        "sub_remaining": 5
+      },
+      "f507bf14c2e4785cc916f077983f32ef": {
+        "functions": 78,
+        "sub_initial": 22,
+        "tagged": {
+          "auth_related": 3,
+          "entrypoint": 5,
+          "network_facing": 1
+        },
+        "named": {
+          "export_symbol": 2,
+          "string_xref": 1
+        },
+        "named_total": 3,
+        "sub_remaining": 21
+      },
+      "53a5015af68ecf517285cb18d3aeab27": {
+        "functions": 76,
+        "sub_initial": 25,
+        "tagged": {
+          "entrypoint": 12,
+          "network_facing": 2
+        },
+        "named": {
+          "export_symbol": 7
+        },
+        "named_total": 7,
+        "sub_remaining": 25
+      },
+      "21cf650faa573039553551f066d1980a": {
+        "functions": 223,
+        "sub_initial": 141,
+        "tagged": {
+          "calls_dangerous": 12,
+          "entrypoint": 21
+        },
+        "named": {
+          "export_symbol": 7,
+          "string_xref": 1
+        },
+        "named_total": 8,
+        "sub_remaining": 140
+      },
+      "7fabf07a7c7c304bdee3f34beaca0259": {
+        "functions": 50,
+        "sub_initial": 6,
+        "tagged": {
+          "entrypoint": 17,
+          "network_facing": 1
+        },
+        "named": {
+          "export_symbol": 6
+        },
+        "named_total": 6,
+        "sub_remaining": 6
+      },
+      "6102ba6a30b9415c48300043ef7a732e": {
+        "functions": 22,
+        "sub_initial": 3,
+        "tagged": {
+          "entrypoint": 4,
+          "network_facing": 1
+        },
+        "named": {
+          "export_symbol": 2
+        },
+        "named_total": 2,
+        "sub_remaining": 3
+      },
+      "3f888c74a5604790f8fde8d2f65657f5": {
+        "functions": 1351,
+        "sub_initial": 507,
+        "tagged": {
+          "auth_related": 46,
+          "calls_dangerous": 3,
+          "entrypoint": 617,
+          "network_facing": 44
+        },
+        "named": {
+          "export_symbol": 10,
+          "libc_combo": 24,
+          "string_xref": 1
+        },
+        "named_total": 35,
+        "sub_remaining": 482
+      },
+      "21eccb088773393faa70270236c90b46": {
+        "functions": 220,
+        "sub_initial": 34,
+        "tagged": {
+          "calls_dangerous": 4,
+          "entrypoint": 23
+        },
+        "named": {
+          "export_symbol": 7,
+          "libc_combo": 1,
+          "string_xref": 1
+        },
+        "named_total": 9,
+        "sub_remaining": 32
+      },
+      "685dc005d070bcc84e2201bb385553f3": {
+        "functions": 229,
+        "sub_initial": 43,
+        "tagged": {
+          "calls_dangerous": 6,
+          "entrypoint": 25
+        },
+        "named": {
+          "export_symbol": 7,
+          "libc_combo": 1,
+          "string_xref": 1
+        },
+        "named_total": 9,
+        "sub_remaining": 41
+      },
+      "3bfc472767e220fa003a15934ca5da7f": {
+        "functions": 133,
+        "sub_initial": 32,
+        "tagged": {
+          "calls_dangerous": 8,
+          "entrypoint": 9
+        },
+        "named": {
+          "export_symbol": 3
+        },
+        "named_total": 3,
+        "sub_remaining": 32
+      },
+      "62289f97d2fea15ddb4438d2c4390588": {
+        "functions": 134,
+        "sub_initial": 36,
+        "tagged": {
+          "auth_related": 1,
+          "entrypoint": 9
+        },
+        "named": {
+          "export_symbol": 3,
+          "string_xref": 1
+        },
+        "named_total": 4,
+        "sub_remaining": 35
+      },
+      "d69803d59bf830a6a3095acfd3c5dd0b": {
+        "functions": 86,
+        "sub_initial": 17,
+        "tagged": {
+          "calls_dangerous": 1,
+          "entrypoint": 9
+        },
+        "named": {
+          "export_symbol": 3
+        },
+        "named_total": 3,
+        "sub_remaining": 17
+      },
+      "450afc711facc86492a955bf7967b594": {
+        "functions": 44,
+        "sub_initial": 7,
+        "tagged": {
+          "calls_dangerous": 1,
+          "entrypoint": 4
+        },
+        "named": {
+          "export_symbol": 2,
+          "string_xref": 1
+        },
+        "named_total": 3,
+        "sub_remaining": 6
+      },
+      "8a14fa55d5e8683fc44d19caab1413ce": {
+        "functions": 78,
+        "sub_initial": 25,
+        "tagged": {
+          "calls_dangerous": 1,
+          "entrypoint": 12
+        },
+        "named": {
+          "export_symbol": 7,
+          "string_xref": 1
+        },
+        "named_total": 8,
+        "sub_remaining": 24
+      },
+      "2c508f48e714f8276fee71652f19b4ba": {
+        "functions": 49,
+        "sub_initial": 6,
+        "tagged": {
+          "calls_dangerous": 4,
+          "entrypoint": 4,
+          "network_facing": 1
+        },
+        "named": {
+          "export_symbol": 2
+        },
+        "named_total": 2,
+        "sub_remaining": 6
+      },
+      "cb0bfc5c9044ab606afcee5dfb7abd61": {
+        "functions": 759,
+        "sub_initial": 755,
+        "tagged": {
+          "entrypoint": 3
+        },
+        "named": {
+          "export_symbol": 2,
+          "string_xref": 10
+        },
+        "named_total": 12,
+        "sub_remaining": 745
+      },
+      "d0b5ab58cc82a4d1a4fcfc208e224a1e": {
+        "functions": 446,
+        "sub_initial": 83,
+        "tagged": {
+          "auth_related": 3,
+          "calls_dangerous": 13,
+          "entrypoint": 212,
+          "network_facing": 7
+        },
+        "named": {
+          "export_symbol": 17,
+          "libc_combo": 1,
+          "nvram_key": 1,
+          "string_xref": 5
+        },
+        "named_total": 24,
+        "sub_remaining": 76
+      },
+      "1828ed2214c2658786cbaa42ea64826f": {
+        "functions": 105,
+        "sub_initial": 5,
+        "tagged": {
+          "calls_dangerous": 3,
+          "entrypoint": 9,
+          "network_facing": 2
+        },
+        "named": {
+          "export_symbol": 7,
+          "libc_combo": 1
+        },
+        "named_total": 8,
+        "sub_remaining": 4
+      },
+      "1529b5ebd660214cf435e57b1d215d65": {
+        "functions": 140,
+        "sub_initial": 43,
+        "tagged": {
+          "calls_dangerous": 4,
+          "entrypoint": 4,
+          "network_facing": 35
+        },
+        "named": {
+          "export_symbol": 2,
+          "libc_combo": 1,
+          "string_xref": 35
+        },
+        "named_total": 38,
+        "sub_remaining": 7
+      },
+      "962028543ed270727dbdd72342433efd": {
+        "functions": 79,
+        "sub_initial": 17,
+        "tagged": {
+          "calls_dangerous": 2,
+          "entrypoint": 5,
+          "network_facing": 3
+        },
+        "named": {
+          "export_symbol": 2,
+          "string_xref": 1
+        },
+        "named_total": 3,
+        "sub_remaining": 16
+      },
+      "f8dc296c73157774b2617b1d130639f5": {
+        "functions": 1275,
+        "sub_initial": 520,
+        "tagged": {
+          "auth_related": 35,
+          "calls_dangerous": 1,
+          "entrypoint": 543,
+          "network_facing": 37
+        },
+        "named": {
+          "export_symbol": 15,
+          "libc_combo": 21,
+          "string_xref": 3
+        },
+        "named_total": 39,
+        "sub_remaining": 496
+      },
+      "9582aa23b0bc2de099b9997b09457d01": {
+        "functions": 4882,
+        "sub_initial": 1701,
+        "tagged": {
+          "auth_related": 57,
+          "calls_dangerous": 537,
+          "entrypoint": 2675,
+          "network_facing": 135
+        },
+        "named": {
+          "export_symbol": 2074,
+          "libc_combo": 91,
+          "string_xref": 152
+        },
+        "named_total": 2317,
+        "sub_remaining": 1458
+      },
+      "6718c0229a1f51b2ab55a1ff6471b927": {
+        "functions": 279,
+        "sub_initial": 89,
+        "tagged": {
+          "auth_related": 4,
+          "calls_dangerous": 1,
+          "entrypoint": 75,
+          "network_facing": 4
+        },
+        "named": {
+          "export_symbol": 15,
+          "string_xref": 4
+        },
+        "named_total": 19,
+        "sub_remaining": 85
+      },
+      "831411ed7e1770609b0ab9837d576e2f": {
+        "functions": 833,
+        "sub_initial": 180,
+        "tagged": {
+          "auth_related": 35,
+          "calls_dangerous": 10,
+          "entrypoint": 349,
+          "network_facing": 10
+        },
+        "named": {
+          "export_symbol": 8,
+          "libc_combo": 3,
+          "nvram_key": 3,
+          "string_xref": 14
+        },
+        "named_total": 28,
+        "sub_remaining": 160
+      },
+      "d61e67ed20163b7fee8bd3c606fb0331": {
+        "functions": 3197,
+        "sub_initial": 1597,
+        "tagged": {
+          "auth_related": 28,
+          "calls_dangerous": 244,
+          "entrypoint": 1186,
+          "network_facing": 96
+        },
+        "named": {
+          "export_symbol": 937,
+          "libc_combo": 77,
+          "string_xref": 35
+        },
+        "named_total": 1049,
+        "sub_remaining": 1485
+      },
+      "78023622b84b6241bb5208a82785de7c": {
+        "functions": 845,
+        "sub_initial": 100,
+        "tagged": {
+          "auth_related": 16,
+          "calls_dangerous": 3,
+          "entrypoint": 471,
+          "network_facing": 9
+        },
+        "named": {
+          "export_symbol": 10,
+          "libc_combo": 2,
+          "string_xref": 3
+        },
+        "named_total": 15,
+        "sub_remaining": 95
+      },
+      "f8a1d1f62eef2e1e73cbbeadd5d51900": {
+        "functions": 136,
+        "sub_initial": 20,
+        "tagged": {
+          "auth_related": 3,
+          "calls_dangerous": 4,
+          "entrypoint": 25,
+          "network_facing": 7
+        },
+        "named": {
+          "export_symbol": 8
+        },
+        "named_total": 8,
+        "sub_remaining": 20
+      },
+      "ae35a53ccab71de6af881926d121c0a9": {
+        "functions": 452,
+        "sub_initial": 144,
+        "tagged": {
+          "calls_dangerous": 7,
+          "entrypoint": 122,
+          "network_facing": 13
+        },
+        "named": {
+          "export_symbol": 15,
+          "libc_combo": 7,
+          "string_xref": 1
+        },
+        "named_total": 23,
+        "sub_remaining": 136
+      },
+      "0053d7fc7364adceb609520a6f7c9560": {
+        "functions": 94,
+        "sub_initial": 15,
+        "tagged": {
+          "calls_dangerous": 1,
+          "entrypoint": 8,
+          "network_facing": 1
+        },
+        "named": {
+          "export_symbol": 2,
+          "libc_combo": 2,
+          "string_xref": 1
+        },
+        "named_total": 5,
+        "sub_remaining": 12
+      },
+      "23e3796091277a8be1e69dc8f5093dbd": {
+        "functions": 428,
+        "sub_initial": 145,
+        "tagged": {
+          "calls_dangerous": 5,
+          "entrypoint": 98,
+          "network_facing": 12
+        },
+        "named": {
+          "export_symbol": 7,
+          "libc_combo": 7,
+          "string_xref": 1
+        },
+        "named_total": 15,
+        "sub_remaining": 137
+      },
+      "5bf87d074af47ea6dd761274cae3527b": {
+        "functions": 176,
+        "sub_initial": 35,
+        "tagged": {
+          "calls_dangerous": 10,
+          "entrypoint": 22,
+          "network_facing": 4
+        },
+        "named": {
+          "export_symbol": 2,
+          "libc_combo": 3
+        },
+        "named_total": 5,
+        "sub_remaining": 32
+      },
+      "49990799009ddbe4acbdccafb6e91f72": {
+        "functions": 459,
+        "sub_initial": 95,
+        "tagged": {
+          "auth_related": 1,
+          "calls_dangerous": 25,
+          "entrypoint": 202,
+          "network_facing": 19
+        },
+        "named": {
+          "export_symbol": 12,
+          "libc_combo": 2,
+          "string_xref": 15
+        },
+        "named_total": 29,
+        "sub_remaining": 78
+      },
+      "0b3a37ef404b079bb6442a19b5fd597b": {
+        "functions": 36,
+        "sub_initial": 3,
+        "tagged": {
+          "entrypoint": 4,
+          "network_facing": 1
+        },
+        "named": {
+          "export_symbol": 2
+        },
+        "named_total": 2,
+        "sub_remaining": 3
+      },
+      "50ac29f36d448568e1744d8cee00835d": {
+        "functions": 187,
+        "sub_initial": 33,
+        "tagged": {
+          "calls_dangerous": 3,
+          "entrypoint": 23,
+          "network_facing": 5
+        },
+        "named": {
+          "export_symbol": 7,
+          "libc_combo": 1,
+          "string_xref": 1
+        },
+        "named_total": 9,
+        "sub_remaining": 31
+      },
+      "b4483e719e0c1b35c386cb9f8b73b9e0": {
+        "functions": 887,
+        "sub_initial": 338,
+        "tagged": {
+          "auth_related": 10,
+          "calls_dangerous": 25,
+          "entrypoint": 228,
+          "network_facing": 22
+        },
+        "named": {
+          "export_symbol": 27,
+          "libc_combo": 11,
+          "string_xref": 24
+        },
+        "named_total": 62,
+        "sub_remaining": 303
+      },
+      "2cadcf12372117a47685c235aedeab3f": {
+        "functions": 297,
+        "sub_initial": 41,
+        "tagged": {
+          "auth_related": 1,
+          "calls_dangerous": 2,
+          "entrypoint": 54,
+          "network_facing": 4
+        },
+        "named": {
+          "export_symbol": 2,
+          "string_xref": 3
+        },
+        "named_total": 5,
+        "sub_remaining": 38
+      },
+      "08e91ce81002bc83b768f483b5d63c97": {
+        "functions": 82,
+        "sub_initial": 9,
+        "tagged": {
+          "calls_dangerous": 4,
+          "entrypoint": 4
+        },
+        "named": {
+          "export_symbol": 2,
+          "libc_combo": 2,
+          "string_xref": 3
+        },
+        "named_total": 7,
+        "sub_remaining": 4
+      },
+      "8de9773f9eb69f9ed433c6a50d053ea2": {
+        "functions": 16755,
+        "sub_initial": 5571,
+        "tagged": {
+          "auth_related": 429,
+          "calls_dangerous": 39,
+          "entrypoint": 10620,
+          "network_facing": 41
+        },
+        "named": {
+          "export_symbol": 2669,
+          "libc_combo": 11,
+          "nvram_key": 4,
+          "string_xref": 4
+        },
+        "named_total": 2688,
+        "sub_remaining": 5552
+      },
+      "08b0860102c4b034bfbae2238115a7e6": {
+        "functions": 374,
+        "sub_initial": 109,
+        "tagged": {
+          "auth_related": 3,
+          "calls_dangerous": 12,
+          "entrypoint": 84,
+          "network_facing": 8
+        },
+        "named": {
+          "export_symbol": 6,
+          "libc_combo": 2,
+          "string_xref": 5
+        },
+        "named_total": 13,
+        "sub_remaining": 102
+      }
+    },
+    "functions": 43847,
+    "sub_initial": 13296,
+    "named_total": 6888,
+    "sub_remaining": 12626,
+    "tagged": {
+      "auth_related": 691,
+      "calls_dangerous": 1099,
+      "entrypoint": 19247,
+      "network_facing": 610
+    },
+    "named": {
+      "export_symbol": 6218,
+      "libc_combo": 293,
+      "nvram_key": 12,
+      "string_xref": 365
+    }
+  },
+  "elapsed_seconds": 1455.25
+}

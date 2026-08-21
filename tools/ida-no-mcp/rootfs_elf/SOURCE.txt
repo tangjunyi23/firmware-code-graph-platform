@@ -1,0 +1,3 @@
+Installed from /home/tankuku/Allzip/rootfs_elf.tar.gz
+fwgraph adaptations kept: config.py reads IDA_DIR; checksec prefers pipeline.extract.checksec
+fwgraph orchestrator ELF decompile is forced through ida_worker.py in this directory.

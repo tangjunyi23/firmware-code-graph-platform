@@ -12,7 +12,7 @@
  *  - apply() additionally registers a global ctx.tools.guard that denies
  *    those tool classes by name, so even a future dsh update that re-adds
  *    a row under another id cannot re-open shell/file-write/web access.
- *  - Dynamic tools keep per-session budgets (trace/fuzz/frida/reanalysis).
+ *  - Dynamic tools keep per-session budgets (trace/fuzz/frida).
  *  - fw_browse_firmware is the ONLY filesystem access: read-only listing and
  *    small text reads jailed under <extractedRoot>/<job_id>/.
  *
@@ -37,7 +37,6 @@ export const inject = ['tools']
 const MAX_RESULT = 16000
 const MAX_TRACES_PER_SESSION = 5
 const MAX_FUZZ_PER_SESSION = 3
-const MAX_REANALYSIS_PER_SESSION = 3
 const BROWSE_MAX_BYTES = 64 * 1024
 
 // S1: tool classes that must never execute in this profile, regardless of
@@ -230,7 +229,6 @@ export function apply(ctx, config) {
   // 动态操作预算（每个 dsh 进程即一个会话；原来 dsh 侧完全无预算）
   let traceCount = 0
   let fuzzCount = 0
-  let reanalysisCount = 0
 
   register({
     name: 'fw_get_identification',
@@ -248,6 +246,11 @@ export function apply(ctx, config) {
           id: i.id, protocol: i.protocol, service: i.service,
           address: i.address, port: i.port, transport: i.transport,
           input_types: i.input_types, entry_files: i.entry_files,
+          processing_chain: (i.processing_chain ?? []).map((p) => ({
+            file: p.file, libs: p.libs,
+            unresolved_needed: p.unresolved_needed ?? [],
+            needed_complete: !(p.unresolved_needed ?? []).length,
+          })),
         })),
       }
     },
@@ -280,32 +283,28 @@ export function apply(ctx, config) {
 
   register({
     name: 'fw_get_function_source',
-    description: 'Hex-Rays pseudo-C source of one function; its names/addresses are the canonical identifiers and the ONLY citable evidence. kind=brief returns a ~1KB triage card (signature head, dangerous calls with line numbers, callees, attack-surface flags) — ALWAYS screen with kind=brief first when scanning many functions, fetch full source only for suspicious ones. kind=ai returns the AI-enriched overlay (symbols renamed for readability) — auxiliary aid only, never cite its invented names. kind=asm returns function-level assembly for call-site argument recovery.',
+    description: 'Hex-Rays pseudo-C source of one function; its names/addresses are the canonical identifiers and the ONLY citable evidence. kind=brief returns a ~1KB triage card (signature head, dangerous calls with line numbers, callees, attack-surface flags) — ALWAYS screen with kind=brief first when scanning many functions, fetch full source only for suspicious ones. kind=asm returns function-level assembly for call-site argument recovery.',
     parameters: params({
       ...JOB_ID_PROP,
       md5: { type: 'string' },
       addr: { type: 'string', description: 'Function address, e.g. 0x401000' },
-      kind: { type: 'string', enum: ['hexrays', 'ai', 'asm', 'brief'], description: 'default hexrays (canonical); brief = compact triage card (use first); ai = auxiliary readability overlay, not citable' },
+      kind: { type: 'string', enum: ['hexrays', 'asm', 'brief'], description: 'default hexrays (canonical); brief = compact triage card (use first); asm = function-level assembly' },
     }, ['md5', 'addr']),
     async execute(args) {
       if (args.kind === 'brief') {
         return fw(config, 'GET',
           `/jobs/${jobOf(config, args)}/functions/${args.md5}/${args.addr}/brief`)
       }
-      const suffix = args.kind === 'ai' ? '?ai=1' : args.kind === 'asm' ? '?asm=1' : ''
+      const suffix = args.kind === 'asm' ? '?asm=1' : ''
       const src = await fw(config, 'GET',
         `/jobs/${jobOf(config, args)}/functions/${args.md5}/${args.addr}/source${suffix}`)
-      if (args.kind === 'ai') {
-        return { source: src,
-          caveat: 'AI overlay renames symbols for readability; cite Hex-Rays names/addresses in findings, never these.' }
-      }
       return { source: src }
     },
   })
 
   register({
     name: 'fw_attack_surface',
-    description: 'Scored source->sink attack paths (static, cross-validated with traces when available).',
+    description: 'Scored source->sink attack paths. Join via evidence_address (job_id+md5+addr) only. attribution is verified_in_single_trace | observed_in_window | static_only — never request-caused. ai_review is a triage hint, not a finding.',
     parameters: params({
       ...JOB_ID_PROP,
       source: { type: 'string' },
@@ -321,6 +320,28 @@ export function apply(ctx, config) {
         verified_only: Boolean(args.verified_only),
         ...(args.brief ? { brief: true } : {}),
         limit: Math.min(Number(args.limit ?? 20), 50),
+      })
+    },
+  })
+
+  register({
+    name: 'fw_compose_evidence',
+    description: 'Join already-fetched facts at one Evidence Address. Does not query other producers.',
+    parameters: params({
+      ...JOB_ID_PROP,
+      md5: { type: 'string' },
+      addr: { type: 'string' },
+      static_block: { type: 'object' },
+      decompile_text: { type: 'string' },
+      dynamic_envelope: { type: 'object' },
+    }, ['md5', 'addr']),
+    async execute(args) {
+      return graphQuery(config, jobOf(config, args), 'compose_evidence', {
+        binary_md5: args.md5,
+        addr: args.addr,
+        ...(args.static_block ? { static_block: args.static_block } : {}),
+        ...(args.decompile_text ? { decompile_text: args.decompile_text } : {}),
+        ...(args.dynamic_envelope ? { dynamic_envelope: args.dynamic_envelope } : {}),
       })
     },
   })
@@ -483,30 +504,6 @@ export function apply(ctx, config) {
     }, ['kind', 'run_id']),
     async execute(args) {
       return fw(config, 'GET', `/jobs/${jobOf(config, args)}/${args.kind}/${args.run_id}`)
-    },
-  })
-
-  register({
-    name: 'fw_request_reanalysis',
-    description: `Ask the downstream analysis pipeline to re-decompile/re-enrich key functions. Use ONLY when graph/attack-surface retrieval cannot answer (last resort). Budgeted — max ${MAX_REANALYSIS_PER_SESSION} per session.`,
-    parameters: params({
-      ...JOB_ID_PROP,
-      binary_md5: { type: 'string' },
-      addrs: { type: 'array', items: { type: 'string' } },
-      note: { type: 'string' },
-    }, ['binary_md5']),
-    async execute(args) {
-      if (reanalysisCount >= MAX_REANALYSIS_PER_SESSION) {
-        throw new Error(`reanalysis budget exhausted (${MAX_REANALYSIS_PER_SESSION} per session)`)
-      }
-      const body = { binary_md5: args.binary_md5, attack_only: true }
-      if (Array.isArray(args.addrs) && args.addrs.length) {
-        body.addrs = args.addrs.map(String)
-        body.attack_only = false
-      }
-      const resp = await fw(config, 'POST', `/jobs/${jobOf(config, args)}/aienrich`, body)
-      reanalysisCount += 1
-      return { ...resp, note: args.note ?? 'downstream reanalysis requested' }
     },
   })
 

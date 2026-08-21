@@ -351,7 +351,7 @@ export async function runHunt({
     const p1task = [
       `你是漏洞挖掘流水线的 Phase 1 worker（攻击面锁定）。目标固件 job: ${jobId}。`,
       `漏洞类型: ${vulnType}。`,
-      `必须先用 fw_get_identification 拉取全部外部输入（IN-xxx），再用 fw_list_surfaces 获取每个输入的攻击面文档（AS-xxx），不得遗漏任何输入。`,
+      `必须先用 fw_get_identification 拉取全部外部输入（IN-xxx，含 processing_chain.needed_complete），再用 fw_list_surfaces 获取每个输入的攻击面文档（AS-xxx），不得遗漏任何输入。跨工具只用 evidence_address。`,
       vulnType && /预认证|preauth|认证前/i.test(vulnType)
         ? "预认证类目标：额外关注各 AS 文档的 auth_chain_refs 与 AS-AUTH 授权链文档，标注哪些面在授权链之前（预认证可达）。"
         : "",

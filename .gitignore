@@ -16,6 +16,7 @@
 
 # Runtime data and generated evidence (kept on the analysis VM)
 fwgraph/data/
+deploy/docker/data/
 .m8-inputs/
 repos/
 *.log

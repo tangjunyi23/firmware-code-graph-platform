@@ -526,6 +526,26 @@ def _dynamic_section(job_id: str, data_dir: Path, findings: list,
         lines += ["（无数据）", ""]
 
 
+def format_finding_poc_and_chain(f: dict) -> list[str]:
+    """Chinese call-chain + PoC block. Empty pieces degrade to an explicit 未给出."""
+    fid = f.get("id") or "?"
+    chain = str(f.get("call_chain") or "").strip()
+    if not chain:
+        src = str(f.get("source_summary") or "").strip()
+        sink = str(f.get("sink_function") or "").strip()
+        if src or sink:
+            chain = f"{src or '入口未知'} → {sink or 'sink 未知'}"
+    poc = str(f.get("poc") or f.get("exploit_sketch") or "").strip()
+    out = ["**调用链**：", "",
+           _esc(chain) if chain else "（未给出调用链）", "",
+           "**漏洞 PoC**：", ""]
+    if poc:
+        out += ["```", _fclip(poc.replace("```", "'''"), 800, fid), "```", ""]
+    else:
+        out += ["（未给出可复现 PoC）", ""]
+    return out
+
+
 def _finding_block(f: dict, index: int, lines: list):
     sev = f.get("severity") or "info"
     fid = f.get("id") or "?"
@@ -565,8 +585,7 @@ def _finding_block(f: dict, index: int, lines: list):
         lines += [f"{i}. {_fclip(str(e), 300, fid)}"
                   for i, e in enumerate(evidence, 1)]
         lines.append("")
-    if f.get("exploit_sketch"):
-        lines += [f"**利用思路**：{_fclip(f['exploit_sketch'], 500, fid)}", ""]
+    lines += format_finding_poc_and_chain(f)
     if f.get("remediation"):
         lines += [f"**修复建议**：{_fclip(f['remediation'], 500, fid)}", ""]
 

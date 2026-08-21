@@ -92,6 +92,15 @@ def resolve_libs(rootfs, sonames):
     return out
 
 
+def unresolved_needed(needed, mapped):
+    """Sonames that resolve_libs left unresolved (returned as the soname)."""
+    out = []
+    for so, path in zip(needed, mapped):
+        if not path or path == so:
+            out.append(so)
+    return out
+
+
 def exec_paths(path, rootfs, limit=8):
     """Absolute executable paths referenced in binary strings that exist in
     the rootfs (candidate dispatch targets)."""

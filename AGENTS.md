@@ -15,4 +15,5 @@
 - 本仓库事实源在 VM `~/firmware-graph`（Ubuntu 26.04, 192.168.141.135）。
 - 修改 Python 代码后重启编排服务：`kill $(cat fwgraph/data/orchestrator.pid) && bash fwgraph/scripts/run_orchestrator.sh`。
 - 修改前端后在 `fwgraph/webui` 执行 `npx vite build`。
-- 测试基线：`fwgraph/.venv/bin/python -m pytest orchestrator/tests -q`（270 项，269 通过 + 1 已知污染项），改动后必须保持该基线。
+- 容器化部署（`deploy/docker/`）：`docker compose -f deploy/docker/docker-compose.yml up -d --build` 启动/重建，`docker compose -f deploy/docker/docker-compose.yml down` 停止；数据（含 TLS 证书）在 `deploy/docker/data/`，详见 `deploy/docker/README.md`。
+- 测试基线：`fwgraph/.venv/bin/python -m pytest orchestrator/tests -q`（466 项：465 通过 + 1 跳过），改动后必须保持该基线。

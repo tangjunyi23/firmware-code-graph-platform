@@ -198,16 +198,16 @@ class TestSystemConfig:
         assert resp.status_code == 400
 
     def test_put_known_key_applies(self, client, monkeypatch, tmp_path):
-        monkeypatch.delenv("AI_MAX_FUNCS_PER_JOB", raising=False)
+        monkeypatch.delenv("IDA_WORKERS", raising=False)
         resp = client.put("/system/config", headers=_legacy(),
-                          json={"AI_MAX_FUNCS_PER_JOB": 42})
+                          json={"IDA_WORKERS": 5})
         assert resp.status_code == 200
-        assert os.environ["AI_MAX_FUNCS_PER_JOB"] == "42"
+        assert os.environ["IDA_WORKERS"] == "5"
         settings = json.loads(
             (tmp_path / "settings.json").read_text(encoding="utf-8"))
-        assert settings["AI_MAX_FUNCS_PER_JOB"] == "42"
+        assert settings["IDA_WORKERS"] == "5"
         assert client.get("/system/config", headers=_legacy()
-                          ).json()["AI_MAX_FUNCS_PER_JOB"] == "42"
+                          ).json()["IDA_WORKERS"] == "5"
 
     def test_system_info_shape(self, client):
         resp = client.get("/system/info", headers=_legacy())

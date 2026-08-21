@@ -1,0 +1,15 @@
+# 编排器/沙箱镜像构建上下文裁剪（deploy/docker/）
+.git
+**/node_modules
+**/.venv
+**/__pycache__
+*.pyc
+# 运行时数据与密钥不进镜像（容器内 /data 由 bind mount 提供）
+fwgraph/data
+fwgraph/.env
+# webui dist 由镜像内 webui stage 重新构建，不用宿主旧产物
+fwgraph/webui/dist
+# compose 数据目录与可选构建上下文（IDA/cbm）不随主上下文传输
+deploy/docker/data
+deploy/docker/ida
+deploy/docker/cbmbin

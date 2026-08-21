@@ -71,7 +71,7 @@ const REQUIRED_FW = [
   'fw_get_identification', 'fw_list_surfaces', 'fw_get_surface',
   'fw_get_function_source', 'fw_attack_surface', 'fw_search', 'fw_call_trace',
   'fw_routes', 'fw_list_traces', 'fw_browse_firmware',
-  'fw_get_fuzz_run', 'fw_request_reanalysis', 'fw_get_cfg', 'fw_get_ast', 'record_finding',
+  'fw_get_fuzz_run', 'fw_get_cfg', 'fw_get_ast', 'record_finding',
 ]
 const DYNAMIC_ONLY = ['fw_request_trace', 'fw_request_fuzz', 'fw_request_frida']
 const STATIC = (process.env.FWGRAPH_MODE ?? 'dynamic') === 'static'

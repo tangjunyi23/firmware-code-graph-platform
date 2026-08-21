@@ -77,6 +77,37 @@ class TestBuildTree:
         assert marker.is_file()  # .git survived the rebuild
         assert (tmp_path / "cbm" / JOB / f"busybox_{MD5[:8]}").is_dir()
 
+    def test_incremental_skips_unchanged_and_deletes_stale(self, tmp_path):
+        data_dir, _ = make_data_dir(tmp_path)
+        first = ingest.build_tree(JOB, data_dir)
+        assert first["written"] == 3
+        assert first["unchanged"] == 0
+        second = ingest.build_tree(JOB, data_dir)
+        assert second["written"] == 0
+        assert second["unchanged"] == 3
+        assert second["files_copied"] == 3
+        bindir = tmp_path / "cbm" / JOB / f"busybox_{MD5[:8]}"
+        stale = bindir / "0x9999_gone.c"
+        stale.write_text("stale\n", encoding="utf-8")
+        (tmp_path / "cbm" / JOB / "graph_done.json").write_text("{}", encoding="utf-8")
+        third = ingest.build_tree(JOB, data_dir)
+        assert not stale.is_file()
+        assert third["deleted"] == 1
+        assert (tmp_path / "cbm" / JOB / "graph_done.json").is_file()
+
+    def test_git_skipped_when_disabled(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("CBM_GIT", "0")
+        out = ingest.git_init_commit(tmp_path, files_copied=3)
+        assert out["ok"] is True
+        assert out["skipped"] == "CBM_GIT=0"
+        assert not (tmp_path / ".git").exists()
+
+    def test_git_skipped_when_tree_too_large(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("CBM_GIT_MAX_FILES", "2")
+        out = ingest.git_init_commit(tmp_path, files_copied=3)
+        assert out["ok"] is True
+        assert "files_copied=3>2" in out["skipped"]
+
     def test_filename_sanitization(self, tmp_path):
         funcs = [{"addr": "0x10", "name": "weird/name with$chars",
                   "decompile_ok": True, "tags": []}]
@@ -382,7 +413,8 @@ class TestRunJob:
         data_dir, _ = make_data_dir(tmp_path)
         monkeypatch.setattr(ingest, "CBM_CACHE_DIR", tmp_path / "cbmcache")
         monkeypatch.setattr(ingest, "git_init_commit",
-                            lambda root: {"ok": True, "committed": True})
+                            lambda root, files_copied=0: {
+                                "ok": True, "committed": True})
         monkeypatch.setattr(ingest.cbm, "index_repository",
                             lambda path, proj, mode="full":
                             {"nodes": 10, "edges": 8, "status": "indexed"})
@@ -399,10 +431,12 @@ class TestRunJob:
 
     def test_large_tree_selects_fast_mode(self, tmp_path, monkeypatch):
         data_dir, _ = make_data_dir(tmp_path)
+        monkeypatch.setenv("CBM_FULL_INDEX_MAX_FILES", "1")
         monkeypatch.setenv("CBM_SEMANTIC_MAX_FILES", "1")
         monkeypatch.setattr(ingest, "CBM_CACHE_DIR", tmp_path / "cbmcache")
         monkeypatch.setattr(ingest, "git_init_commit",
-                            lambda root: {"ok": True, "committed": True})
+                            lambda root, files_copied=0: {
+                                "ok": True, "committed": True})
         calls = []
 
         def fake_index(path, proj, mode="full"):

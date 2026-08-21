@@ -3,8 +3,6 @@
 Endpoints:
   POST /firmware                  upload firmware (multipart), start extraction
   POST /jobs/{job_id}/decompile   (re)run headless IDA decompilation (M2)
-  POST /jobs/{job_id}/ailift      run AI symbol recovery + renaming (M3)
-  GET  /jobs/{job_id}/ailift      M3 funnel/registry/llm-usage stats + samples
   POST /jobs/{job_id}/graph       build the CBM code graph (M4)
   GET  /jobs/{job_id}/graph       M4 graph_done.json summary
   POST /jobs/{job_id}/trace       M7 qemu-user differential coverage trace
@@ -30,9 +28,9 @@ Graph artifacts live in data/cbm/<job_id>/ (CBM-friendly tree + git repo +
 graph_done.json); the CBM index DB is ~/.cache/codebase-memory-mcp/.
 
 Status machine: pending -> extracting -> parsing -> done -> decompiling ->
-decompiled -> ailifting -> ailifted -> graphing -> graphed (decompiling starts
-automatically after extraction unless AUTO_DECOMPILE=0; any failure ends in
-"failed").
+decompiled -> graphing -> graphed (decompiling starts automatically after
+extraction unless AUTO_DECOMPILE=0; auto jobs continue decompiled -> graph
+which chains attack/routes/surfaces; any failure ends in "failed").
 """
 
 import json
@@ -52,11 +50,10 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 import httpx
 
 from . import accounts, admin_api, config, decompiler, extractor, protofuzz_api, vulnagent_api, webui
+from pipeline import evidence as ev
+from pipeline import profiles as analysis_profiles
 from pipeline import report
-from pipeline.ailift import registry as ailift_registry
-from pipeline.ailift import runner as ailift_runner
 from pipeline.attack import runner as attack_runner
-from pipeline.decompile import ai_enrich
 from pipeline.graph import ingest as graph_ingest
 from pipeline.graph import query as graph_query
 from pipeline.fuzz import runner as fuzz_runner
@@ -278,7 +275,6 @@ def _manifest_summary(job_id: str):
 # tests can still override the limits via env.
 _sem_init_lock = threading.Lock()
 _decompile_sem: threading.Semaphore | None = None
-_ailift_sem: threading.Semaphore | None = None
 
 
 def _decompile_semaphore() -> threading.Semaphore:
@@ -290,49 +286,32 @@ def _decompile_semaphore() -> threading.Semaphore:
         return _decompile_sem
 
 
-def _ailift_semaphore() -> threading.Semaphore:
-    global _ailift_sem
-    with _sem_init_lock:
-        if _ailift_sem is None:
-            _ailift_sem = threading.Semaphore(
-                int(os.getenv("AILIFT_MAX_JOBS", "2")))
-        return _ailift_sem
-
-
 def _decompile_worker(job_id: str, only_md5s=None):
     job = _jobs[job_id]
     # gate acquired at worker entry; released before the auto chain so a
-    # chained ailift/graph does not occupy a decompile slot
+    # chained graph does not occupy a decompile slot
     with _decompile_semaphore():
         try:
             _set_status(job, "decompiling")
             summary = decompiler.run_job(job_id, DATA_DIR, only_md5s=only_md5s)
-            if summary["succeeded"] > 0:
+            if summary.get("total_binaries", 0) == 0:
+                _set_status(job, "failed",
+                             extractor.empty_firmware_message(
+                                 EXTRACTED_DIR / job_id))
+            elif summary["succeeded"] > 0:
                 _set_status(job, "decompiled")
             else:
+                nfail = summary.get("failed") or 0
                 _set_status(job, "failed",
-                             "decompilation failed for all binaries "
-                             "(see decompile_summary.json)")
+                             f"反编译全部失败（{nfail} 个二进制，"
+                             "详见 decompile_summary.json）")
         except Exception as exc:  # noqa: BLE001 - any failure must end as 'failed'
             _set_status(job, "failed", f"decompile: {type(exc).__name__}: {exc}")
-    # one-shot auto chain (AUTO_FULL=1 or per-job auto): continue
-    # ailift -> graph in this thread; graph chains attack/routes/surfaces.
-    if only_md5s is None and job.get("status") == "decompiled" \
+    # one-shot auto chain (AUTO_FULL=1 or per-job auto): continue graph in
+    # this thread; graph chains attack/routes/surfaces.
+    if job.get("status") == "decompiled" \
             and (job.get("auto") or os.getenv("AUTO_FULL", "0") == "1"):
-        _ailift_worker(job_id)
-        if job.get("status") == "ailifted":
-            _graph_worker(job_id)
-
-
-def _ailift_worker(job_id: str):
-    job = _jobs[job_id]
-    with _ailift_semaphore():
-        try:
-            _set_status(job, "ailifting")
-            ailift_runner.run_job(job_id, DATA_DIR)
-            _set_status(job, "ailifted")
-        except Exception as exc:  # noqa: BLE001 - any failure must end as 'failed'
-            _set_status(job, "failed", f"ailift: {type(exc).__name__}: {exc}")
+        _graph_worker(job_id)
 
 
 def _graph_worker(job_id: str):
@@ -340,6 +319,13 @@ def _graph_worker(job_id: str):
     try:
         _set_status(job, "graphing")
         graph_ingest.run_job(job_id, DATA_DIR)
+        # CFG before attack so path BFS can union address-level call edges.
+        spec = analysis_profiles.spec(job.get("profile"))
+        if spec.get("graphext") and os.getenv("AUTO_GRAPHEXT", "1") != "0":
+            try:
+                graphext_runner.run_job(job_id, DATA_DIR)
+            except Exception:  # noqa: BLE001 - graphext is best-effort
+                pass
         final_status = "graphed"
         if os.getenv("AUTO_ATTACK", "1") != "0":
             _set_status(job, "attacking")
@@ -359,12 +345,6 @@ def _graph_worker(job_id: str):
             try:
                 surfaces_runner.run_job(job_id, DATA_DIR)
             except Exception:  # noqa: BLE001 - surfaces are best-effort
-                pass
-        # M4b: CFG/AST extension artifacts (best-effort, never fails the job)
-        if os.getenv("AUTO_GRAPHEXT", "1") != "0":
-            try:
-                graphext_runner.run_job(job_id, DATA_DIR)
-            except Exception:  # noqa: BLE001
                 pass
         # auto jobs: deterministic综合报告 (best-effort, never fails the job)
         if job.get("auto"):
@@ -414,6 +394,13 @@ def _surfaces_worker(job_id: str):
         _set_status(job, "failed", f"surfaces: {type(exc).__name__}: {exc}")
 
 
+def _should_mark_unpack_done(job: dict) -> bool:
+    """True when unpack is the last automatic step (no decompile chain)."""
+    if job.get("auto"):
+        return False
+    return os.getenv("AUTO_DECOMPILE", "1") == "0"
+
+
 def _extract_worker(job_id: str):
     job = _jobs[job_id]
     fw_path = FIRMWARE_DIR / job_id / "firmware.bin"
@@ -439,7 +426,21 @@ def _extract_worker(job_id: str):
                 return
             _set_status(job, "parsing")
             extractor.build_manifest(job_id, job["firmware"], log_dir)
-        _set_status(job, "done")
+        manifest_file = log_dir / "manifest.json"
+        binaries = []
+        if manifest_file.is_file():
+            try:
+                binaries = (json.loads(manifest_file.read_text(encoding="utf-8"))
+                            .get("binaries") or [])
+            except (OSError, json.JSONDecodeError):
+                binaries = []
+        if not binaries:
+            _set_status(job, "failed", extractor.empty_firmware_message(log_dir))
+            return
+        # Auto-chain continues into inputs/decompile. "done" here would let
+        # the homepage poller treat unpack as the whole pipeline.
+        if _should_mark_unpack_done(job):
+            _set_status(job, "done")
     except Exception as exc:  # noqa: BLE001 - any failure must end as 'failed'
         _set_status(job, "failed", f"{type(exc).__name__}: {exc}")
         return
@@ -451,7 +452,11 @@ def _extract_worker(job_id: str):
         except Exception:  # noqa: BLE001
             pass
     if os.getenv("AUTO_DECOMPILE", "1") != "0":
-        _decompile_worker(job_id)
+        only_md5s = None
+        if job.get("auto"):
+            only_md5s = analysis_profiles.select_decompile_targets(
+                job_id, DATA_DIR, job.get("profile"))
+        _decompile_worker(job_id, only_md5s)
 
 
 @app.on_event("startup")
@@ -484,9 +489,16 @@ def _disk_free_bytes(path) -> int:
     return shutil.disk_usage(path).free
 
 
+@app.get("/analysis-profiles")
+def list_analysis_profiles(principal: dict = Depends(require_token)):
+    """Homepage gears: low / high / xhigh. Auth required, no side effects."""
+    return {"default": analysis_profiles.DEFAULT,
+            "profiles": analysis_profiles.public_list()}
+
+
 @app.post("/firmware", status_code=201)
 def upload_firmware(request: Request, file: UploadFile = File(...),
-                    auto: bool = False,
+                    auto: bool = False, profile: str = analysis_profiles.DEFAULT,
                     principal: dict = Depends(require_token)):
     max_bytes = _max_firmware_bytes()
     # Pre-flight checks need the advertised size; chunked multipart may omit
@@ -503,6 +515,10 @@ def upload_firmware(request: Request, file: UploadFile = File(...),
                 status_code=507,
                 detail=f"磁盘剩余空间不足：仅剩 {free // 1024**3}GB，"
                        "上传需预留文件本身外加 10GB 余量")
+    try:
+        spec = analysis_profiles.spec(profile)
+    except analysis_profiles.UnknownProfile as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     job_id = uuid.uuid4().hex[:12]
     job_dir = FIRMWARE_DIR / job_id
     job_dir.mkdir(parents=True, exist_ok=True)
@@ -530,6 +546,7 @@ def upload_firmware(request: Request, file: UploadFile = File(...),
         "status": "pending",
         "error": None,
         "auto": auto,
+        "profile": spec["id"],
         "owner": principal.get("username") or "admin",
         "created_at": _now(),
         "updated_at": _now(),
@@ -541,9 +558,10 @@ def upload_firmware(request: Request, file: UploadFile = File(...),
         _jobs[job_id] = job
         _save_job(job)
     accounts.audit(principal["username"], "firmware_upload",
-                   f"{job_id} {job['firmware']} auto={auto}")
+                   f"{job_id} {job['firmware']} auto={auto} "
+                   f"profile={spec['id']}")
     threading.Thread(target=_extract_worker, args=(job_id,), daemon=True).start()
-    return {"job_id": job_id, "status": "pending"}
+    return {"job_id": job_id, "status": "pending", "profile": spec["id"]}
 
 
 @app.post("/jobs/{job_id}/decompile", status_code=202, dependencies=[Depends(require_token), Depends(job_guard)])
@@ -584,217 +602,6 @@ def trigger_decompile(job_id: str, body: dict | None = Body(None)):
                      daemon=True).start()
     return {"job_id": job_id, "status": "decompiling",
             "only_md5s": sorted(only_md5s) if only_md5s is not None else None}
-
-
-@app.post("/jobs/{job_id}/ailift", status_code=202, dependencies=[Depends(require_token), Depends(job_guard)])
-def trigger_ailift(job_id: str):
-    job = _jobs.get(job_id)
-    if job is None:
-        raise HTTPException(status_code=404, detail="job not found")
-    with _jobs_lock:
-        if job["status"] in STATUS_RUNNING:
-            raise HTTPException(status_code=409,
-                                detail=f"job is {job['status']}, wait for it to finish")
-        if not (PSEUDOCODE_DIR / job_id / "symbols.json").is_file():
-            raise HTTPException(status_code=409,
-                                detail="job not decompiled yet (no symbols.json)")
-        job["status"] = "ailifting"
-        job["error"] = None
-        _save_job(job)
-    threading.Thread(target=_ailift_worker, args=(job_id,), daemon=True).start()
-    return {"job_id": job_id, "status": "ailifting"}
-
-
-@app.get("/jobs/{job_id}/ailift", dependencies=[Depends(require_token), Depends(job_guard)])
-def get_ailift(job_id: str):
-    job = _jobs.get(job_id)
-    if job is None:
-        raise HTTPException(status_code=404, detail="job not found")
-    pseudo_root = PSEUDOCODE_DIR / job_id
-    summary_file = pseudo_root / "ailift_summary.json"
-    if not summary_file.is_file() and job["status"] != "ailifting":
-        raise HTTPException(status_code=404, detail="ailift not run yet")
-    out = {"job_id": job_id, "status": job["status"], "error": job["error"]}
-    if summary_file.is_file():
-        out["summary"] = json.loads(summary_file.read_text(encoding="utf-8"))
-    reg = ailift_registry.dumps_stats(pseudo_root / "name_registry.db")
-    if reg:
-        out["registry"] = reg["stats"]
-        out["tag_samples"] = reg["samples"]
-    usage_file = pseudo_root / "llm_usage.json"
-    if usage_file.is_file():
-        out["llm_usage"] = json.loads(usage_file.read_text(encoding="utf-8"))
-    return out
-
-
-def _aienrich_worker(job_id: str, md5: str, addrs, attack_only: bool,
-                     include_failed: bool, limit: int):
-    try:
-        ai_enrich.run_enrich(job_id, DATA_DIR, md5, addrs=addrs,
-                             attack_only=attack_only,
-                             include_failed=include_failed, limit=limit)
-    except Exception:  # noqa: BLE001 - run_enrich also records into its json
-        pass
-
-
-@app.post("/jobs/{job_id}/aienrich", status_code=202,
-          dependencies=[Depends(job_guard)])
-def trigger_aienrich(job_id: str, payload: dict = Body(...),
-                     principal: dict = Depends(require_token)):
-    """AI pseudo-C enrichment overlay (argument recovery + readable names).
-
-    Body: {binary_md5, addrs?, attack_only=true, include_failed=true,
-    limit?}. With addrs omitted the attack-chain function set is used.
-    Writes <md5>/ai/<addr>.json|.c overlays; original IDA exports and the
-    job's main status are untouched (progress lives in ai/ai_enrich.json).
-    """
-    job = _jobs.get(job_id)
-    if job is None:
-        raise HTTPException(status_code=404, detail="job not found")
-    md5 = str(payload.get("binary_md5") or "")
-    if not _MD5_RE.match(md5):
-        raise HTTPException(status_code=400, detail="binary_md5 must be "
-                            "a 32-char lowercase md5")
-    addrs = payload.get("addrs")
-    if addrs is not None and (not isinstance(addrs, list)
-                              or not all(isinstance(a, str) for a in addrs)):
-        raise HTTPException(status_code=400,
-                            detail="addrs must be a list of hex addresses")
-    attack_only = bool(payload.get("attack_only", True))
-    include_failed = bool(payload.get("include_failed", True))
-    limit = int(payload.get("limit") or 0)
-    symbols_file = PSEUDOCODE_DIR / job_id / "symbols.json"
-    if not symbols_file.is_file():
-        raise HTTPException(status_code=409,
-                            detail="job not decompiled yet (no symbols.json)")
-    symbols = json.loads(symbols_file.read_text(encoding="utf-8"))
-    if md5 not in symbols.get("binaries", {}):
-        raise HTTPException(status_code=404,
-                            detail=f"binary {md5} not in symbols.json")
-    _check_quota(job_id, "aienrich")
-    accounts.audit(principal["username"], "aienrich_trigger", job_id)
-    threading.Thread(target=_aienrich_worker,
-                     args=(job_id, md5, addrs, attack_only, include_failed,
-                           limit), daemon=True).start()
-    return {"job_id": job_id, "binary_md5": md5, "status": "aienriching"}
-
-
-@app.get("/jobs/{job_id}/aienrich", dependencies=[Depends(require_token), Depends(job_guard)])
-def list_aienrich(job_id: str):
-    """Full function directory grouped by binary, with AI-enrichment
-    overlays merged in as markers (M5 enrich diff view). The function
-    universe comes from symbols.json; overlays are read from the
-    ai/<addr>.json set itself because ai_enrich.json only records the
-    latest run's items (resumed skips are not in it). Non-enriched
-    functions are listed plainly ({addr, name, enriched:false}) so the
-    UI can show the whole directory; an empty binaries list (no
-    symbols, no overlays) is a valid state, not an error."""
-    job = _jobs.get(job_id)
-    if job is None:
-        raise HTTPException(status_code=404, detail="job not found")
-    symbols = {}
-    symbols_file = PSEUDOCODE_DIR / job_id / "symbols.json"
-    if symbols_file.is_file():
-        symbols = json.loads(symbols_file.read_text(encoding="utf-8"))
-    job_dir = PSEUDOCODE_DIR / job_id
-    overlays = {}  # md5 -> {addr: overlay meta}
-    if job_dir.is_dir():
-        for md5_dir in sorted(job_dir.iterdir()):
-            if not md5_dir.is_dir() or not _MD5_RE.match(md5_dir.name):
-                continue
-            ai_dir = md5_dir / "ai"
-            if not ai_dir.is_dir():
-                continue
-            per = {}
-            for meta_file in sorted(ai_dir.glob("*.json")):
-                if meta_file.name == "ai_enrich.json":
-                    continue
-                try:
-                    meta = json.loads(meta_file.read_text(encoding="utf-8"))
-                except (OSError, json.JSONDecodeError):
-                    continue  # one bad overlay must not break the listing
-                addr = str(meta.get("addr") or meta_file.stem).lower()
-                # synthetic overlays are asm translations; no Hex-Rays .c
-                meta["has_original"] = (md5_dir / "functions"
-                                        / f"{addr}.c").is_file()
-                per[addr] = meta
-            if per:
-                overlays[md5_dir.name] = per
-    md5s = list(symbols.get("binaries", {}))
-    for md5 in sorted(overlays):
-        if md5 not in symbols.get("binaries", {}):
-            md5s.append(md5)  # overlay on disk but binary not in symbols
-    binaries = []
-    total = 0
-    total_functions = 0
-    for md5 in md5s:
-        info = symbols.get("binaries", {}).get(md5, {})
-        per = overlays.get(md5, {})
-        functions = []
-        seen = set()
-        for fn in info.get("functions", []):
-            addr = str(fn.get("addr") or "").lower()
-            if not addr:
-                continue
-            seen.add(addr)
-            meta = per.get(addr)
-            if meta is None:
-                functions.append({"addr": addr,
-                                  "name": fn.get("name") or addr,
-                                  "enriched": False})
-            else:
-                functions.append({
-                    "addr": addr,
-                    "name": fn.get("name") or meta.get("name") or addr,
-                    "enriched": True,
-                    "domain": meta.get("domain"),
-                    "confidence": meta.get("confidence"),
-                    "summary": meta.get("summary"),
-                    "synthetic": bool(meta.get("synthetic", False)),
-                    "renames": len(meta.get("renames") or {}),
-                    "call_args": len(meta.get("call_args") or {}),
-                    "has_original": bool(meta.get("has_original", True)),
-                })
-        for addr, meta in per.items():
-            if addr in seen:
-                continue
-            # overlay without a symbols entry (edge: symbols rebuilt later)
-            functions.append({
-                "addr": addr,
-                "name": meta.get("name") or addr,
-                "enriched": True,
-                "domain": meta.get("domain"),
-                "confidence": meta.get("confidence"),
-                "summary": meta.get("summary"),
-                "synthetic": bool(meta.get("synthetic", False)),
-                "renames": len(meta.get("renames") or {}),
-                "call_args": len(meta.get("call_args") or {}),
-                "has_original": bool(meta.get("has_original", True)),
-            })
-        if not functions:
-            continue
-        functions.sort(key=lambda f: int(f["addr"], 16)
-                       if f["addr"].startswith("0x") else 0)
-        enriched_n = sum(1 for f in functions if f["enriched"])
-        binaries.append({"md5": md5, "path": info.get("path"),
-                         "arch": info.get("arch"), "count": enriched_n,
-                         "total": len(functions), "functions": functions})
-        total += enriched_n
-        total_functions += len(functions)
-    binaries.sort(key=lambda b: b.get("path") or b["md5"])
-    return {"job_id": job_id, "total": total,
-            "total_functions": total_functions, "binaries": binaries}
-
-
-@app.get("/jobs/{job_id}/aienrich/{md5}", dependencies=[Depends(require_token), Depends(job_guard)])
-def get_aienrich(job_id: str, md5: str):
-    job = _jobs.get(job_id)
-    if job is None:
-        raise HTTPException(status_code=404, detail="job not found")
-    summary_file = PSEUDOCODE_DIR / job_id / md5 / "ai" / "ai_enrich.json"
-    if not summary_file.is_file():
-        raise HTTPException(status_code=404, detail="aienrich not run yet")
-    return json.loads(summary_file.read_text(encoding="utf-8"))
 
 
 @app.post("/jobs/{job_id}/graph", status_code=202, dependencies=[Depends(require_token), Depends(job_guard)])
@@ -895,6 +702,31 @@ def get_attack(job_id: str):
     return out
 
 
+def _attack_ai_worker(job_id: str):
+    from pipeline.attack import ai_review as _ai_review
+    try:
+        _ai_review.review_artifact(job_id, DATA_DIR)
+    except Exception:  # noqa: BLE001 - overlay is best-effort
+        pass
+
+
+@app.post("/jobs/{job_id}/attack-ai", status_code=202,
+          dependencies=[Depends(job_guard)])
+def trigger_attack_ai(job_id: str, principal: dict = Depends(require_token)):
+    job = _jobs.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="job not found")
+    if not (ATTACK_DIR / job_id / "attack_paths.json").is_file():
+        raise HTTPException(status_code=409, detail="attack analysis not run yet")
+    if not os.getenv("LLM_API_KEY", "").strip():
+        raise HTTPException(status_code=409, detail="LLM_API_KEY is not set")
+    _check_quota(job_id, "attack_ai")
+    accounts.audit(principal["username"], "attack_ai_trigger", job_id)
+    threading.Thread(target=_attack_ai_worker, args=(job_id,),
+                     daemon=True).start()
+    return {"job_id": job_id, "status": "reviewing"}
+
+
 @app.post("/jobs/{job_id}/routes", status_code=202,
           dependencies=[Depends(require_token), Depends(job_guard)])
 def trigger_routes(job_id: str):
@@ -908,8 +740,6 @@ def trigger_routes(job_id: str):
                 detail=f"job is {job['status']}, wait for it to finish")
         if not (CBM_DIR / job_id / "graph_done.json").is_file():
             raise HTTPException(status_code=409, detail="job not graphed yet")
-        if not (DATA_DIR / "idb" / job_id).is_dir():
-            raise HTTPException(status_code=409, detail="job has no reusable IDB")
         job["status"] = "routing"
         job["error"] = None
         _save_job(job)
@@ -1401,12 +1231,27 @@ def _trace_flow(job_id: str, payload: dict):
             hit = name
         if hit:
             dangerous.append({**entry, "matched": hit})
+    md5 = (trace.get("binary") or {}).get("md5") or ""
+    for entry in sequence:
+        if entry.get("addr"):
+            entry["evidence_address"] = ev.make_address(
+                md5, entry["addr"], job_id=job_id)
+    status = str(trace.get("status") or "")
+    envelope = ev.wrap_envelope(
+        producer="trace", view_kind="trace_flow", job_id=job_id,
+        capture_id=trace_id, items=sequence,
+        attribution=ev.ATTRIBUTION_OBSERVED,
+        integrity="ok" if status.startswith("ok") else "degraded",
+        limit=payload.get("limit"),
+    )
     return {
         "job_id": job_id, "trace_id": trace_id, "status": trace.get("status"),
         "binary": trace.get("binary"), "argv": trace.get("argv"),
         "request": trace.get("request"),
         "function_count": len(sequence), "sequence": sequence,
         "dangerous_count": len(dangerous), "dangerous": dangerous,
+        "attribution": ev.ATTRIBUTION_OBSERVED,
+        "envelope": envelope,
     }
 
 
@@ -1456,6 +1301,36 @@ def _trim_ast(ast: dict, max_depth: int, max_nodes: int) -> dict:
     return {**ast, "root": trimmed}
 
 
+def _stamp_node(node, job_id: str, md5: str):
+    """Attach Evidence Address without mutating the on-disk artifact."""
+    if not isinstance(node, dict):
+        return node
+    out = dict(node)
+    addr = out.get("addr")
+    if addr:
+        out["evidence_address"] = ev.make_address(
+            out.get("binary_md5") or md5, addr, job_id=job_id)
+    return out
+
+
+def _stamp_path(path: dict, job_id: str) -> dict:
+    md5 = str(path.get("binary_md5") or "")
+    out = dict(path)
+    out["source"] = _stamp_node(path.get("source"), job_id, md5)
+    out["sink"] = _stamp_node(path.get("sink"), job_id, md5)
+    chain = path.get("chain")
+    if isinstance(chain, list):
+        out["chain"] = [_stamp_node(n, job_id, md5) for n in chain]
+    if not out.get("attribution"):
+        if out.get("verified_reachable"):
+            out["attribution"] = ev.ATTRIBUTION_VERIFIED
+        elif out.get("observed_node_count"):
+            out["attribution"] = ev.ATTRIBUTION_OBSERVED
+        else:
+            out["attribution"] = ev.ATTRIBUTION_STATIC
+    return out
+
+
 def _attack_surface(job_id: str, payload: dict):
     """Return ranked, precomputed attack paths with optional filters.
 
@@ -1481,20 +1356,26 @@ def _attack_surface(job_id: str, payload: dict):
             continue
         if payload.get("verified_only") and not path.get("verified_reachable"):
             continue
-        paths.append(path)
+        paths.append(_stamp_path(path, job_id))
         if len(paths) >= limit:
             break
     if payload.get("brief"):
         def _ep(node):
             return {k: (node or {}).get(k)
-                    for k in ("addr", "name", "ai_name", "asrc", "asink")}
+                    for k in ("addr", "name", "ai_name", "asrc", "asink",
+                              "evidence_address")}
+        from pipeline.attack import ai_review as _ai_review
         paths = [{
             "path_id": p.get("path_id"), "score": p.get("score"),
             "edge_count": p.get("edge_count"),
             "verified_reachable": bool(p.get("verified_reachable")),
             "observed_node_count": p.get("observed_node_count", 0),
+            "attribution": p.get("attribution"),
+            "entry_outdegree": p.get("entry_outdegree"),
+            "danger_calls": p.get("danger_calls"),
             "source": _ep(p.get("source")), "sink": _ep(p.get("sink")),
             "sanitizers": p.get("sanitizers", []),
+            "ai_review": _ai_review.compact(p.get("ai_review")),
         } for p in paths]
     return {"job_id": job_id, "generated_at": data.get("generated_at"),
             "summary": data.get("summary", {}), "total": len(paths),
@@ -1558,6 +1439,8 @@ def graph_query_endpoint(payload: dict = Body(...),
                  of one coverage trace + dangerous libc_equiv highlights
       attack_surface: source?, sink?, verified_only?, limit?, brief? — ranked paths;
                  brief=true drops the per-path chain node list (triage view)
+      compose_evidence: binary_md5 + addr; optional static_block /
+                 decompile_text / dynamic_envelope — join already-fetched facts
       routes: pattern?, method?, binary_md5?, min_confidence?, limit?
       cfg/ast:  md5 + addr (required), max_nodes?, max_depth? — context-budget
                  truncation (0 = full)
@@ -1613,6 +1496,19 @@ def graph_query_endpoint(payload: dict = Body(...),
             return _trace_flow(job_id, payload)
         if op == "attack_surface":
             return _attack_surface(job_id, payload)
+        if op == "compose_evidence":
+            md5 = str(payload.get("binary_md5") or "")
+            addr = str(payload.get("addr") or "")
+            if not re.fullmatch(r"[0-9a-f]{32}", md5) or not addr:
+                raise HTTPException(
+                    status_code=400,
+                    detail="compose_evidence: binary_md5 + addr required")
+            return ev.compose(
+                job_id=job_id, binary_md5=md5, addr=addr,
+                static_block=payload.get("static_block"),
+                decompile_text=payload.get("decompile_text"),
+                dynamic_envelope=payload.get("dynamic_envelope"),
+            )
         if op == "routes":
             return _routes(job_id, payload)
         if op in ("cfg", "ast"):
@@ -1641,7 +1537,8 @@ def graph_query_endpoint(payload: dict = Body(...),
         raise HTTPException(status_code=400,
                             detail=f"unknown op {op!r}; expected search|cypher|"
                                    "trace|snippet|dangerous|trace_flow|"
-                                   "attack_surface|routes|cfg|ast")
+                                   "attack_surface|compose_evidence|"
+                                   "routes|cfg|ast")
     except graph_query.CBMError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
@@ -1660,6 +1557,8 @@ def list_jobs(principal: dict = Depends(require_token)):
             "created_at": j["created_at"],
             "updated_at": j["updated_at"],
             "auto": bool(j.get("auto")),
+            "profile": j.get("profile") or analysis_profiles.DEFAULT,
+            "hunt_session_id": j.get("hunt_session_id"),
             "owner": j.get("owner"),
         } for j in jobs if _can_access(principal, j.get("owner"))]
 
@@ -1673,9 +1572,59 @@ def get_job(job_id: str):
         **{k: job[k] for k in ("job_id", "firmware", "status", "error",
                                "created_at", "updated_at", "size_bytes")},
         "auto": bool(job.get("auto")),
+        "profile": job.get("profile") or analysis_profiles.DEFAULT,
         "owner": job.get("owner"),
+        "hunt_session_id": job.get("hunt_session_id"),
         "log_tail": _log_tail(job_id),
         "manifest_summary": _manifest_summary(job_id),
+    }
+
+
+def _tail_text(path: Path, max_bytes: int = 65536) -> list[str]:
+    if not path.is_file():
+        return []
+    with open(path, "rb") as fh:
+        fh.seek(0, 2)
+        size = fh.tell()
+        fh.seek(max(0, size - max_bytes))
+        return fh.read().decode("utf-8", errors="replace").splitlines()
+
+
+@app.get("/jobs/{job_id}/logs", dependencies=[Depends(require_token), Depends(job_guard)])
+def get_job_logs(job_id: str, lines: int = 300):
+    """Combined pipeline log for the events tab (EMBA + decompile errors)."""
+    try:
+        cap = max(20, min(int(lines), 2000))
+    except (TypeError, ValueError):
+        cap = 300
+    out: list[str] = []
+    out.extend(_tail_text(EXTRACTED_DIR / f"{job_id}.emba.log"))
+    inner = EXTRACTED_DIR / job_id / "emba.log"
+    if inner.is_file():
+        out.extend(_tail_text(inner, 32768))
+    summary = PSEUDOCODE_DIR / job_id / "decompile_summary.json"
+    if summary.is_file():
+        try:
+            data = json.loads(summary.read_text(encoding="utf-8"))
+            out.append(
+                f"[decompile] total={data.get('total_binaries')} "
+                f"ok={data.get('succeeded')} fail={data.get('failed')}"
+            )
+            for row in data.get("binaries") or []:
+                if row.get("status") != "ok":
+                    out.append(
+                        f"[decompile] {row.get('path')}: "
+                        f"{row.get('status')} {row.get('error') or ''}"
+                    )
+        except (OSError, json.JSONDecodeError):
+            pass
+    job = _jobs.get(job_id) or {}
+    return {
+        "job_id": job_id,
+        "status": job.get("status"),
+        "error": job.get("error"),
+        "hunt_session_id": job.get("hunt_session_id"),
+        "lines": out[-cap:],
     }
 
 
@@ -1774,15 +1723,13 @@ def list_functions(job_id: str):
 
 @app.get("/jobs/{job_id}/functions/{md5}/{addr}/source",
          dependencies=[Depends(require_token), Depends(job_guard)])
-def get_function_source(job_id: str, md5: str, addr: str, ai: int = 0,
-                        asm: int = 0):
+def get_function_source(job_id: str, md5: str, addr: str, asm: int = 0):
     """Decompiled pseudo-C for one function (M5 functions page viewer).
 
-    ai=1 returns the AI-enriched overlay (ai/<addr>.c, with recovered
-    call-site arguments and readable names); the default is always the
-    original Hex-Rays output, which is never modified. asm=1 returns the
-    function-level assembly (functions/<addr>.asm) — the ground truth for
-    call-site argument recovery when Hex-Rays collapses arguments."""
+    Default is the original Hex-Rays output, which is never modified.
+    asm=1 returns the function-level assembly (functions/<addr>.asm) —
+    the ground truth for call-site argument recovery when Hex-Rays
+    collapses arguments."""
     job = _jobs.get(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="job not found")
@@ -1797,15 +1744,6 @@ def get_function_source(job_id: str, md5: str, addr: str, ai: int = 0,
                                 detail="no assembly export for this function")
         return PlainTextResponse(asm_file.read_text(encoding="utf-8",
                                                     errors="replace"))
-    if ai:
-        ai_file = PSEUDOCODE_DIR / job_id / md5 / "ai" / f"{addr}.c"
-        if not ai_file.is_file():
-            ai_file = PSEUDOCODE_DIR / job_id / md5 / "ai" / f"{addr.lower()}.c"
-        if not ai_file.is_file():
-            raise HTTPException(status_code=404,
-                                detail="no AI overlay for this function")
-        return PlainTextResponse(ai_file.read_text(encoding="utf-8",
-                                                   errors="replace"))
     funcs_dir = PSEUDOCODE_DIR / job_id / md5 / "functions"
     src_file = funcs_dir / f"{addr}.c"
     if not src_file.is_file():
@@ -1884,6 +1822,7 @@ def get_function_brief(job_id: str, md5: str, addr: str):
                         callees.append(name)
     return {
         "job_id": job_id, "md5": md5, "addr": fn.get("addr"),
+        "evidence_address": ev.make_address(md5, fn.get("addr"), job_id=job_id),
         "binary_path": info.get("path"), "arch": info.get("arch"),
         "name": fn.get("name"), "ai_name": fn.get("ai_name"),
         "size": fn.get("size"), "lines": fn.get("lines"),
@@ -1895,6 +1834,7 @@ def get_function_brief(job_id: str, md5: str, addr: str):
         "observed_in_trace": bool(fn.get("observed_in_trace")),
         "verified_reachable": bool(fn.get("verified_reachable")),
         "source_available": source_available,
+        "decompile_gap": not source_available,
         "head": head, "dangerous_calls": dangerous, "callees": callees,
     }
 

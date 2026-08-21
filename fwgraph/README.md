@@ -1,11 +1,10 @@
 # fwgraph — 固件代码图谱系统
 
-固件上传 → 解包 → IDA 反编译 → 代码图谱与攻击面路径，为上游分析 AI 提供保真的反编译证据、可检索关系和紧凑上下文。fwgraph 不判定漏洞；source/sink、评分和 trace 覆盖只用于证据召回、排序与降误报。AI 语义标签不是建图前置条件，默认流程可完全跳过。
+固件上传 → 解包 → IDA 反编译 → 代码图谱与攻击面路径，为上游分析 AI 提供保真的反编译证据、可检索关系和紧凑上下文。fwgraph 不判定漏洞；source/sink、评分和 trace 覆盖只用于证据召回、排序与降误报。
 
 ```
 固件.bin ─▶ [S1 解包]      EMBA docker（unblob/binwalk/厂商解密）→ rootfs + 架构清单
          ─▶ [S2 反编译]    IDA Pro 9.1 无头批处理（FLIRT 签名 + 规则命名）→ 伪 C + symbols.json
-         ─▶ [S3 可选标签]  LLM（opencode go / deepseek-v4-flash）→ libc_equiv/domain（兼容能力；不改函数名）
          ─▶ [S4 图谱]      伪 C 文件树 → codebase-memory-mcp 索引 → SQLite 图（节点/边/向量/元数据）
          │                     └─▶ 上游分析 AI（POST /graph/query 或 CBM MCP stdio）
          ─▶ [S4b 图谱扩展] 函数级 CFG（含跳表 indirect_jump 建模）+ AST（tree-sitter）→ cfg/ast op
@@ -38,12 +37,11 @@
 | 键 | 含义 |
 |---|---|
 | `LLM_BASE_URL` / `LLM_MODEL` / `LLM_API_KEY` | OpenAI 兼容网关（开发环境用 opencode go `https://opencode.ai/zen/go/v1`）/ `deepseek-v4-flash` / key |
-| `LLM_MAX_CONCURRENCY` | AI 请求并发（默认 16） |
-| `AILIFT_MODE` | 可选 AILIFT 兼容接口固定为 `tag`：只写语义标签，不回写 IDB、不二次反编译；建图无需运行 |
-| `AI_MAX_FUNCS_PER_BIN` | 每二进制送 AI 函数上限（默认 150，成本闸门） |
-| `AI_MAX_FUNCS_PER_JOB` | 整个任务送 AI 函数总上限（默认 300；攻击面与主程序优先，库降权） |
+| `LLM_MAX_CONCURRENCY` | 挖矿 AI 请求并发（默认 16） |
 | `AUTO_ATTACK` / `AUTO_ROUTES` | graph 后自动生成攻击路径 / 扫描静态路由（默认 1） |
-| `IDA_DIR` / `IDA_WORKERS` / `IDA_TIMEOUT` | IDA 路径 / idat 并发（默认 3）/ 单二进制超时 |
+| `AUTO_ATTACK_AI` / `ATTACK_AI_MAX_PATHS` | 规则路径算完后对 Top-N 做 LLM 分诊 overlay（有 LLM_API_KEY 时默认开；`0` 关闭） |
+| `CBM_GIT` / `CBM_GIT_MAX_FILES` | 摄入时是否 git 快照（默认开；文件数超过阈值或 `CBM_GIT=0` 则跳过） |
+| `IDA_DIR` / `IDA_WORKERS` / `IDA_TIMEOUT` | IDA 路径 / rootfs_elf `ida_worker` 并发（默认 3）/ 单二进制超时 |
 | `EMBA_DIR` / `EMBA_PROFILE` / `EMBA_TIMEOUT` / `EMBA_SUDO_PASSWORD` | EMBA 调用参数 |
 | `TRACE_RUN_TIMEOUT` / `TRACE_HOLD_SECONDS` / `TRACE_SUDO_PASSWORD` | M7 单次覆盖率运行硬超时（默认 60s）/ 触发前后驻留（默认 2s）/ chroot 所需 sudo 密码 |
 | `ORCH_HOST` / `ORCH_PORT` / `ORCH_TOKEN` | 服务绑定（0.0.0.0:8000）/ API token |
@@ -52,8 +50,7 @@
 | `CBM_FULL_INDEX_MAX_FILES` | FULL 索引最大伪 C 文件数（默认 50000）；超过后使用 FAST，保留结构节点/调用/usage，省略相似性与语义边 |
 | `ORCH_SSL` | 默认 `1`：HTTPS 自签（`data/tls/{cert,key}.pem`，SAN 含主机 IP/127.0.0.1/localhost）；`0` 退回明文 |
 | `AUTO_INPUTS` / `AUTO_SURFACES` / `AUTO_GRAPHEXT` / `AUTO_FULL` | 自动链开关：输入识别 / 攻击面导出 / CFG·AST / 上传即全自动（默认见 .env 注释） |
-| `AI_ENRICH_MAX_TOKENS` | AI 增强单函数输出预算（默认 16384；推理模型 reasoning 会先烧额度，勿调低） |
-| `TRACE_DAILY_PER_JOB` / `FUZZ_DAILY_PER_JOB` / `FRIDA_DAILY_PER_JOB` / `AIENRICH_DAILY_PER_JOB` / `PROTOFUZZ_DAILY` | 按 job×日配额（默认 10/6/6/6/8，429 中文 detail） |
+| `TRACE_DAILY_PER_JOB` / `FUZZ_DAILY_PER_JOB` / `FRIDA_DAILY_PER_JOB` / `PROTOFUZZ_DAILY` / `ATTACK_AI_DAILY_PER_JOB` | 按 job×日配额（默认 10/6/6/8/8，429 中文 detail） |
 | `PROTOFUZZ_ALLOW_PUBLIC` | 默认禁 fuzz 公网目标；`1` 解锁（授权自担） |
 | `FUZZ_SECONDS` / `FRIDA_*` | 函数级 fuzz 时长 / frida 远程 host:port 等（见 .env 注释） |
 | `VULNAGENT_COMPACT_THRESHOLD` / `VULNAGENT_COMPACT_KEEP_RECENT` | builtin 挖掘会话历史压缩：旧工具结果超阈值换首尾摘录（默认 1200 字符 / 保最近 6 条） |
@@ -79,15 +76,12 @@ TOKEN=<fws- 会话 token 或主 token>; H="Authorization: Bearer $TOKEN"; B=http
 # HTTPS 自签：curl 统一加 -k（示例从略）
 # 1. 上传固件（提取+反编译自动接力）
 JOB=$(curl -s -X POST -H "$H" -F "file=@firmware.bin" $B/firmware | python3 -c 'import json,sys;print(json.load(sys.stdin)["job_id"])')
-# 2. 轮询状态到 decompiled；无需打标签，可直接建图
+# 2. 轮询状态到 decompiled，然后建图
 curl -s -H "$H" $B/jobs/$JOB            # pending→extracting→decompiling→decompiled
-# 可选兼容步骤（花 token，默认跳过）：
-# curl -s -X POST -H "$H" $B/jobs/$JOB/ailift  # → ailifting → ailifted
 # 3. 触发图谱构建；默认自动接力攻击面和静态路由
 curl -s -X POST -H "$H" $B/jobs/$JOB/graph     # → graphing → attacking → routing → routed
 # 4. 浏览
 curl -s -H "$H" $B/jobs/$JOB/manifest                  # 二进制清单（架构/位数/大小端/md5）
-curl -s -H "$H" $B/jobs/$JOB/ailift                    # 漏斗/registry/token 用量/标签抽样
 curl -s -H "$H" $B/jobs/$JOB/graph                     # nodes/edges/元数据注入统计
 curl -s -H "$H" $B/jobs/$JOB/attack                    # source/sink/Top50/trace 覆盖统计
 curl -s -H "$H" $B/jobs/$JOB/routes                    # IDA 路由扫描与 ROUTE 边统计
@@ -106,7 +100,7 @@ M7 说明：tracer 把对应架构的 qemu-user 拷进 rootfs，`chroot` 内以 
 
 ## 4. 给上游分析 AI 的接入说明
 
-接口返回的是反编译与运行证据，不是漏洞 verdict：函数地址、原始 IDA 名称、伪 C、调用边和字符串是主数据；source/sink 与路径评分是带置信度的候选索引。历史或可选 AILIFT 任务产生的 `domain` / `libc_equiv` 只是辅助字段，缺失不会影响图谱生成。`verified_reachable` 仅表示同一条成功 trace 观测到完整静态函数链，不表示该链可利用或存在漏洞。上游应按需拉取路径和单函数伪 C，以更少上下文完成自己的分析。
+接口返回的是反编译与运行证据，不是漏洞 verdict：函数地址、原始 IDA 名称、伪 C、调用边和字符串是主数据；source/sink 与路径评分是带置信度的候选索引。`verified_reachable` 仅表示同一条成功 trace 观测到完整静态函数链，不表示该链可利用或存在漏洞。上游应按需拉取路径和单函数伪 C，以更少上下文完成自己的分析。
 
 ### 方式 A：HTTP（推荐）`POST /graph/query`
 
@@ -161,8 +155,8 @@ CBM 本身是 MCP 服务器（15 个工具），上游 Agent 可直接挂：
 ```
 fwgraph/
 ├── orchestrator/app/     # FastAPI：main/extractor/decompiler/webui
-├── pipeline/             # extract/decompile/ailift/graph/trace/attack/routes
-├── config/naming_spec.yaml   # domain 封闭词表（AI 标签约束的事实来源）
+├── pipeline/             # extract/decompile/graph/trace/attack/routes
+├── config/naming_spec.yaml   # domain 封闭词表
 ├── config/attack_surface.yaml # 工控/防火墙兼容的 source/sink 分类与评分
 ├── libc-sigs/            # FLIRT 签名制作（build_sig.sh + docs/m2b-notes.md）
 ├── webui/                # Vue3 前端（npm run build → dist 由 FastAPI 托管）
@@ -190,13 +184,10 @@ fwgraph/
 
 - **函数级 fuzz 要求启动可达**：AFL++ persistent 模式要求目标函数在正常启动流程中可达（forkserver 在该地址初始化），固件 daemon 若依赖 init/chroot/网络环境会如实失败并给中文提示；PIE 目标需加加载基址。
 - **协议 fuzz 是纯软件实现**：博智式硬件能力（RS232/485/CAN 业务卡、DI/AI 监视、继电器电源托管）不在范围；故障定位为监视器确认+复播复现的软件近似；默认只许私网/回环目标。
-- **AI 增强 overlay 不回喂挖矿 AI**：重命名符号不可作证据引用（`fw_get_function_source` 默认只吃 Hex-Rays 原始伪代码，`kind=brief` 分诊卡优先）。
-
-
 - **Lumina 不可用**：当前 IDA license 被 Lumina 服务器拒绝（`bad signature`），已预留 `LUMINA_ENABLED=1` 开关，换 license 即启用。详见 `docs/m2b-notes.md`。
 - **FLIRT 年代敏感**：签名命中要求"年代×ISA×字节序×配置"四元匹配，单点 sig 对老固件收益有限（+2~+6）；签名库扩矩阵的方法见 `docs/m2b-notes.md` §4。
 - **CBM cypher 陷阱**：properties 缺失键在数值比较中按 0 处理——`ai_confidence < 0.7` 会把无 AI 函数全选进来，必须 `> 0 AND < 0.7`。
-- **静态 stripped 二进制**没有 libc 真名节点，由 **libc 等价层**补足：AI 直接回答 `libc_equiv/domain`，registry/symbols.json/nodes.properties 全链路透传；存量旧命名数据仍可用 `python -m pipeline.ailift.backfill <job_id>` 零 token 回填；图谱 ingest 再沿 SIMILAR_TO 边传播一轮。函数真实 `name` 和一遍反编译伪 C 始终不改。
+- **静态 stripped 二进制**没有 libc 真名节点：图谱 ingest 仍沿 SIMILAR_TO 边传播已有 `libc_equiv`（历史任务若已写入 symbols.json 会继续被消费）。函数真实 `name` 和一遍反编译伪 C 始终不改。
 - **AS-3 路由表是保守启发式**：只接受数据段 `{URL字符串指针, 函数入口指针}`；阳性样本 2/2 命中，busybox 双架构没有这种静态表所以结果为 0。不同厂商的多字段/哈希路由表需要扩展适配器，不能靠放宽规则制造命中。
 - **M7 覆盖率粒度是 TB（翻译块）**：qemu `-d exec` 记录的是执行过的 TB 首地址，基本块级；函数归属靠 symbols.json 的 addr+size 区间映射，未落入任何函数的地址计为 unknown（PLT 残桩、IDA 未识别的代码）。多线程/信号时序会影响差分纯度——baseline 与 trigger 的调度差异可能把偶发路径算进差分，结果宜按"路径超集"理解。baseline 不做端口探活（探活连接本身会被 accept，曾把 `http_handle_request` 对冲掉），因此 baseline=纯启动路径，差分含 accept→读请求→响应全链路。chroot 两个坑已内置处理：rootfs 需挂 `/proc`（qemu 启动读 `mmap_min_addr`，缺失时静默退出），EMBA 解出的二进制常无执行位（qemu 同样静默失败）。rootfs 的 `/proc` 挂载会保留（幂等，供后续 trace 复用）。动态链接二进制当前未自动补 `-L`/解释器，静态链接样本（busybox）已验证。
 - CBM 图索引重跑会覆盖元数据注入——`pipeline/graph/ingest.py` 幂等，重放即可。

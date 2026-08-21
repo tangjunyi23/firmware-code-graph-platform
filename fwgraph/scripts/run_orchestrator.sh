@@ -8,7 +8,7 @@ cd "$FWGRAPH_ROOT"
 
 # load ORCH_HOST / ORCH_PORT / ... from .env if present; variables already
 # set in the environment win (same precedence as main.py's load_dotenv), so
-# callers can override e.g. AI_MAX_FUNCS_PER_BIN for a one-off run.
+# callers can override e.g. IDA_WORKERS for a one-off run.
 if [[ -f .env ]]; then
   while IFS='=' read -r key value; do
     key="${key//[[:space:]]/}"

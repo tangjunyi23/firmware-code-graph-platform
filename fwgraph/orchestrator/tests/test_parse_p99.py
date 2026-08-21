@@ -71,6 +71,18 @@ def test_parse_missing_file(tmp_path):
         parse_p99_csv(tmp_path / "nope.csv")
 
 
+def test_empty_firmware_message_openssl(tmp_path):
+    d = tmp_path / "p02_firmware_bin_file_check"
+    d.mkdir()
+    (d / "p02_binwalk_output.txt").write_text(
+        "516 0x204 OpenSSL encryption, salt: 0x4064D3A2\n"
+        "[-] Extraction of openssl data at offset 0x204 failed!\n",
+        encoding="utf-8")
+    msg = extractor.empty_firmware_message(tmp_path)
+    assert "ELF" in msg
+    assert "OpenSSL" in msg
+
+
 def test_parse_empty_file(tmp_path):
     p = tmp_path / "empty.csv"
     p.write_text("", encoding="utf-8")

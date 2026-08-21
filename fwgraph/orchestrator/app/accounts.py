@@ -52,8 +52,8 @@ _QUOTA_LIMITS = {
     "trace": ("TRACE_DAILY_PER_JOB", 10),
     "fuzz": ("FUZZ_DAILY_PER_JOB", 6),
     "frida": ("FRIDA_DAILY_PER_JOB", 6),
-    "aienrich": ("AIENRICH_DAILY_PER_JOB", 6),
     "protofuzz": ("PROTOFUZZ_DAILY", 8),
+    "attack_ai": ("ATTACK_AI_DAILY_PER_JOB", 8),
 }
 
 _lock = threading.Lock()

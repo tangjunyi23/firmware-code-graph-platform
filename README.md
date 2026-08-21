@@ -28,10 +28,8 @@
   （`idat -A -S`），IDB 复用、按 md5 归并；导出 Hex-Rays 伪 C + 函数级
   汇编 + symbols.json（攻击面标签 + 规则命名）；可选 M2b 命名恢复
   （FLIRT 签名 / Lumina，默认关）
-- **AILIFT AI 语义标注（M3）**：三层漏斗 + 仅攻击链过滤，LLM 输出
-  `domain/libc_equiv/confidence/reason` 标签——不改名、不回写 IDB
 - **CBM 代码图谱（M4）**：伪 C 树净化后交给 codebase-memory-mcp 建索引，
-  元数据（AI 标签、checksec、trace 标记）回注 SQLite；libc_equiv 沿
+  元数据（checksec、trace 标记）回注 SQLite；libc_equiv 沿
   SIMILAR_TO 边传播
 - **图谱扩展（M4b）**：每个函数生成 **CFG**（基本块+边，含跳表
   indirect_jump 建模）与 **AST**（tree-sitter 解析伪 C），`/graph/query`
@@ -49,17 +47,13 @@
   或远程真机/仿真 27042，hook 模块+导出/偏移，命中事件落盘）；ARM/MIPS 等
   用 **AFL++ qemu persistent 函数级 fuzz**（按架构构建的 afl-qemu-trace，
   只跑目标函数，要求函数在正常启动流程可达）
-- **AI 伪代码增强（ai_enrich）**：伪 C + 函数级汇编送 LLM 恢复调用点
-  参数与语义命名，产物为独立 overlay（`source:"ai"`），原始 IDA 导出
-  逐字节不动；**overlay 不回喂挖矿 AI**（重命名会导致证据引用失真），
-  只作攻击面/调用链分析辅助
 - **工控协议模糊测试（M-ICS）**：黑盒网络协议 fuzz——协议模板库
   （Modbus TCP / S7 / OPC UA / DNP3 / MQTT / HTTP）+ 确定性字段级变异
   （boundary/bitflip/fill/overflow/random，种子可复现）+ 纯软件监视器
   （TCP 探活/ICMP/协议探测）+ 故障确认与复播复现统计；授权确认闸门 +
   公网目标默认禁止；报告注册进报告中心（DOCX/PDF 导出）
 - **vulnagent（M8）**：上游漏洞挖掘 agent（Managed Agents 抽象，Node ≥20
-  零依赖；可选 DeepSeek Harness 引擎），24 个工具消费平台 API（含受控
+  零依赖；可选 DeepSeek Harness 引擎），工具消费平台 API（含受控
   trace/fuzz/frida 触发、identification/surfaces 攻击面产物）；**纯静态 /
   动静结合双模式**（静态模式收回全部动态工具）；六阶段记忆驱动 hunt
   （锁定→深挖→验证→对抗→报告）；结构化 findings（服务端权威校验 +
@@ -69,15 +63,15 @@
   掉链节点；builtin 会话历史自动压缩（旧工具结果换首尾摘录占位，
   幂等可重查）；dsh 引擎自带 compaction
 - **Web 前端（M5）**：Vue 3 SPA，浅蓝专业亮色主题——仪表盘 / 任务中心
-  （专业+简易双模式：简易模式上传即全自动出报告）/ 函数（AI 增强 diff
-  对比）/ 攻击面（路径抽屉 + 调用链时间线 + 伪代码/AI/汇编三视图）/
+  （专业+简易双模式：简易模式上传即全自动出报告）/ 函数 /
+  攻击面（路径抽屉 + 调用链时间线 + 伪代码/汇编双视图）/
   输入面（路由链时间线 + 授权链）/ 图谱（手写 Canvas 2D）/ 漏洞挖掘
   （流式思考链 + 工具卡状态机）/ 协议挖掘（真机连接 + 工控固件联动
   双入口）/ 报告中心（Markdown 预览 + DOCX/PDF 导出）/ 用户管理 /
   日志审计 / 系统设置
 - **产品化与安全**：账号密码登录（防爆破锁定 + 弱口令黑名单 + 首登强制
   改密）、会话 token（fws-）+ 主 token 双轨、owner 数据隔离（他人 404）、
-  全量审计日志、按 job×日配额（trace/fuzz/frida/aienrich/protofuzz）、
+  全量审计日志、按 job×日配额（trace/fuzz/frida/protofuzz）、
   TLS 自签默认开（`ORCH_SSL=0` 退回明文）
 - **多形态支持**：mips/arm/x86/ppc/riscv ELF 全链路；PX4 容器与 raw
   ARM Cortex-M 裸机镜像（链接脚本验证的板级地址表）
@@ -92,9 +86,7 @@
   │  POST /jobs/{id}/decompile {"binary_md5s":[...]}
   ▼
 [IDA 无头反编译 idat] ──► symbols.json + functions/*.c + functions/*.asm
-  │  POST /jobs/{id}/ailift            ▼
-  ▼                              [M2b FLIRT/Lumina 命名恢复]
-[AILIFT AI 标注]（仅攻击链函数）
+  │                              [M2b FLIRT/Lumina 命名恢复]
   │  POST /jobs/{id}/graph
   ▼
 [CBM 图谱索引] ──► [M4b CFG/AST] ──► 攻击面分析 ──► 路由分析
@@ -107,7 +99,6 @@
   │        └─► 差分函数 ──► 交叉验证（observed/verified）
   ├─ POST /jobs/{id}/fuzz（ARM/MIPS：AFL++ qemu 函数级 fuzz）
   ├─ POST /jobs/{id}/frida（x86：frida hook，本机/远程）
-  ├─ POST /jobs/{id}/aienrich（AI 伪代码增强 overlay）
   └─ POST /protofuzz（工控协议模糊测试：真机/仿真目标）
 
 [vulnagent 上游漏洞挖掘 AI]（API + 受控动态工具 ──► findings + report.md）
@@ -129,7 +120,7 @@
 | frida | ≥ 17（pip） | x86 hook 动态分析（可选） |
 | Node.js | ≥ 20（dsh 需 22 + pnpm） | vulnagent 运行 + webui 构建 |
 | LibreOffice | writer（soffice） | 报告 PDF 导出（可选） |
-| LLM | OpenAI 兼容或 Anthropic Messages 网关 | AILIFT/ai_enrich/vulnagent（可选但推荐） |
+| LLM | OpenAI 兼容或 Anthropic Messages 网关 | vulnagent（可选但推荐） |
 
 ## 快速开始
 
@@ -163,6 +154,24 @@ node src/cli.js hunt "预认证漏洞" --rounds 3 --mode dynamic   # 六阶段�
 # 或打开 SPA「漏洞挖掘」页签启动并实时查看事件流（纯静态/动静结合可选）
 ```
 
+## Docker 部署（可选）
+
+除宿主机直跑外，也可用 Docker Compose 部署（编排器 + webui + vulnagent
+单容器；沙箱镜像由编排器经 docker.sock 按需起兄弟容器）：
+
+```bash
+# 构建（--profile build 含沙箱镜像；IDA/cbmbin 可选构建上下文见手册）
+docker compose -f deploy/docker/docker-compose.yml --profile build build
+# 启动（SANDBOX_HOST_PREFIX 须等于 deploy/docker/data 的宿主绝对路径）
+SANDBOX_HOST_PREFIX=$PWD/deploy/docker/data \
+  docker compose -f deploy/docker/docker-compose.yml up -d
+# 停止
+docker compose -f deploy/docker/docker-compose.yml down
+```
+
+数据（含 TLS 证书）持久化在 `deploy/docker/data/`；完整手册（.env、
+可选组件、已知限制）见 [deploy/docker/README.md](deploy/docker/README.md)。
+
 ## API 概览
 
 统一鉴权 `Authorization: Bearer <token>`（`POST /auth/login` 换取 fws-
@@ -175,7 +184,6 @@ node src/cli.js hunt "预认证漏洞" --rounds 3 --mode dynamic   # 六阶段�
 | `POST /firmware` | 上传固件，后台 EMBA 解包（`?auto=1` 全自动链） |
 | `POST /jobs/{id}/auto` | 终态任务补跑全自动链 |
 | `POST /jobs/{id}/decompile` | 定向/全量反编译 |
-| `POST·GET /jobs/{id}/ailift` | AILIFT 标注与统计 |
 | `POST·GET /jobs/{id}/graph` | 图谱构建 / 摘要 / layout |
 | `POST·GET /jobs/{id}/graphext` | M4b CFG/AST 生成与统计 |
 | `POST·GET /jobs/{id}/attack` | 攻击面重算 / 摘要 |
@@ -185,9 +193,8 @@ node src/cli.js hunt "预认证漏洞" --rounds 3 --mode dynamic   # 六阶段�
 | `POST /jobs/{id}/trace`、`GET /jobs/{id}/traces[/{tid}]` | 差分覆盖率 |
 | `POST·GET /jobs/{id}/fuzz[/{run_id}]` | AFL++ 函数级 fuzz（ARM/MIPS） |
 | `POST·GET /jobs/{id}/frida[/{run_id}]` | frida hook（x86，本机/远程） |
-| `GET /jobs/{id}/functions[/{md5}/{addr}/source]` | 函数清单与源码（`?ai=1` overlay、`?asm=1` 汇编） |
+| `GET /jobs/{id}/functions[/{md5}/{addr}/source]` | 函数清单与源码（`?asm=1` 汇编） |
 | `GET /jobs/{id}/functions/{md5}/{addr}/brief` | 函数分诊卡（约 1KB：攻击面元数据+伪代码头+危险调用行号+callees） |
-| `POST /jobs/{id}/aienrich`、`GET .../aienrich[/{md5}]` | AI 伪代码增强 |
 | `POST /graph/query` | 统一查询：search/cypher/trace/snippet/dangerous/trace_flow/attack_surface（含 brief）/routes/cfg/ast（含截断） |
 | `GET /protofuzz/protocols`、`POST /protofuzz`、`GET /protofuzz[/{rid}]`、`POST .../stop`、`POST .../report` | 工控协议模糊测试 |
 | `POST·GET /vulnagent/sessions[...]`、`GET·POST·PATCH /vulnagent/findings[/{fid}]` | 挖掘 session 与 findings（服务端权威校验） |
@@ -197,7 +204,6 @@ node src/cli.js hunt "预认证漏洞" --rounds 3 --mode dynamic   # 六阶段�
 | `POST·GET /jobs/{id}/report`、`GET /reports[/{rid}[/download]]`、`GET /reports/{rid}/export?fmt=docx|pdf` | 报告中心（综合/挖掘/协议测试三类） |
 
 CLI 亦可直跑 pipeline：`python -m pipeline.trace.tracer` /
-`pipeline.ailift.runner` / `pipeline.decompile.ai_enrich` /
 `pipeline.attack.runner` / `tools.ida-no-mcp.rootfs_elf.cli`。
 
 ## 项目结构
@@ -206,8 +212,8 @@ CLI 亦可直跑 pipeline：`python -m pipeline.trace.tracer` /
 fwgraph/                  Python 根包
   orchestrator/app/       FastAPI 编排（main/accounts/admin_api/protofuzz_api/
                           vulnagent_api/report_export/decompiler/extractor/webui）
-  orchestrator/tests/     pytest（482 项基线：481 通过 + 1 已知污染项）
-  pipeline/               extract / decompile / ailift / graph / graphext /
+  orchestrator/tests/     pytest（438 项基线：437 通过 + 1 跳过）
+  pipeline/               extract / decompile / graph / graphext /
                           attack / routes / inputs / surfaces / trace /
                           fuzz / frida / protofuzz / report
   config/                 attack_surface.yaml、naming_spec.yaml
@@ -231,8 +237,8 @@ fwgraph/docs/             专题笔记（如 m2b-notes.md）
 
 1. **不做整机/整固件仿真**；动态证据只到单 ELF 覆盖率、函数级 fuzz、
    单点 hook、协议级黑盒 fuzz
-2. **AI 只标注不改证据**：不改 IDA 名、不回写 IDB、不覆盖原始反编译产物；
-   AI 增强 overlay 不回喂挖矿 AI（重命名符号不可作证据引用）
+2. **不改证据**：不改 IDA 名、不回写 IDB、不覆盖原始反编译产物；
+   挖矿 AI 只消费 Hex-Rays 原始伪代码作为可引用证据
 3. **结论分级**：observed / verified 分开输出；socket accept、连接成功、
    空差分、传输错误都不是漏洞；findings 置信度服务端锚点封顶
    （static-only ≤ 0.7）
@@ -243,8 +249,7 @@ fwgraph/docs/             专题笔记（如 m2b-notes.md）
 
 ## 验证状态（2026-08-17）
 
-- 测试基线：orchestrator **482 项，481 通过** / 1 已知测试间污染项
-  （单独运行通过）；vulnagent **29 项全过**（node:test 零依赖）
+- 测试基线：orchestrator **438 项，437 通过** + 1 跳过；vulnagent **29 项**（node:test 零依赖）
 - 案例固件一：小米 R3 `miwifi_r3_all_55ac7_2.11.20.bin`（mips32le，274 ELF）
   - 定向反编译 sysapihttpd：1847 函数、1490 成功（80.7%），零加固
   - 攻击面：42 source / 188 sink / 50 路径，3 条 verified
@@ -254,7 +259,6 @@ fwgraph/docs/             专题笔记（如 m2b-notes.md）
   - 外部输入 39 条（证据四级分级）、攻击面 39 个、授权链 24 条、
     GoAhead 真实路由恢复 8 条
   - CFG 67045 个（假 ret 率 0.38%）、AST 55474 个（ERROR 率 0.09%）
-  - AI 增强 attack_only 实跑 18/18 成功（推理模型 max_tokens ≥16384）
   - 协议 fuzz 冒烟：假 Modbus 设备 25 用例全响应、故障注入正确分级
 
 ## 文档

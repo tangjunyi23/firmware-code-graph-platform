@@ -9,7 +9,6 @@
         <el-button :icon="RefreshCw" :loading="loading" @click="loadAll">刷新</el-button>
         <el-button :icon="Radar" :loading="runningAttack" @click="rerunAttack">重算攻击面</el-button>
         <el-button :icon="Route" :loading="runningRoutes" @click="rerunRoutes">扫描路由</el-button>
-        <EnrichTrigger :job-id="jobId" @done="loadAll" />
       </div>
       <el-descriptions v-if="attackSummary" :column="4" border size="small" class="summary">
         <el-descriptions-item label="输入源">{{ attackSummary.sources }}</el-descriptions-item>
@@ -61,6 +60,16 @@
           </template>
         </el-table-column>
         <el-table-column label="跳数" prop="edge_count" width="70" align="right" />
+        <el-table-column label="AI 分诊" width="100">
+          <template #default="{ row }">
+            <el-tag v-if="row.ai_review && row.ai_review.priority"
+                    size="small" :type="priorityType(row.ai_review.priority)"
+                    :effect="row.ai_review.priority === 'noise' ? 'plain' : 'dark'">
+              {{ row.ai_review.priority }}
+            </el-tag>
+            <span v-else class="muted">—</span>
+          </template>
+        </el-table-column>
         <el-table-column label="动态状态" width="130">
           <template #default="{ row }">
             <el-tag v-if="row.verified_reachable" size="small" type="success">完整链观测</el-tag>
@@ -114,6 +123,15 @@
           </template>
         </el-alert>
         <el-alert v-else type="info" :closable="false" class="trace-alert" title="无运行时覆盖证据（static-only）" />
+        <el-alert v-if="activePath.ai_review" type="warning" :closable="false" class="trace-alert"
+          title="模型分诊，不是漏洞结论">
+          <div>优先级 <b>{{ activePath.ai_review.priority }}</b>
+            <span v-if="activePath.ai_review.vuln_class_hint"> · {{ activePath.ai_review.vuln_class_hint }}</span>
+            <span v-if="activePath.ai_review.cwe_hint"> · {{ activePath.ai_review.cwe_hint }}</span>
+            <span v-if="activePath.ai_review.dataflow"> · 数据流 {{ activePath.ai_review.dataflow }}</span>
+          </div>
+          <div v-if="activePath.ai_review.reason" class="muted">{{ activePath.ai_review.reason }}</div>
+        </el-alert>
 
         <!-- chain timeline -->
         <div class="chain-v">
@@ -157,13 +175,10 @@
           <span class="mono muted">{{ srcNode ? srcNode.addr : '' }}</span>
           <el-radio-group v-model="srcKind" size="small" @change="loadSource">
             <el-radio-button value="hexrays">伪代码</el-radio-button>
-            <el-radio-button value="ai">AI 增强</el-radio-button>
             <el-radio-button value="asm">汇编</el-radio-button>
           </el-radio-group>
         </div>
       </template>
-      <el-alert v-if="srcKind === 'ai'" type="info" :closable="false" class="src-hint"
-        title="AI 增强对符号做了可读化重命名，仅供攻击面/调用链分析参考；证据引用与定位请以原始伪代码或汇编为准。" />
       <CodeViewer :code="srcCode" :loading="srcLoading" />
     </el-dialog>
 
@@ -205,7 +220,6 @@ import { ElMessage } from 'element-plus'
 import { FileCode, Radar, RefreshCw, Route, Search } from '@lucide/vue'
 import { api } from '../api'
 import CodeViewer from '../components/CodeViewer.vue'
-import EnrichTrigger from '../components/EnrichTrigger.vue'
 import { useNarrowViewport } from '../useNarrowViewport'
 
 const isNarrow = useNarrowViewport()
@@ -256,6 +270,12 @@ function scoreColor (score) {
   if (score >= 4) return '#b45309'
   return '#16a34a'
 }
+function priorityType (p) {
+  if (p === 'P0') return 'danger'
+  if (p === 'P1') return 'warning'
+  if (p === 'P2') return 'info'
+  return 'info'
+}
 function dotClass (node) {
   const isSrc = (node.asrc || []).length > 0
   const isSink = (node.asink || []).length > 0
@@ -287,12 +307,12 @@ async function loadSource () {
   if (!srcNode.value) return
   srcLoading.value = true
   const base = `/jobs/${jobId.value}/functions/${srcMd5.value}/${srcNode.value.addr}/source`
-  const query = srcKind.value === 'ai' ? '?ai=1' : srcKind.value === 'asm' ? '?asm=1' : ''
+  const query = srcKind.value === 'asm' ? '?asm=1' : ''
   try {
     srcCode.value = await api(base + query)
   } catch (error) {
     if (error.status === 404 && srcKind.value !== 'hexrays') {
-      // no AI overlay / no asm export for this function: fall back to Hex-Rays
+      // no asm export for this function: fall back to Hex-Rays
       srcKind.value = 'hexrays'
       try {
         srcCode.value = await api(base)

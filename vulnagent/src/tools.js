@@ -20,7 +20,6 @@ import path from "node:path";
 const MAX_RESULT_CHARS = 16000;
 const MAX_TRACES_PER_SESSION = 5;
 const MAX_FUZZ_PER_SESSION = 3;
-const MAX_REANALYSIS_PER_SESSION = 3;
 // 纯静态模式禁用的动态类工具（动静结合模式才开放）
 export const DYNAMIC_ONLY_TOOLS = new Set([
   "fw_request_trace", "fw_request_fuzz", "fw_request_frida",
@@ -130,21 +129,19 @@ const executors = {
       const src = await fw(ctx, "GET", `/jobs/${jobId}/functions/${input.md5}/${input.addr}/source?asm=1`);
       return { addr: input.addr, md5: input.md5, source_kind: "asm", source: src };
     }
-    const wantAi = input.ai === true;
-    if (wantAi) {
-      // AI overlay is an analysis aid for attack-surface / call-chain reading
-      // only: it renames functions and variables, so its identifiers are NOT
-      // stable evidence. Never feed it to the model by default.
-      try {
-        const src = await fw(ctx, "GET", `/jobs/${jobId}/functions/${input.md5}/${input.addr}/source?ai=1`);
-        return { addr: input.addr, md5: input.md5, source_kind: "ai_overlay", source: src,
-          caveat: "AI overlay renames symbols for readability; cite Hex-Rays names/addresses in findings, never these." };
-      } catch (err) {
-        if (!/HTTP 404/.test(err.message)) throw err;
-      }
-    }
     const src = await fw(ctx, "GET", `/jobs/${jobId}/functions/${input.md5}/${input.addr}/source`);
     return { addr: input.addr, md5: input.md5, source_kind: "hexrays", source: src };
+  },
+
+  async fw_compose_evidence(ctx, input) {
+    if (!input.md5 || !input.addr) throw new Error("md5 and addr are required");
+    return graphQuery(ctx, jobOf(ctx, input), "compose_evidence", {
+      binary_md5: input.md5,
+      addr: input.addr,
+      ...(input.static_block ? { static_block: input.static_block } : {}),
+      ...(input.decompile_text ? { decompile_text: input.decompile_text } : {}),
+      ...(input.dynamic_envelope ? { dynamic_envelope: input.dynamic_envelope } : {}),
+    });
   },
 
   async fw_attack_surface(ctx, input) {
@@ -215,6 +212,11 @@ const executors = {
         id: i.id, protocol: i.protocol, service: i.service,
         address: i.address, port: i.port, transport: i.transport,
         input_types: i.input_types, entry_files: i.entry_files,
+        processing_chain: (i.processing_chain || []).map((p) => ({
+          file: p.file, libs: p.libs,
+          unresolved_needed: p.unresolved_needed || [],
+          needed_complete: !(p.unresolved_needed || []).length,
+        })),
       })),
     };
   },
@@ -365,26 +367,6 @@ const executors = {
     return fw(ctx, "GET", `/jobs/${jobId}/${input.kind}/${input.run_id}`);
   },
 
-  async fw_request_reanalysis(ctx, input) {
-    // 与下游分析模块交流的唯一通道：对重点函数请求重新增强/反编译。
-    // 只应在上游通过图谱与攻击面检索无法满足时使用（迫不得已才问）。
-    const jobId = jobOf(ctx, input);
-    if (!/^[0-9a-f]{32}$/.test(input.binary_md5 ?? "")) {
-      throw new Error("binary_md5 must be a 32-char lowercase md5");
-    }
-    if ((ctx.reanalysisCount ?? 0) >= MAX_REANALYSIS_PER_SESSION) {
-      throw new Error(`reanalysis budget exhausted (${MAX_REANALYSIS_PER_SESSION} per session)`);
-    }
-    const body = { binary_md5: input.binary_md5, attack_only: true };
-    if (Array.isArray(input.addrs) && input.addrs.length) {
-      body.addrs = input.addrs.map(String);
-      body.attack_only = false;
-    }
-    const resp = await fw(ctx, "POST", `/jobs/${jobId}/aienrich`, body);
-    ctx.reanalysisCount = (ctx.reanalysisCount ?? 0) + 1;
-    return { ...resp, note: input.note ?? "downstream reanalysis requested" };
-  },
-
   async record_finding(ctx, input) {
     // 服务端权威校验（POST /vulnagent/findings，id/status/owner/recorded_at
     // 由服务端生成）；本地只做镜像预检，省一次明显违规的往返。服务端 422 时
@@ -432,7 +414,7 @@ const executors = {
       summary: input.summary,
       evidence: input.evidence,
     };
-    for (const k of ["function_addr", "function_name", "preconditions", "exploit_sketch", "remediation", "trace_id"]) {
+    for (const k of ["function_addr", "function_name", "preconditions", "exploit_sketch", "remediation", "trace_id", "poc", "call_chain", "source_summary", "sink_function", "sanitization"]) {
       if (input[k] !== undefined && input[k] !== null && input[k] !== "") body[k] = input[k];
     }
     const finding = await fw(ctx, "POST", "/vulnagent/findings", body);
@@ -528,7 +510,7 @@ export const TOOL_DEFS = [
   },
   {
     name: "fw_get_function_source",
-    description: "Retrieve decompiled pseudo-C of one function by md5+addr (for screening many functions, prefer brief=true). Returns raw Hex-Rays output by default — its function names and addresses are the canonical identifiers and the ONLY ones you may cite as finding evidence. This is THE primary evidence for vulnerability reasoning. When Hex-Rays collapses call-site arguments (e.g. `strcat();`), set asm=true to get the function-level assembly and recover $a0-$a3/stack arguments yourself. The AI-enriched overlay (ai=true) renames functions/variables for readability and exists only to help you understand call chains and attack-surface behavior — do NOT cite its invented names, and never treat it as evidence.",
+    description: "Retrieve decompiled pseudo-C of one function by md5+addr (for screening many functions, prefer brief=true). Returns raw Hex-Rays output — join other artifacts only via evidence_address (job_id + binary_md5 + canonical 0x addr), never by path or symbol name. decompile_gap=true means missing pseudo-C, not missing machine code. When Hex-Rays collapses call-site arguments (e.g. `strcat();`), set asm=true to get the function-level assembly and recover $a0-$a3/stack arguments yourself.",
     input_schema: {
       type: "object",
       properties: {
@@ -536,7 +518,6 @@ export const TOOL_DEFS = [
         md5: { type: "string", description: "Binary md5" },
         addr: { type: "string", description: "Function address, e.g. 0x43785c" },
         brief: { type: "boolean", description: "Return the compact triage card (~1KB: signature head, dangerous calls with line numbers, callees, attack-surface flags) instead of full pseudo-C. ALWAYS triage with brief=true first when screening multiple functions; fetch full source only for suspicious ones." },
-        ai: { type: "boolean", description: "Also return the AI-enriched readability overlay (default false; auxiliary analysis aid only, never citable evidence)" },
         asm: { type: "boolean", description: "Return function-level assembly instead of pseudo-C (for call-site argument recovery)" },
       },
       required: ["md5", "addr"],
@@ -544,7 +525,7 @@ export const TOOL_DEFS = [
   },
   {
     name: "fw_attack_surface",
-    description: "Ranked source->sink attack paths (score, functions, observed/verified cross-validation). Start vulnerability mining here: verified_only=true for runtime-confirmed chains, then the top-scored unverified ones.",
+    description: "Ranked source->sink attack paths. Each node has evidence_address (job_id+md5+addr) — the only cross-tool join key. attribution: verified_in_single_trace | observed_in_window | static_only; never request-caused. Prefer verified_only, then ai_review P0/P1, then high danger_calls×entry_outdegree. ai_review is a triage hint, never a finding.",
     input_schema: {
       type: "object",
       properties: {
@@ -555,6 +536,22 @@ export const TOOL_DEFS = [
         brief: { type: "boolean", description: "Omit per-path chain nodes — only path_id/score/source/sink/flags. Use for wide scans; refetch with the source/sink filters and brief=false for the chains you actually dig." },
         limit: { type: "integer", description: "Max paths (default 20, cap 50)" },
       },
+    },
+  },
+  {
+    name: "fw_compose_evidence",
+    description: "Join already-fetched facts at one Evidence Address (job_id + binary_md5 + canonical addr). Does not query other producers. Pass static_block / decompile_text / dynamic_envelope you already have.",
+    input_schema: {
+      type: "object",
+      properties: {
+        ...JOB_ID_PROP,
+        md5: { type: "string", description: "Binary md5" },
+        addr: { type: "string", description: "Function address, e.g. 0x43785c" },
+        static_block: { type: "object", description: "Already-fetched attack-surface node" },
+        decompile_text: { type: "string", description: "Already-fetched Hex-Rays text" },
+        dynamic_envelope: { type: "object", description: "Already-fetched trace/frida envelope" },
+      },
+      required: ["md5", "addr"],
     },
   },
   {
@@ -607,7 +604,7 @@ export const TOOL_DEFS = [
   },
   {
     name: "fw_trace_flow",
-    description: "Ordered request-handling path of one qemu-user coverage trace, with dangerous libc_equiv highlights. This is the runtime evidence behind observed/verified marks.",
+    description: "Ordered request-handling path of one qemu-user coverage trace, with dangerous libc_equiv highlights. Envelope attribution is observed_in_window: seen in that trace window, not request-caused, not a coverage percentage. Do not merge two traces into one path. Truncated pages (analysis_complete=false) are incomplete.",
     input_schema: {
       type: "object",
       properties: { ...JOB_ID_PROP, trace_id: { type: "string" } },
@@ -660,7 +657,7 @@ export const TOOL_DEFS = [
   },
   {
     name: "fw_get_identification",
-    description: "External-input inventory (M6a identification.json): every public, non-loopback input of the firmware (IN-xxx) with protocol/port, user-controllable input types, entry files, processing-chain libraries and dispatch chains. Start vuln mining here to guarantee full coverage of the attack surface.",
+    description: "External-input inventory (M6a identification.json): every public, non-loopback input of the firmware (IN-xxx) with protocol/port, input types, entry files, processing-chain libraries (needed_complete / unresolved_needed) and dispatch chains. Start vuln mining here. unresolved_needed is a quality gap, not a reason to pick another firmware tree.",
     input_schema: {
       type: "object",
       properties: {
@@ -748,20 +745,6 @@ export const TOOL_DEFS = [
     },
   },
   {
-    name: "fw_request_reanalysis",
-    description: "Ask the downstream analysis pipeline to re-decompile/re-enrich key functions (aienrich overlay). Use ONLY when graph/attack-surface retrieval cannot answer your question (last resort, budgeted).",
-    input_schema: {
-      type: "object",
-      properties: {
-        ...JOB_ID_PROP,
-        binary_md5: { type: "string" },
-        addrs: { type: "array", items: { type: "string" }, description: "function addrs to re-enrich" },
-        note: { type: "string", description: "what you need clarified" },
-      },
-      required: ["binary_md5"],
-    },
-  },
-  {
     name: "fw_get_cfg",
     description: "Control-flow graph of one function (basic blocks + branch edges, from IDA asm). Use to reason about loops/branches reaching a sink. Big functions: pass max_nodes to truncate (entry blocks kept first).",
     input_schema: {
@@ -806,7 +789,9 @@ export const TOOL_DEFS = [
         function_addr: { type: "string", description: "Must exist in the job's symbol table when given" },
         function_name: { type: "string" },
         summary: { type: "string", description: "What the bug is and why it is exploitable" },
-        evidence: { type: "array", items: { type: "string" }, description: "Concrete citations: pseudocode line content, attack path id, trace id, route, checksec fact" },
+        evidence: { type: "array", items: { type: "string" }, description: "具体引用：伪代码行、攻击路径 id、trace id、路由、checksec。用中文写说明，代码/地址保持原文。" },
+        call_chain: { type: "string", description: "REQUIRED in the report: 从入口到 sink 的调用链，函数名+地址，用 → 连接，每跳用中文说明" },
+        poc: { type: "string", description: "REQUIRED in the report: 可复现漏洞 PoC（HTTP 请求/命令行/输入构造）。中文说明 + 原文 payload" },
         confidence: { type: "number", description: "0.0-1.0. Anchors: static-only ≤0.7 (server-capped); observed/verified need trace_id; memory-corruption without checksec evidence ≤0.6" },
         reachability: { type: "string", enum: ["static-only", "observed", "verified"], description: "verified = whole chain seen in ONE coverage run; observed = function seen in a trace; static-only = no runtime evidence" },
         trace_id: { type: "string", description: "Coverage trace id (12 hex chars); REQUIRED when reachability is observed/verified" },
@@ -814,7 +799,7 @@ export const TOOL_DEFS = [
         source_summary: { type: "string", description: "Where attacker-controlled data enters (local cache only, not sent to server)" },
         sink_function: { type: "string", description: "The dangerous call, e.g. strcpy (local cache only)" },
         sanitization: { type: "string", description: "Bounds checks / filters found on the path, or 'none found' (local cache only)" },
-        exploit_sketch: { type: "string", description: "How an attacker would trigger it (HTTP request shape etc.)" },
+        exploit_sketch: { type: "string", description: "若未填 poc，则用此字段作为漏洞 PoC（触发方式/请求形状）" },
         remediation: { type: "string" },
         supersedes: { type: "string", description: "ID of an earlier finding this one replaces (local cache only)" },
       },

@@ -1,0 +1,60 @@
+{
+  "job_id": "6df0ba4135c9",
+  "status": "ok",
+  "started_at": "2026-08-21T08:41:38.711064+00:00",
+  "finished_at": "2026-08-21T08:42:07.540487+00:00",
+  "analysis": {
+    "sources": 874,
+    "sinks": 3597,
+    "path_candidates": 5000,
+    "paths_returned": 50,
+    "max_depth": 8,
+    "source_counts": {
+      "argv": 44,
+      "env": 34,
+      "file": 182,
+      "network": 627,
+      "nvram": 1,
+      "serial": 20
+    },
+    "sink_counts": {
+      "cmdexec": 275,
+      "filewrite": 438,
+      "fmt": 520,
+      "fwupdate": 1,
+      "memunsafe": 2658,
+      "memunsafe_like": 89
+    },
+    "edge_stats": {
+      "ida": 113259,
+      "cbm": 140925,
+      "cfg": 0,
+      "cbm_scanned": 141414,
+      "cfg_scanned": 0,
+      "union": 147523
+    },
+    "decompile_gaps": 4193,
+    "ai_review": {
+      "status": "ok",
+      "requested": 20,
+      "reviewed": 20,
+      "dropped": 0
+    }
+  },
+  "injection": {
+    "wanted": 39654,
+    "matched": 39634,
+    "sources": 874,
+    "sinks": 3597,
+    "on_paths": 37,
+    "observed": 0,
+    "verified": 0
+  },
+  "cross_validation": {
+    "traces_considered": 0,
+    "observed_functions": 0,
+    "verified_functions": 0,
+    "verified_paths": 0
+  },
+  "elapsed_seconds": 44.69
+}

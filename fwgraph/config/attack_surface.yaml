@@ -61,4 +61,8 @@ scoring:
   candidate_limit: 5000
   length_penalty: 0.22
   sanitizer_penalty: 0.45
+  # Firida-style hunt ranking: extra weight for sink density on the chain
+  # and the entry's call out-degree. Modest so source/sink weights still lead.
+  danger_bonus: 0.15
+  outdegree_bonus: 0.05
   sanitizers: [strlen, strnlen, strncmp, memcmp, bounds_check, validate, sanitize]

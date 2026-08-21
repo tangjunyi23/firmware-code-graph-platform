@@ -44,8 +44,9 @@ FWGRAPH_ROOT = Path(__file__).resolve().parents[2]
 # keys editable via GET/PUT /system/config (data/settings.json overrides env)
 CONFIG_KEYS = [
     "AUTO_INPUTS", "AUTO_DECOMPILE", "AUTO_ATTACK", "AUTO_ROUTES",
-    "AUTO_SURFACES", "AUTO_GRAPHEXT", "AUTO_FULL", "VULNAGENT_ENGINE",
-    "LLM_MODEL", "LLM_BASE_URL", "AI_MAX_FUNCS_PER_JOB", "IDA_WORKERS",
+    "AUTO_SURFACES", "AUTO_GRAPHEXT", "AUTO_ATTACK_AI", "AUTO_FULL",
+    "VULNAGENT_ENGINE",
+    "LLM_MODEL", "LLM_BASE_URL", "IDA_WORKERS",
     "EMBA_TIMEOUT",
 ]
 
@@ -292,13 +293,12 @@ def _report_path(rid: str) -> Path:
 
 
 def _auto_chain(job_id: str, start: str):
-    """Resume the auto chain: ailift -> graph (graph chains the rest)."""
+    """Resume the auto chain at graph (graph chains attack/routes/surfaces).
+
+    `start` is kept for the call site; AILIFT was removed so every resume
+    goes straight to graph.
+    """
     from . import main as _main
-    if start == "ailift":
-        _main._ailift_worker(job_id)
-        job = _main._jobs.get(job_id) or {}
-        if job.get("status") != "ailifted":
-            return
     _main._graph_worker(job_id)
 
 
@@ -669,9 +669,7 @@ def setup(app: FastAPI, require_token, require_admin) -> None:
             _main._save_job(job)
             status = job["status"]
         resumed = None
-        if status == "decompiled":
-            resumed = "ailift"
-        elif status == "ailifted":
+        if status in ("decompiled", "ailifted"):
             resumed = "graph"
         if resumed:
             threading.Thread(target=_auto_chain, args=(job_id, resumed),

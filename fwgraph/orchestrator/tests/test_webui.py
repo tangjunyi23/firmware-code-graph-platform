@@ -393,8 +393,30 @@ class TestSpaHosting:
         app = (webui_src / "App.vue").read_text(encoding="utf-8")
         helper = (webui_src / "useNarrowViewport.js").read_text(
             encoding="utf-8")
-        assert ":size=\"isNarrow ? '96%' : '52%'\"" in jobs
-        assert ":column=\"isNarrow ? 1 : 3\"" in jobs
+        events = (webui_src / "views" / "EventsView.vue").read_text(
+            encoding="utf-8")
+        assert "HomeChat" in jobs
         assert ":size=\"isNarrow ? '96%' : '58%'\"" in functions
         assert "(max-width: 720px)" in helper
         assert "watch(functionsView, loadPendingFunctionJob)" in app
+        assert "EventsView" in app
+        assert "index: 'vuln'" not in app
+        assert "简易模式" not in app
+        home = (webui_src / "views" / "HomeChat.vue").read_text(encoding="utf-8")
+        assert "上传固件" in home
+        assert "fwgraph_home_run" in home
+        assert "pipe-steps" in home
+        assert "uploadFirmware" in home
+        assert "gear-btn" not in home
+        assert "id: 'xhigh'" not in home
+        assert "chat-home" in app
+        assert "/jobs/${jobId.value}/logs" in events or "/jobs/" in events
+        assert "挖掘事件" not in events
+        assert "agent-hud" in home
+        assert "工作中" in home
+        assert "dsh-card" in home
+        assert "dsh-row-sweep" in home
+        assert "goto', 'events'" not in home
+        assert "goto', 'vuln'" not in home
+        assert "新会话" in home
+        assert "newSession" in home

@@ -271,6 +271,9 @@ def run_job(job_id, data_dir, host, process, functions, seconds=60,
         "errors": counts["error"],
         "events_file": str(events_path),
         "sandbox_backend": sandbox_backend,
+        "attribution": "observed_in_window",
+        "note": ("Hits are observed in the instrumentation window. "
+                 "Not request-caused; not a coverage percentage."),
     }
     if sandbox_backend == "docker":
         summary["sandbox_image"] = sandbox.SANDBOX_IMAGE

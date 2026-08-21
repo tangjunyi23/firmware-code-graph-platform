@@ -85,12 +85,6 @@
             <span class="page-title">{{ pageTitle }}</span>
           </div>
           <div class="topbar-right">
-            <el-segmented
-              v-model="mode"
-              :options="modeOptions"
-              size="small"
-              @change="onModeChange"
-            />
             <el-dropdown trigger="click" @command="onUserCommand">
               <span class="user-chip">
                 <el-icon><User /></el-icon>
@@ -114,21 +108,20 @@
           </div>
         </header>
 
-        <main class="content">
+        <main class="content" :class="{ 'chat-home': isChatHome }">
           <transition name="fade">
             <div :key="page" class="page-pane">
               <DashboardView v-if="page === 'dashboard'" @goto="go" />
               <JobsView
                 v-else-if="page === 'jobs'"
-                :mode="mode"
                 @open-functions="openFunctions"
                 @goto="go"
               />
+              <EventsView v-else-if="page === 'events'" />
               <FunctionsView v-else-if="page === 'functions'" ref="functionsView" />
               <AttackView v-else-if="page === 'attack'" />
               <InputsView v-else-if="page === 'inputs'" />
               <GraphView v-else-if="page === 'graph'" />
-              <VulnView v-else-if="page === 'vuln'" />
               <ProtofuzzView v-else-if="page === 'protofuzz'" />
               <ReportsView v-else-if="page === 'reports'" />
               <UsersView v-else-if="page === 'users'" />
@@ -178,7 +171,7 @@ const JobsView = defineAsyncComponent(() => import('./views/JobsView.vue'))
 const FunctionsView = defineAsyncComponent(() => import('./views/FunctionsView.vue'))
 const AttackView = defineAsyncComponent(() => import('./views/AttackView.vue'))
 const InputsView = defineAsyncComponent(() => import('./views/InputsView.vue'))
-const VulnView = defineAsyncComponent(() => import('./views/VulnView.vue'))
+const EventsView = defineAsyncComponent(() => import('./views/EventsView.vue'))
 const ProtofuzzView = defineAsyncComponent(() => import('./views/ProtofuzzView.vue'))
 const GraphView = defineAsyncComponent(() => import('./views/GraphView.vue'))
 const ReportsView = defineAsyncComponent(() => import('./views/ReportsView.vue'))
@@ -204,28 +197,19 @@ if (qsToken) {
   window.history.replaceState(null, '', cleanUrl)
 }
 
-const MODE_KEY = 'fwgraph_mode'
-const qsMode = qs.get('mode')
-if (qsMode === 'simple' || qsMode === 'pro') localStorage.setItem(MODE_KEY, qsMode)
-const mode = ref(localStorage.getItem(MODE_KEY) === 'pro' ? 'pro' : 'simple')
-const modeOptions = [
-  { label: '简易模式', value: 'simple' },
-  { label: '专业模式', value: 'pro' }
-]
-
-const ALL_PAGES = ['dashboard', 'jobs', 'functions', 'attack', 'inputs',
-  'graph', 'vuln', 'protofuzz', 'reports', 'users', 'logs', 'settings']
+const ALL_PAGES = ['jobs', 'events', 'dashboard', 'functions', 'attack', 'inputs',
+  'graph', 'protofuzz', 'reports', 'users', 'logs', 'settings']
 const PAGE_TITLES = {
-  dashboard: '仪表盘', jobs: '任务中心', functions: '函数', attack: '攻击面',
-  inputs: '输入面', graph: '图谱', vuln: '漏洞挖掘', protofuzz: '协议挖掘',
+  jobs: '工作台', events: '事件流', dashboard: '仪表盘', functions: '函数',
+  attack: '攻击面', inputs: '输入面', graph: '图谱', protofuzz: '协议挖掘',
   reports: '报告中心', users: '用户管理', logs: '日志审计', settings: '系统设置'
 }
-const SIMPLE_PAGES = ['jobs', 'vuln', 'reports']
-const PRO_PAGES = ['dashboard', 'jobs', 'functions', 'attack', 'inputs',
-  'graph', 'vuln', 'protofuzz', 'reports']
+const USER_PAGES = ['jobs', 'events', 'dashboard', 'functions', 'attack', 'inputs',
+  'graph', 'protofuzz', 'reports']
 const ADMIN_PAGES = ['users', 'logs', 'settings']
 
-const qsPage = qs.get('page') || qs.get('tab')
+const qsPageRaw = qs.get('page') || qs.get('tab')
+const qsPage = qsPageRaw === 'vuln' ? 'events' : qsPageRaw
 const page = ref(ALL_PAGES.includes(qsPage) ? qsPage : '')
 
 const token = ref(getToken())
@@ -238,21 +222,15 @@ const functionsView = ref(null)
 const pendingFunctionJob = ref('')
 
 const isAdmin = computed(() => principal.value?.role === 'admin')
-const defaultPage = computed(() => (mode.value === 'simple' ? 'jobs' : 'dashboard'))
-const pageTitle = computed(() => {
-  if (page.value === 'jobs' && mode.value === 'simple') return '工作台'
-  return PAGE_TITLES[page.value] || ''
-})
+const defaultPage = computed(() => 'jobs')
+const isChatHome = computed(() => page.value === 'jobs')
+const pageTitle = computed(() => PAGE_TITLES[page.value] || '')
 
 const MENUS = {
-  simple: [
+  main: [
     { index: 'jobs', title: '工作台', icon: 'Monitor' },
-    { index: 'vuln', title: '漏洞挖掘', icon: 'Warning' },
-    { index: 'reports', title: '报告中心', icon: 'Notebook' }
-  ],
-  pro: [
+    { index: 'events', title: '事件流', icon: 'ChatDotRound' },
     { index: 'dashboard', title: '仪表盘', icon: 'Odometer' },
-    { index: 'jobs', title: '任务中心', icon: 'Files' },
     {
       group: 'analysis', title: '分析视图', icon: 'Search',
       children: [
@@ -262,7 +240,6 @@ const MENUS = {
         { index: 'graph', title: '图谱', icon: 'Share' }
       ]
     },
-    { index: 'vuln', title: '漏洞挖掘', icon: 'Warning' },
     { index: 'protofuzz', title: '协议挖掘', icon: 'Connection' },
     { index: 'reports', title: '报告中心', icon: 'Notebook' }
   ],
@@ -277,14 +254,12 @@ const MENUS = {
     }
   ]
 }
-const menuItems = computed(() => {
-  const base = mode.value === 'simple' ? MENUS.simple : MENUS.pro
-  return isAdmin.value ? base.concat(MENUS.admin) : base
-})
+const menuItems = computed(() => (
+  isAdmin.value ? MENUS.main.concat(MENUS.admin) : MENUS.main
+))
 
 function allowedPages () {
-  const base = mode.value === 'simple' ? SIMPLE_PAGES : PRO_PAGES
-  return isAdmin.value ? base.concat(ADMIN_PAGES) : base
+  return isAdmin.value ? USER_PAGES.concat(ADMIN_PAGES) : USER_PAGES
 }
 
 function ensurePageAllowed () {
@@ -294,14 +269,10 @@ function ensurePageAllowed () {
 }
 
 function go (p) {
+  if (p === 'vuln') p = 'events'
   if (!ALL_PAGES.includes(p)) return
   if (!allowedPages().includes(p)) return
   page.value = p
-}
-
-function onModeChange (val) {
-  localStorage.setItem(MODE_KEY, val)
-  ensurePageAllowed()
 }
 
 // keep the address bar shareable (?page=), drop the token once consumed
@@ -434,11 +405,6 @@ function loadPendingFunctionJob () {
 }
 
 async function openFunctions (jobId) {
-  // 函数视图属于专业模式；简易模式下跳转时自动升级模式
-  if (mode.value === 'simple') {
-    mode.value = 'pro'
-    localStorage.setItem(MODE_KEY, 'pro')
-  }
   pendingFunctionJob.value = jobId
   page.value = 'functions'
   await nextTick()
@@ -692,6 +658,21 @@ body {
 .user-chip:hover { border-color: #a3c2f0; background: #eef4fc; }
 .user-name { font-size: 13px; }
 .content { padding: 16px 20px 40px; }
+.content.chat-home {
+  padding: 0;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.content.chat-home .page-pane {
+  max-width: none;
+  margin: 0;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
 .page-pane { max-width: 1500px; margin: 0 auto; }
 
 /* 页面入场淡入 */

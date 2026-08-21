@@ -3,6 +3,8 @@
 import hashlib
 from collections import defaultdict, deque
 
+from pipeline import evidence as ev
+
 
 def _reverse_distances(adjacency, sinks, max_depth):
     reverse = defaultdict(set)
@@ -27,13 +29,17 @@ def _path_id(binary_md5, chain):
     return hashlib.sha256(value.encode("utf-8")).hexdigest()[:16]
 
 
-def _display(node):
+def _display(node, job_id=None):
+    md5 = node.get("binary_md5")
+    addr = node.get("addr")
     return {
-        "addr": node.get("addr"), "name": node.get("name"),
+        "addr": addr, "name": node.get("name"),
         "ai_name": node.get("ai_name"),
         "libc_equiv": node.get("libc_equiv"),
         "asrc": node.get("asrc") or [],
         "asink": node.get("asink") or [],
+        "binary_md5": md5,
+        "evidence_address": ev.make_address(md5, addr, job_id=job_id),
     }
 
 
@@ -46,6 +52,9 @@ def compute(analysis, config):
     candidate_limit = int(scoring.get("candidate_limit", 5000))
     length_penalty = float(scoring.get("length_penalty", 0.22))
     sanitizer_penalty = float(scoring.get("sanitizer_penalty", 0.45))
+    danger_bonus = float(scoring.get("danger_bonus", 0.15))
+    outdegree_bonus = float(scoring.get("outdegree_bonus", 0.05))
+    job_id = analysis.get("job_id")
     sources = sorted(key for key, node in nodes.items() if node["asrc"])
     sinks = {key for key, node in nodes.items() if node["asink"]}
     reverse_distance = _reverse_distances(adjacency, sinks, max_depth)
@@ -68,17 +77,25 @@ def compute(analysis, config):
                     for category in sink_node["asink"])
                 sanitizers = sorted({value for key in chain
                                      for value in nodes[key]["sanitizers"]})
+                danger_calls = sum(
+                    1 for key in chain if nodes[key].get("asink"))
+                entry_outdegree = len(adjacency.get(source, ()))
                 score = source_weight + sink_weight \
                     - edges * length_penalty \
-                    - len(sanitizers) * sanitizer_penalty
+                    - len(sanitizers) * sanitizer_penalty \
+                    + danger_bonus * min(danger_calls, 5) \
+                    + outdegree_bonus * min(entry_outdegree, 8)
                 candidates[tuple(chain)] = {
                     "path_id": _path_id(source_node["binary_md5"], chain),
                     "binary_md5": source_node["binary_md5"],
                     "score": round(score, 3), "edge_count": edges,
-                    "source": _display(source_node),
-                    "sink": _display(sink_node),
+                    "source": _display(source_node, job_id),
+                    "sink": _display(sink_node, job_id),
                     "sanitizers": sanitizers,
-                    "chain": [_display(nodes[key]) for key in chain],
+                    "chain": [_display(nodes[key], job_id) for key in chain],
+                    "entry_outdegree": entry_outdegree,
+                    "danger_calls": danger_calls,
+                    "attribution": ev.ATTRIBUTION_STATIC,
                     "verified_reachable": False, "trace_ids": [],
                 }
             if edges >= max_depth:
@@ -107,6 +124,8 @@ def compute(analysis, config):
             "paths_returned": len(selected), "max_depth": max_depth,
             "source_counts": analysis["source_counts"],
             "sink_counts": analysis["sink_counts"],
+            "edge_stats": analysis.get("edge_stats") or {},
+            "decompile_gaps": analysis.get("decompile_gaps", 0),
         },
         "paths": selected, "path_ids_by_key": dict(by_key),
     }

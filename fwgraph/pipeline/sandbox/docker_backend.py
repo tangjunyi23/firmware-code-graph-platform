@@ -9,6 +9,10 @@
 <COMPONENT>_SANDBOX_BACKEND 覆盖（如 FUZZ_SANDBOX_BACKEND）。请求 docker 但
 docker 不可用时的兜底：fuzz/frida -> none（宿主直跑，调用方写中文警告）；
 trace -> userns（原有 unshare 路径）。
+
+兄弟容器路径（Phase 3）：编排器自身容器化后，docker run -v 的源路径由宿主
+daemon 解析，与容器内路径不一致；设置 SANDBOX_HOST_PREFIX 后，run_sandboxed
+把挂载源中以容器内 FWGRAPH_DATA 开头的前缀改写为宿主侧路径（host_mount_path）。
 """
 
 import os
@@ -23,6 +27,24 @@ DEFAULT_LIMITS = {"memory": "2g", "cpus": 2, "pids": 256}
 VALID_BACKENDS = ("docker", "userns", "none")
 
 _DOCKER_OK = None
+
+
+def host_mount_path(path) -> str:
+    """docker run -v 挂载源的宿主侧路径（兄弟容器路径改写，Phase 3）。
+
+    编排器自身跑在容器里、经挂载的 docker.sock 起兄弟沙箱容器时，-v 的源
+    路径由宿主 docker daemon 解析——容器内路径在宿主上通常不存在。此时设置
+    SANDBOX_HOST_PREFIX 为宿主侧数据目录绝对路径，本函数把源路径中以容器内
+    FWGRAPH_DATA（默认 /data）开头的前缀替换为它。默认空 = 宿主直跑，不改写。
+    """
+    path = str(path)
+    prefix = os.getenv("SANDBOX_HOST_PREFIX", "").strip().rstrip("/")
+    if not prefix:
+        return path
+    data = os.getenv("FWGRAPH_DATA", "/data").strip().rstrip("/") or "/data"
+    if path == data or path.startswith(data + "/"):
+        return prefix + path[len(data):]
+    return path
 
 
 def docker_available() -> bool:
@@ -80,7 +102,9 @@ def run_sandboxed(cmd, *, image, mounts, workdir=None, network="none",
     """以隔离容器运行 cmd，返回 docker run 客户端的 Popen。
 
     cmd            容器内执行的 argv（调用方负责容器内路径的正确性）
-    mounts         [(host_path, container_path, mode)]，mode 如 "ro"/"rw"
+    mounts         [(host_path, container_path, mode)]，mode 如 "ro"/"rw"；
+                   host_path 经 host_mount_path() 改写为宿主侧路径（仅当
+                   SANDBOX_HOST_PREFIX 非空且源路径在 FWGRAPH_DATA 下）
     ports          需发布到宿主 127.0.0.1 的端口列表（service 型 trace 用）
     timeout        硬上限（秒）：到期由看门狗线程 docker rm -f 容器并
                    SIGKILL 客户端进程组；None 则完全交给调用方控制生命周期
@@ -98,7 +122,8 @@ def run_sandboxed(cmd, *, image, mounts, workdir=None, network="none",
                   "--memory", str(mem), "--cpus", str(cpus),
                   "--tmpfs", "/tmp:rw,size=512m"]
     for host_path, container_path, mode in mounts or []:
-        docker_cmd += ["-v", f"{host_path}:{container_path}:{mode}"]
+        docker_cmd += ["-v", f"{host_mount_path(host_path)}:"
+                             f"{container_path}:{mode}"]
     for port in ports or []:
         docker_cmd += ["-p", f"127.0.0.1:{port}:{port}"]
     for host in extra_hosts or []:

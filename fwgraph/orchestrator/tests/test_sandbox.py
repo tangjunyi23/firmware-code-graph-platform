@@ -22,7 +22,8 @@ from pipeline.trace import qemu_cov
 def _clean_env(monkeypatch):
     """每个用例从干净的后端配置与 docker 可用性缓存出发。"""
     for name in ("SANDBOX_BACKEND", "FUZZ_SANDBOX_BACKEND",
-                 "FRIDA_SANDBOX_BACKEND", "TRACE_SANDBOX_BACKEND"):
+                 "FRIDA_SANDBOX_BACKEND", "TRACE_SANDBOX_BACKEND",
+                 "SANDBOX_HOST_PREFIX", "FWGRAPH_DATA"):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setattr(docker_backend, "_DOCKER_OK", None)
     yield
@@ -139,6 +140,56 @@ class TestRunSandboxedCmd:
                               timeout=0.05, name="fwgraph-sbx-wd")
         assert removed.wait(5), "看门狗应 docker rm -f 超期容器"
         assert ["docker", "rm", "-f", "fwgraph-sbx-wd"] in calls
+
+
+# ---------------------------------------------------------------------------
+# SANDBOX_HOST_PREFIX：编排器在容器内经 docker.sock 起兄弟沙箱时的宿主路径改写
+# ---------------------------------------------------------------------------
+
+class TestHostMountPath:
+    def test_empty_prefix_no_rewrite(self, monkeypatch):
+        monkeypatch.setenv("FWGRAPH_DATA", "/data")
+        assert docker_backend.host_mount_path("/data/extracted/j1") == \
+            "/data/extracted/j1"
+
+    def test_rewrite_under_data(self, monkeypatch):
+        monkeypatch.setenv("FWGRAPH_DATA", "/data")
+        monkeypatch.setenv("SANDBOX_HOST_PREFIX", "/srv/fwgraph/data")
+        assert docker_backend.host_mount_path("/data/extracted/j1/rootfs") == \
+            "/srv/fwgraph/data/extracted/j1/rootfs"
+        # FWGRAPH_DATA 本身也改写；data 之外的路径不动
+        assert docker_backend.host_mount_path("/data") == "/srv/fwgraph/data"
+        assert docker_backend.host_mount_path("/opt/AFLplusplus") == \
+            "/opt/AFLplusplus"
+        assert docker_backend.host_mount_path("/database/j1") == "/database/j1"
+
+    def test_default_data_root_and_trailing_slash(self, monkeypatch):
+        # FWGRAPH_DATA 未设置时默认 /data；prefix 末尾斜杠不双写
+        monkeypatch.setenv("SANDBOX_HOST_PREFIX", "/mnt/d/")
+        assert docker_backend.host_mount_path("/data/fuzz/j1") == \
+            "/mnt/d/fuzz/j1"
+
+    def test_run_sandboxed_rewrites_volumes(self, monkeypatch):
+        seen = {}
+
+        def fake_popen(cmd, **kw):
+            seen["cmd"] = list(cmd)
+            return _FakeProc()
+
+        monkeypatch.setattr(docker_backend.subprocess, "Popen", fake_popen)
+        monkeypatch.setenv("FWGRAPH_DATA", "/data")
+        monkeypatch.setenv("SANDBOX_HOST_PREFIX", "/srv/fwgraph/data")
+        sandbox.run_sandboxed(
+            ["/bin/target"], image="img",
+            mounts=[("/data/extracted/j1/rootfs", "/data/extracted/j1/rootfs",
+                     "ro"),
+                    ("/opt/afl-qemu-trace", "/opt/afl-qemu-trace", "ro")])
+        vols = [seen["cmd"][i + 1]
+                for i, v in enumerate(seen["cmd"]) if v == "-v"]
+        # 容器内路径不变（沙箱容器内仍按 /data/... 访问），宿主源被改写
+        assert "/srv/fwgraph/data/extracted/j1/rootfs:" \
+               "/data/extracted/j1/rootfs:ro" in vols
+        assert "/opt/afl-qemu-trace:/opt/afl-qemu-trace:ro" in vols
 
 
 # ---------------------------------------------------------------------------

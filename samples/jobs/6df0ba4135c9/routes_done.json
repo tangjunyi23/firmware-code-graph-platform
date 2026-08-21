@@ -1,0 +1,910 @@
+{
+  "job_id": "6df0ba4135c9",
+  "status": "ok",
+  "generated_at": "2026-08-21T08:57:03.910708+00:00",
+  "binaries": [
+    {
+      "binary_md5": "0053d7fc7364adceb609520a6f7c9560",
+      "status": "ok",
+      "routes": 0,
+      "meta": {
+        "input": "/home/tankuku/src/firmware-code-graph-platform/fwgraph/data/idb/6df0ba4135c9/0053d7fc7364adceb609520a6f7c9560",
+        "processor": "mipsb",
+        "bits": 32,
+        "endianness": "be",
+        "pointer_size": 4,
+        "segments_scanned": 14,
+        "slots_scanned": 489
+      }
+    },
+    {
+      "binary_md5": "013126995a8c8228fc47c9d7a6ca9699",
+      "status": "ok",
+      "routes": 0,
+      "meta": {
+        "input": "/home/tankuku/src/firmware-code-graph-platform/fwgraph/data/idb/6df0ba4135c9/013126995a8c8228fc47c9d7a6ca9699",
+        "processor": "mipsb",
+        "bits": 32,
+        "endianness": "be",
+        "pointer_size": 4,
+        "segments_scanned": 14,
+        "slots_scanned": 22535
+      }
+    },
+    {
+      "binary_md5": "04f37f38627d3d38b40ea03e2b04aca5",
+      "status": "ok",
+      "routes": 0,
+      "meta": {
+        "input": "/home/tankuku/src/firmware-code-graph-platform/fwgraph/data/idb/6df0ba4135c9/04f37f38627d3d38b40ea03e2b04aca5",
+        "processor": "mipsb",
+        "bits": 32,
+        "endianness": "be",
+        "pointer_size": 4,
+        "segments_scanned": 15,
+        "slots_scanned": 2961
+      }
+    },
+    {
+      "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+      "status": "ok",
+      "routes": 0,
+      "meta": {
+        "input": "/home/tankuku/src/firmware-code-graph-platform/fwgraph/data/idb/6df0ba4135c9/08b0860102c4b034bfbae2238115a7e6",
+        "processor": "mipsb",
+        "bits": 32,
+        "endianness": "be",
+        "pointer_size": 4,
+        "segments_scanned": 14,
+        "slots_scanned": 5598
+      }
+    },
+    {
+      "binary_md5": "08e91ce81002bc83b768f483b5d63c97",
+      "status": "ok",
+      "routes": 0,
+      "meta": {
+        "input": "/home/tankuku/src/firmware-code-graph-platform/fwgraph/data/idb/6df0ba4135c9/08e91ce81002bc83b768f483b5d63c97",
+        "processor": "mipsb",
+        "bits": 32,
+        "endianness": "be",
+        "pointer_size": 4,
+        "segments_scanned": 14,
+        "slots_scanned": 833
+      }
+    },
+    {
+      "binary_md5": "0b3a37ef404b079bb6442a19b5fd597b",
+      "status": "ok",
+      "routes": 0,
+      "meta": {
+        "input": "/home/tankuku/src/firmware-code-graph-platform/fwgraph/data/idb/6df0ba4135c9/0b3a37ef404b079bb6442a19b5fd597b",
+        "processor": "mipsb",
+        "bits": 32,
+        "endianness": "be",
+        "pointer_size": 4,
+        "segments_scanned": 13,
+        "slots_scanned": 61
+      }
+    },
+    {
+      "binary_md5": "0deafb24ce1cb044a979cf33e904e0e7",
+      "status": "ok",
+      "routes": 0,
+      "meta": {
+        "input": "/home/tankuku/src/firmware-code-graph-platform/fwgraph/data/idb/6df0ba4135c9/0deafb24ce1cb044a979cf33e904e0e7",
+        "processor": "mipsb",
+        "bits": 32,
+        "endianness": "be",
+        "pointer_size": 4,
+        "segments_scanned": 13,
+        "slots_scanned": 213
+      }
+    },
+    {
+      "binary_md5": "1236a199291ead41164e5aa69c323a9b",
+      "status": "ok",
+      "routes": 0,
+      "meta": {
+        "input": "/home/tankuku/src/firmware-code-graph-platform/fwgraph/data/idb/6df0ba4135c9/1236a199291ead41164e5aa69c323a9b",
+        "processor": "mipsb",
+        "bits": 32,
+        "endianness": "be",
+        "pointer_size": 4,
+        "segments_scanned": 7,
+        "slots_scanned": 258
+      }
+    },
+    {
+      "binary_md5": "1529b5ebd660214cf435e57b1d215d65",
+      "status": "ok",
+      "routes": 0,
+      "meta": {
+        "input": "/home/tankuku/src/firmware-code-graph-platform/fwgraph/data/idb/6df0ba4135c9/1529b5ebd660214cf435e57b1d215d65",
+        "processor": "mipsb",
+        "bits": 32,
+        "endianness": "be",
+        "pointer_size": 4,
+        "segments_scanned": 14,
+        "slots_scanned": 2493
+      }
+    },
+    {
+      "binary_md5": "1828ed2214c2658786cbaa42ea64826f",
+      "status": "ok",
+      "routes": 0,
+      "meta": {
+        "input": "/home/tankuku/src/firmware-code-graph-platform/fwgraph/data/idb/6df0ba4135c9/1828ed2214c2658786cbaa42ea64826f",
+        "processor": "mipsb",
+        "bits": 32,
+        "endianness": "be",
+        "pointer_size": 4,
+        "segments_scanned": 14,
+        "slots_scanned": 233
+      }
+    },
+    {
+      "binary_md5": "20b0c4d2f690383204ed5651733bae9e",
+      "status": "ok",
+      "routes": 0,
+      "meta": {
+        "input": "/home/tankuku/src/firmware-code-graph-platform/fwgraph/data/idb/6df0ba4135c9/20b0c4d2f690383204ed5651733bae9e",
+        "processor": "mipsb",
+        "bits": 32,
+        "endianness": "be",
+        "pointer_size": 4,
+        "segments_scanned": 14,
+        "slots_scanned": 3265
+      }
+    },
+    {
+      "binary_md5": "21cf650faa573039553551f066d1980a",
+      "status": "ok",
+      "routes": 0,
+      "meta": {
+        "input": "/home/tankuku/src/firmware-code-graph-platform/fwgraph/data/idb/6df0ba4135c9/21cf650faa573039553551f066d1980a",
+        "processor": "mipsb",
+        "bits": 32,
+        "endianness": "be",
+        "pointer_size": 4,
+        "segments_scanned": 13,
+        "slots_scanned": 3519
+      }
+    },
+    {
+      "binary_md5": "21eccb088773393faa70270236c90b46",
+      "status": "ok",
+      "routes": 0,
+      "meta": {
+        "input": "/home/tankuku/src/firmware-code-graph-platform/fwgraph/data/idb/6df0ba4135c9/21eccb088773393faa70270236c90b46",
+        "processor": "mipsb",
+        "bits": 32,
+        "endianness": "be",
+        "pointer_size": 4,
+        "segments_scanned": 15,
+        "slots_scanned": 2312
+      }
+    },
+    {
+      "binary_md5": "23e3796091277a8be1e69dc8f5093dbd",
+      "status": "ok",
+      "routes": 0,
+      "meta": {
+        "input": "/home/tankuku/src/firmware-code-graph-platform/fwgraph/data/idb/6df0ba4135c9/23e3796091277a8be1e69dc8f5093dbd",
+        "processor": "mipsb",
+        "bits": 32,
+        "endianness": "be",
+        "pointer_size": 4,
+        "segments_scanned": 15,
+        "slots_scanned": 7807
+      }
+    },
+    {
+      "binary_md5": "2c508f48e714f8276fee71652f19b4ba",
+      "status": "ok",
+      "routes": 0,
+      "meta": {
+        "input": "/home/tankuku/src/firmware-code-graph-platform/fwgraph/data/idb/6df0ba4135c9/2c508f48e714f8276fee71652f19b4ba",
+        "processor": "mipsb",
+        "bits": 32,
+        "endianness": "be",
+        "pointer_size": 4,
+        "segments_scanned": 14,
+        "slots_scanned": 617
+      }
+    },
+    {
+      "binary_md5": "2cadcf12372117a47685c235aedeab3f",
+      "status": "ok",
+      "routes": 0,
+      "meta": {
+        "input": "/home/tankuku/src/firmware-code-graph-platform/fwgraph/data/idb/6df0ba4135c9/2cadcf12372117a47685c235aedeab3f",
+        "processor": "mipsb",
+        "bits": 32,
+        "endianness": "be",
+        "pointer_size": 4,
+        "segments_scanned": 14,
+        "slots_scanned": 88324
+      }
+    },
+    {
+      "binary_md5": "2f0876307c83c41265384106e6ccfc49",
+      "status": "ok",
+      "routes": 0,
+      "meta": {
+        "input": "/home/tankuku/src/firmware-code-graph-platform/fwgraph/data/idb/6df0ba4135c9/2f0876307c83c41265384106e6ccfc49",
+        "processor": "mipsb",
+        "bits": 32,
+        "endianness": "be",
+        "pointer_size": 4,
+        "segments_scanned": 13,
+        "slots_scanned": 265
+      }
+    },
+    {
+      "binary_md5": "2fc15d11a6d84d3f80c70d81c9e26118",
+      "status": "ok",
+      "routes": 0,
+      "meta": {
+        "input": "/home/tankuku/src/firmware-code-graph-platform/fwgraph/data/idb/6df0ba4135c9/2fc15d11a6d84d3f80c70d81c9e26118",
+        "processor": "mipsb",
+        "bits": 32,
+        "endianness": "be",
+        "pointer_size": 4,
+        "segments_scanned": 12,
+        "slots_scanned": 238
+      }
+    },
+    {
+      "binary_md5": "367a9db7638010f43c55d2eb45a543dc",
+      "status": "ok",
+      "routes": 0,
+      "meta": {
+        "input": "/home/tankuku/src/firmware-code-graph-platform/fwgraph/data/idb/6df0ba4135c9/367a9db7638010f43c55d2eb45a543dc",
+        "processor": "mipsb",
+        "bits": 32,
+        "endianness": "be",
+        "pointer_size": 4,
+        "segments_scanned": 5,
+        "slots_scanned": 370
+      }
+    },
+    {
+      "binary_md5": "382b780ca8226f451fe70730ef327267",
+      "status": "ok",
+      "routes": 0,
+      "meta": {
+        "input": "/home/tankuku/src/firmware-code-graph-platform/fwgraph/data/idb/6df0ba4135c9/382b780ca8226f451fe70730ef327267",
+        "processor": "mipsb",
+        "bits": 32,
+        "endianness": "be",
+        "pointer_size": 4,
+        "segments_scanned": 13,
+        "slots_scanned": 189
+      }
+    },
+    {
+      "binary_md5": "3bfc472767e220fa003a15934ca5da7f",
+      "status": "ok",
+      "routes": 0,
+      "meta": {
+        "input": "/home/tankuku/src/firmware-code-graph-platform/fwgraph/data/idb/6df0ba4135c9/3bfc472767e220fa003a15934ca5da7f",
+        "processor": "mipsb",
+        "bits": 32,
+        "endianness": "be",
+        "pointer_size": 4,
+        "segments_scanned": 14,
+        "slots_scanned": 841
+      }
+    },
+    {
+      "binary_md5": "3e3258c907b4b461c90472e1fcd6cddb",
+      "status": "ok",
+      "routes": 0,
+      "meta": {
+        "input": "/home/tankuku/src/firmware-code-graph-platform/fwgraph/data/idb/6df0ba4135c9/3e3258c907b4b461c90472e1fcd6cddb",
+        "processor": "mipsb",
+        "bits": 32,
+        "endianness": "be",
+        "pointer_size": 4,
+        "segments_scanned": 16,
+        "slots_scanned": 20711
+      }
+    },
+    {
+      "binary_md5": "3f888c74a5604790f8fde8d2f65657f5",
+      "status": "ok",
+      "routes": 0,
+      "meta": {
+        "input": "/home/tankuku/src/firmware-code-graph-platform/fwgraph/data/idb/6df0ba4135c9/3f888c74a5604790f8fde8d2f65657f5",
+        "processor": "mipsb",
+        "bits": 32,
+        "endianness": "be",
+        "pointer_size": 4,
+        "segments_scanned": 15,
+        "slots_scanned": 30260
+      }
+    },
+    {
+      "binary_md5": "450afc711facc86492a955bf7967b594",
+      "status": "ok",
+      "routes": 0,
+      "meta": {
+        "input": "/home/tankuku/src/firmware-code-graph-platform/fwgraph/data/idb/6df0ba4135c9/450afc711facc86492a955bf7967b594",
+        "processor": "mipsb",
+        "bits": 32,
+        "endianness": "be",
+        "pointer_size": 4,
+        "segments_scanned": 14,
+        "slots_scanned": 661
+      }
+    },
+    {
+      "binary_md5": "49990799009ddbe4acbdccafb6e91f72",
+      "status": "ok",
+      "routes": 0,
+      "meta": {
+        "input": "/home/tankuku/src/firmware-code-graph-platform/fwgraph/data/idb/6df0ba4135c9/49990799009ddbe4acbdccafb6e91f72",
+        "processor": "mipsb",
+        "bits": 32,
+        "endianness": "be",
+        "pointer_size": 4,
+        "segments_scanned": 15,
+        "slots_scanned": 9688
+      }
+    },
+    {
+      "binary_md5": "4f07e369be60488ddd22e55be4cc9d7b",
+      "status": "ok",
+      "routes": 0,
+      "meta": {
+        "input": "/home/tankuku/src/firmware-code-graph-platform/fwgraph/data/idb/6df0ba4135c9/4f07e369be60488ddd22e55be4cc9d7b",
+        "processor": "mipsb",
+        "bits": 32,
+        "endianness": "be",
+        "pointer_size": 4,
+        "segments_scanned": 14,
+        "slots_scanned": 45
+      }
+    },
+    {
+      "binary_md5": "50ac29f36d448568e1744d8cee00835d",
+      "status": "ok",
+      "routes": 0,
+      "meta": {
+        "input": "/home/tankuku/src/firmware-code-graph-platform/fwgraph/data/idb/6df0ba4135c9/50ac29f36d448568e1744d8cee00835d",
+        "processor": "mipsb",
+        "bits": 32,
+        "endianness": "be",
+        "pointer_size": 4,
+        "segments_scanned": 15,
+        "slots_scanned": 1472
+      }
+    },
+    {
+      "binary_md5": "53a5015af68ecf517285cb18d3aeab27",
+      "status": "ok",
+      "routes": 0,
+      "meta": {
+        "input": "/home/tankuku/src/firmware-code-graph-platform/fwgraph/data/idb/6df0ba4135c9/53a5015af68ecf517285cb18d3aeab27",
+        "processor": "mipsb",
+        "bits": 32,
+        "endianness": "be",
+        "pointer_size": 4,
+        "segments_scanned": 15,
+        "slots_scanned": 411
+      }
+    },
+    {
+      "binary_md5": "553f0e2eb39a71fbc51daa5597563304",
+      "status": "ok",
+      "routes": 0,
+      "meta": {
+        "input": "/home/tankuku/src/firmware-code-graph-platform/fwgraph/data/idb/6df0ba4135c9/553f0e2eb39a71fbc51daa5597563304",
+        "processor": "mipsb",
+        "bits": 32,
+        "endianness": "be",
+        "pointer_size": 4,
+        "segments_scanned": 14,
+        "slots_scanned": 1051
+      }
+    },
+    {
+      "binary_md5": "5b0a4cf0bac38d777e81c773e29393d6",
+      "status": "ok",
+      "routes": 0,
+      "meta": {
+        "input": "/home/tankuku/src/firmware-code-graph-platform/fwgraph/data/idb/6df0ba4135c9/5b0a4cf0bac38d777e81c773e29393d6",
+        "processor": "mipsb",
+        "bits": 32,
+        "endianness": "be",
+        "pointer_size": 4,
+        "segments_scanned": 13,
+        "slots_scanned": 323
+      }
+    },
+    {
+      "binary_md5": "5b5144eda99757cd4f2d1a24e124a079",
+      "status": "ok",
+      "routes": 0,
+      "meta": {
+        "input": "/home/tankuku/src/firmware-code-graph-platform/fwgraph/data/idb/6df0ba4135c9/5b5144eda99757cd4f2d1a24e124a079",
+        "processor": "mipsb",
+        "bits": 32,
+        "endianness": "be",
+        "pointer_size": 4,
+        "segments_scanned": 13,
+        "slots_scanned": 177
+      }
+    },
+    {
+      "binary_md5": "5bf87d074af47ea6dd761274cae3527b",
+      "status": "ok",
+      "routes": 0,
+      "meta": {
+        "input": "/home/tankuku/src/firmware-code-graph-platform/fwgraph/data/idb/6df0ba4135c9/5bf87d074af47ea6dd761274cae3527b",
+        "processor": "mipsb",
+        "bits": 32,
+        "endianness": "be",
+        "pointer_size": 4,
+        "segments_scanned": 14,
+        "slots_scanned": 1341
+      }
+    },
+    {
+      "binary_md5": "6102ba6a30b9415c48300043ef7a732e",
+      "status": "ok",
+      "routes": 0,
+      "meta": {
+        "input": "/home/tankuku/src/firmware-code-graph-platform/fwgraph/data/idb/6df0ba4135c9/6102ba6a30b9415c48300043ef7a732e",
+        "processor": "mipsb",
+        "bits": 32,
+        "endianness": "be",
+        "pointer_size": 4,
+        "segments_scanned": 14,
+        "slots_scanned": 40
+      }
+    },
+    {
+      "binary_md5": "62289f97d2fea15ddb4438d2c4390588",
+      "status": "ok",
+      "routes": 0,
+      "meta": {
+        "input": "/home/tankuku/src/firmware-code-graph-platform/fwgraph/data/idb/6df0ba4135c9/62289f97d2fea15ddb4438d2c4390588",
+        "processor": "mipsb",
+        "bits": 32,
+        "endianness": "be",
+        "pointer_size": 4,
+        "segments_scanned": 15,
+        "slots_scanned": 1705
+      }
+    },
+    {
+      "binary_md5": "64af7bc8ff977918d5c2d17e4ccce088",
+      "status": "ok",
+      "routes": 0,
+      "meta": {
+        "input": "/home/tankuku/src/firmware-code-graph-platform/fwgraph/data/idb/6df0ba4135c9/64af7bc8ff977918d5c2d17e4ccce088",
+        "processor": "mipsb",
+        "bits": 32,
+        "endianness": "be",
+        "pointer_size": 4,
+        "segments_scanned": 13,
+        "slots_scanned": 427
+      }
+    },
+    {
+      "binary_md5": "6718c0229a1f51b2ab55a1ff6471b927",
+      "status": "ok",
+      "routes": 0,
+      "meta": {
+        "input": "/home/tankuku/src/firmware-code-graph-platform/fwgraph/data/idb/6df0ba4135c9/6718c0229a1f51b2ab55a1ff6471b927",
+        "processor": "mipsb",
+        "bits": 32,
+        "endianness": "be",
+        "pointer_size": 4,
+        "segments_scanned": 17,
+        "slots_scanned": 4977
+      }
+    },
+    {
+      "binary_md5": "685dc005d070bcc84e2201bb385553f3",
+      "status": "ok",
+      "routes": 0,
+      "meta": {
+        "input": "/home/tankuku/src/firmware-code-graph-platform/fwgraph/data/idb/6df0ba4135c9/685dc005d070bcc84e2201bb385553f3",
+        "processor": "mipsb",
+        "bits": 32,
+        "endianness": "be",
+        "pointer_size": 4,
+        "segments_scanned": 15,
+        "slots_scanned": 2587
+      }
+    },
+    {
+      "binary_md5": "7201c7fc04370bbcb7d57c704516da1e",
+      "status": "ok",
+      "routes": 0,
+      "meta": {
+        "input": "/home/tankuku/src/firmware-code-graph-platform/fwgraph/data/idb/6df0ba4135c9/7201c7fc04370bbcb7d57c704516da1e",
+        "processor": "mipsb",
+        "bits": 32,
+        "endianness": "be",
+        "pointer_size": 4,
+        "segments_scanned": 13,
+        "slots_scanned": 217
+      }
+    },
+    {
+      "binary_md5": "78023622b84b6241bb5208a82785de7c",
+      "status": "ok",
+      "routes": 0,
+      "meta": {
+        "input": "/home/tankuku/src/firmware-code-graph-platform/fwgraph/data/idb/6df0ba4135c9/78023622b84b6241bb5208a82785de7c",
+        "processor": "mipsb",
+        "bits": 32,
+        "endianness": "be",
+        "pointer_size": 4,
+        "segments_scanned": 14,
+        "slots_scanned": 5787
+      }
+    },
+    {
+      "binary_md5": "7f731580da33cbc3a622a1d2f1e6e426",
+      "status": "ok",
+      "routes": 0,
+      "meta": {
+        "input": "/home/tankuku/src/firmware-code-graph-platform/fwgraph/data/idb/6df0ba4135c9/7f731580da33cbc3a622a1d2f1e6e426",
+        "processor": "mipsb",
+        "bits": 32,
+        "endianness": "be",
+        "pointer_size": 4,
+        "segments_scanned": 12,
+        "slots_scanned": 354
+      }
+    },
+    {
+      "binary_md5": "7fabf07a7c7c304bdee3f34beaca0259",
+      "status": "ok",
+      "routes": 0,
+      "meta": {
+        "input": "/home/tankuku/src/firmware-code-graph-platform/fwgraph/data/idb/6df0ba4135c9/7fabf07a7c7c304bdee3f34beaca0259",
+        "processor": "mipsb",
+        "bits": 32,
+        "endianness": "be",
+        "pointer_size": 4,
+        "segments_scanned": 14,
+        "slots_scanned": 2469
+      }
+    },
+    {
+      "binary_md5": "831411ed7e1770609b0ab9837d576e2f",
+      "status": "ok",
+      "routes": 0,
+      "meta": {
+        "input": "/home/tankuku/src/firmware-code-graph-platform/fwgraph/data/idb/6df0ba4135c9/831411ed7e1770609b0ab9837d576e2f",
+        "processor": "mipsb",
+        "bits": 32,
+        "endianness": "be",
+        "pointer_size": 4,
+        "segments_scanned": 16,
+        "slots_scanned": 19577
+      }
+    },
+    {
+      "binary_md5": "8a14fa55d5e8683fc44d19caab1413ce",
+      "status": "ok",
+      "routes": 0,
+      "meta": {
+        "input": "/home/tankuku/src/firmware-code-graph-platform/fwgraph/data/idb/6df0ba4135c9/8a14fa55d5e8683fc44d19caab1413ce",
+        "processor": "mipsb",
+        "bits": 32,
+        "endianness": "be",
+        "pointer_size": 4,
+        "segments_scanned": 14,
+        "slots_scanned": 761
+      }
+    },
+    {
+      "binary_md5": "8de9773f9eb69f9ed433c6a50d053ea2",
+      "status": "ok",
+      "routes": 0,
+      "meta": {
+        "input": "/home/tankuku/src/firmware-code-graph-platform/fwgraph/data/idb/6df0ba4135c9/8de9773f9eb69f9ed433c6a50d053ea2",
+        "processor": "mipsb",
+        "bits": 32,
+        "endianness": "be",
+        "pointer_size": 4,
+        "segments_scanned": 15,
+        "slots_scanned": 418679
+      }
+    },
+    {
+      "binary_md5": "9582aa23b0bc2de099b9997b09457d01",
+      "status": "ok",
+      "routes": 0,
+      "meta": {
+        "input": "/home/tankuku/src/firmware-code-graph-platform/fwgraph/data/idb/6df0ba4135c9/9582aa23b0bc2de099b9997b09457d01",
+        "processor": "mipsb",
+        "bits": 32,
+        "endianness": "be",
+        "pointer_size": 4,
+        "segments_scanned": 15,
+        "slots_scanned": 70790
+      }
+    },
+    {
+      "binary_md5": "962028543ed270727dbdd72342433efd",
+      "status": "ok",
+      "routes": 0,
+      "meta": {
+        "input": "/home/tankuku/src/firmware-code-graph-platform/fwgraph/data/idb/6df0ba4135c9/962028543ed270727dbdd72342433efd",
+        "processor": "mipsb",
+        "bits": 32,
+        "endianness": "be",
+        "pointer_size": 4,
+        "segments_scanned": 15,
+        "slots_scanned": 1192
+      }
+    },
+    {
+      "binary_md5": "9f63d5449a74674e8b29c191ecd657ca",
+      "status": "ok",
+      "routes": 0,
+      "meta": {
+        "input": "/home/tankuku/src/firmware-code-graph-platform/fwgraph/data/idb/6df0ba4135c9/9f63d5449a74674e8b29c191ecd657ca",
+        "processor": "mipsb",
+        "bits": 32,
+        "endianness": "be",
+        "pointer_size": 4,
+        "segments_scanned": 11,
+        "slots_scanned": 51
+      }
+    },
+    {
+      "binary_md5": "aa3d98e20b0f5904d08b51eed6a9536a",
+      "status": "ok",
+      "routes": 0,
+      "meta": {
+        "input": "/home/tankuku/src/firmware-code-graph-platform/fwgraph/data/idb/6df0ba4135c9/aa3d98e20b0f5904d08b51eed6a9536a",
+        "processor": "mipsb",
+        "bits": 32,
+        "endianness": "be",
+        "pointer_size": 4,
+        "segments_scanned": 16,
+        "slots_scanned": 11713
+      }
+    },
+    {
+      "binary_md5": "ae35a53ccab71de6af881926d121c0a9",
+      "status": "ok",
+      "routes": 0,
+      "meta": {
+        "input": "/home/tankuku/src/firmware-code-graph-platform/fwgraph/data/idb/6df0ba4135c9/ae35a53ccab71de6af881926d121c0a9",
+        "processor": "mipsb",
+        "bits": 32,
+        "endianness": "be",
+        "pointer_size": 4,
+        "segments_scanned": 16,
+        "slots_scanned": 8219
+      }
+    },
+    {
+      "binary_md5": "b4483e719e0c1b35c386cb9f8b73b9e0",
+      "status": "ok",
+      "routes": 0,
+      "meta": {
+        "input": "/home/tankuku/src/firmware-code-graph-platform/fwgraph/data/idb/6df0ba4135c9/b4483e719e0c1b35c386cb9f8b73b9e0",
+        "processor": "mipsb",
+        "bits": 32,
+        "endianness": "be",
+        "pointer_size": 4,
+        "segments_scanned": 14,
+        "slots_scanned": 14517
+      }
+    },
+    {
+      "binary_md5": "bcce3cb737ac6869076de8aeec92d038",
+      "status": "ok",
+      "routes": 0,
+      "meta": {
+        "input": "/home/tankuku/src/firmware-code-graph-platform/fwgraph/data/idb/6df0ba4135c9/bcce3cb737ac6869076de8aeec92d038",
+        "processor": "mipsb",
+        "bits": 32,
+        "endianness": "be",
+        "pointer_size": 4,
+        "segments_scanned": 15,
+        "slots_scanned": 56798
+      }
+    },
+    {
+      "binary_md5": "cb0bfc5c9044ab606afcee5dfb7abd61",
+      "status": "ok",
+      "routes": 0,
+      "meta": {
+        "input": "/home/tankuku/src/firmware-code-graph-platform/fwgraph/data/idb/6df0ba4135c9/cb0bfc5c9044ab606afcee5dfb7abd61",
+        "processor": "mipsb",
+        "bits": 32,
+        "endianness": "be",
+        "pointer_size": 4,
+        "segments_scanned": 10,
+        "slots_scanned": 24935
+      }
+    },
+    {
+      "binary_md5": "cb5be0b294ec41ad7e37f9a98524d1e0",
+      "status": "ok",
+      "routes": 0,
+      "meta": {
+        "input": "/home/tankuku/src/firmware-code-graph-platform/fwgraph/data/idb/6df0ba4135c9/cb5be0b294ec41ad7e37f9a98524d1e0",
+        "processor": "mipsb",
+        "bits": 32,
+        "endianness": "be",
+        "pointer_size": 4,
+        "segments_scanned": 13,
+        "slots_scanned": 323
+      }
+    },
+    {
+      "binary_md5": "d0b5ab58cc82a4d1a4fcfc208e224a1e",
+      "status": "ok",
+      "routes": 0,
+      "meta": {
+        "input": "/home/tankuku/src/firmware-code-graph-platform/fwgraph/data/idb/6df0ba4135c9/d0b5ab58cc82a4d1a4fcfc208e224a1e",
+        "processor": "mipsb",
+        "bits": 32,
+        "endianness": "be",
+        "pointer_size": 4,
+        "segments_scanned": 15,
+        "slots_scanned": 5845
+      }
+    },
+    {
+      "binary_md5": "d61e67ed20163b7fee8bd3c606fb0331",
+      "status": "ok",
+      "routes": 0,
+      "meta": {
+        "input": "/home/tankuku/src/firmware-code-graph-platform/fwgraph/data/idb/6df0ba4135c9/d61e67ed20163b7fee8bd3c606fb0331",
+        "processor": "mipsb",
+        "bits": 32,
+        "endianness": "be",
+        "pointer_size": 4,
+        "segments_scanned": 15,
+        "slots_scanned": 45270
+      }
+    },
+    {
+      "binary_md5": "d69803d59bf830a6a3095acfd3c5dd0b",
+      "status": "ok",
+      "routes": 0,
+      "meta": {
+        "input": "/home/tankuku/src/firmware-code-graph-platform/fwgraph/data/idb/6df0ba4135c9/d69803d59bf830a6a3095acfd3c5dd0b",
+        "processor": "mipsb",
+        "bits": 32,
+        "endianness": "be",
+        "pointer_size": 4,
+        "segments_scanned": 15,
+        "slots_scanned": 336
+      }
+    },
+    {
+      "binary_md5": "d7d7fcbcc4873ef2a829b0e60a314f3a",
+      "status": "ok",
+      "routes": 0,
+      "meta": {
+        "input": "/home/tankuku/src/firmware-code-graph-platform/fwgraph/data/idb/6df0ba4135c9/d7d7fcbcc4873ef2a829b0e60a314f3a",
+        "processor": "mipsb",
+        "bits": 32,
+        "endianness": "be",
+        "pointer_size": 4,
+        "segments_scanned": 15,
+        "slots_scanned": 5430
+      }
+    },
+    {
+      "binary_md5": "de12dc34b794073519aa339c1813f5b3",
+      "status": "ok",
+      "routes": 0,
+      "meta": {
+        "input": "/home/tankuku/src/firmware-code-graph-platform/fwgraph/data/idb/6df0ba4135c9/de12dc34b794073519aa339c1813f5b3",
+        "processor": "mipsb",
+        "bits": 32,
+        "endianness": "be",
+        "pointer_size": 4,
+        "segments_scanned": 13,
+        "slots_scanned": 265
+      }
+    },
+    {
+      "binary_md5": "dfbd46b8a9cfdeb15f49446a85cecf7f",
+      "status": "ok",
+      "routes": 0,
+      "meta": {
+        "input": "/home/tankuku/src/firmware-code-graph-platform/fwgraph/data/idb/6df0ba4135c9/dfbd46b8a9cfdeb15f49446a85cecf7f",
+        "processor": "mipsb",
+        "bits": 32,
+        "endianness": "be",
+        "pointer_size": 4,
+        "segments_scanned": 10,
+        "slots_scanned": 794
+      }
+    },
+    {
+      "binary_md5": "e1f800843c4e89ee18755e8ceb1e195e",
+      "status": "ok",
+      "routes": 0,
+      "meta": {
+        "input": "/home/tankuku/src/firmware-code-graph-platform/fwgraph/data/idb/6df0ba4135c9/e1f800843c4e89ee18755e8ceb1e195e",
+        "processor": "mipsb",
+        "bits": 32,
+        "endianness": "be",
+        "pointer_size": 4,
+        "segments_scanned": 7,
+        "slots_scanned": 143
+      }
+    },
+    {
+      "binary_md5": "f18e24e1ea1cf6e512801cf0c44801da",
+      "status": "ok",
+      "routes": 0,
+      "meta": {
+        "input": "/home/tankuku/src/firmware-code-graph-platform/fwgraph/data/idb/6df0ba4135c9/f18e24e1ea1cf6e512801cf0c44801da",
+        "processor": "mipsb",
+        "bits": 32,
+        "endianness": "be",
+        "pointer_size": 4,
+        "segments_scanned": 13,
+        "slots_scanned": 122
+      }
+    },
+    {
+      "binary_md5": "f507bf14c2e4785cc916f077983f32ef",
+      "status": "ok",
+      "routes": 0,
+      "meta": {
+        "input": "/home/tankuku/src/firmware-code-graph-platform/fwgraph/data/idb/6df0ba4135c9/f507bf14c2e4785cc916f077983f32ef",
+        "processor": "mipsb",
+        "bits": 32,
+        "endianness": "be",
+        "pointer_size": 4,
+        "segments_scanned": 15,
+        "slots_scanned": 1576
+      }
+    },
+    {
+      "binary_md5": "f8a1d1f62eef2e1e73cbbeadd5d51900",
+      "status": "ok",
+      "routes": 0,
+      "meta": {
+        "input": "/home/tankuku/src/firmware-code-graph-platform/fwgraph/data/idb/6df0ba4135c9/f8a1d1f62eef2e1e73cbbeadd5d51900",
+        "processor": "mipsb",
+        "bits": 32,
+        "endianness": "be",
+        "pointer_size": 4,
+        "segments_scanned": 14,
+        "slots_scanned": 666
+      }
+    },
+    {
+      "binary_md5": "f8dc296c73157774b2617b1d130639f5",
+      "status": "ok",
+      "routes": 0,
+      "meta": {
+        "input": "/home/tankuku/src/firmware-code-graph-platform/fwgraph/data/idb/6df0ba4135c9/f8dc296c73157774b2617b1d130639f5",
+        "processor": "mipsb",
+        "bits": 32,
+        "endianness": "be",
+        "pointer_size": 4,
+        "segments_scanned": 15,
+        "slots_scanned": 27241
+      }
+    }
+  ],
+  "injection": {
+    "routes": 0,
+    "inserted": 0,
+    "unmatched": 0,
+    "unmatched_handlers": []
+  },
+  "elapsed_seconds": 458.73
+}

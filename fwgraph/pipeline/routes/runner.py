@@ -2,6 +2,7 @@
 
 import json
 import os
+import shutil
 import sqlite3
 import subprocess
 import sys
@@ -37,6 +38,32 @@ def _function_paths(symbols):
             paths[(md5, str(func.get("addr")).lower())] = \
                 f"{dirname}/{func['addr']}_{name}.c"
     return paths
+
+
+def resolve_ida_input(data_dir, job_id, md5, entry) -> Path:
+    """Pick a writable IDA input for route scan.
+
+    rootfs_elf decompile no longer writes data/idb/<job>/<md5>.i64 (and
+    discards database.i64). Prefer a saved IDB when present, otherwise
+    stage the extracted ELF next to where idat can create a new .i64.
+    """
+    data_dir = Path(data_dir)
+    idb = data_dir / "idb" / job_id / f"{md5}.i64"
+    if idb.is_file():
+        return idb
+    saved = data_dir / "pseudocode" / job_id / md5 / "database.i64"
+    if saved.is_file():
+        return saved
+    elf = data_dir / "extracted" / job_id / (entry.get("path") or "")
+    if not elf.is_file():
+        raise FileNotFoundError(
+            f"no IDA input for {md5}: missing {idb.name} and ELF {elf}")
+    idb_dir = data_dir / "idb" / job_id
+    idb_dir.mkdir(parents=True, exist_ok=True)
+    staged = idb_dir / md5
+    if not staged.exists():
+        shutil.copy2(elf, staged)
+    return staged
 
 
 def inject_routes(dbfile, symbols, project, routes):
@@ -113,25 +140,43 @@ def run_job(job_id, data_dir, scan=True):
         idat = ida_dir / "idat"
         timeout = int(_cfg("ROUTE_SCAN_TIMEOUT", "900"))
         for md5, entry in sorted(symbols.get("binaries", {}).items()):
-            idb = data_dir / "idb" / job_id / f"{md5}.i64"
             outdir = output_root / md5
             outdir.mkdir(parents=True, exist_ok=True)
             artifact = outdir / "routes_raw.json"
             log_path = outdir / "idat.log"
+            try:
+                ida_input = resolve_ida_input(data_dir, job_id, md5, entry)
+            except FileNotFoundError as exc:
+                results.append({"binary_md5": md5, "status": "failed",
+                                "error": str(exc), "routes": 0})
+                continue
             env = dict(os.environ, TVHEADLESS="1",
                        FWGRAPH_ROUTE_OUTPUT=str(artifact))
-            command = [str(idat), "-A", f"-S{IDA_SCRIPT}", str(idb)]
-            with open(log_path, "wb") as log_handle:
-                proc = subprocess.run(
-                    command, stdout=log_handle, stderr=subprocess.STDOUT,
-                    env=env, timeout=timeout, check=False)
+            command = [str(idat), "-A", f"-S{IDA_SCRIPT}", str(ida_input)]
+            try:
+                with open(log_path, "wb") as log_handle:
+                    proc = subprocess.run(
+                        command, stdout=log_handle, stderr=subprocess.STDOUT,
+                        env=env, timeout=timeout, check=False)
+            except subprocess.TimeoutExpired:
+                results.append({"binary_md5": md5, "status": "timeout",
+                                "error": f"killed after {timeout}s",
+                                "routes": 0})
+                continue
             if proc.returncode != 0 or not artifact.is_file():
-                raise RuntimeError(
-                    f"IDA route scan failed for {md5}: rc={proc.returncode}")
+                results.append({
+                    "binary_md5": md5, "status": "failed",
+                    "error": (f"rc={proc.returncode} input={ida_input} "
+                              f"(see {log_path.name})"),
+                    "routes": 0,
+                })
+                continue
             raw = json.loads(artifact.read_text(encoding="utf-8"))
             if raw.get("status") != "ok":
-                raise RuntimeError(
-                    f"IDA route scan failed for {md5}: {raw.get('error')}")
+                results.append({"binary_md5": md5, "status": "failed",
+                                "error": str(raw.get("error") or "export failed"),
+                                "routes": 0})
+                continue
             binary_routes = []
             for route in raw.get("routes", []):
                 binary_routes.append({**route, "binary_md5": md5,

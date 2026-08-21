@@ -214,6 +214,41 @@ def _kill_emba(proc, logf):
     logf.write(b"[extractor] timeout - EMBA process group killed, containers removed\n")
 
 
+def unpack_hints(log_dir) -> list[str]:
+    """Detect why a firmware tree has no ELF (encryption, empty extract)."""
+    log_dir = Path(log_dir)
+    text = ""
+    for rel in (
+        "p02_firmware_bin_file_check/p02_binwalk_output.txt",
+        "p50_binwalk_extractor/binwalk-firmware.log",
+        "p02_firmware_bin_file_check.txt",
+    ):
+        path = log_dir / rel
+        if path.is_file():
+            try:
+                text += path.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+    hints = []
+    low = text.lower()
+    if "openssl encryption" in low or "openssl enc" in low:
+        hints.append("openssl")
+    if "extraction of openssl" in low and "failed" in low:
+        hints.append("openssl_failed")
+    return hints
+
+
+def empty_firmware_message(log_dir) -> str:
+    hints = unpack_hints(log_dir)
+    msg = "解包未发现可反编译的 ELF"
+    if "openssl" in hints:
+        msg += ("。binwalk 检测到 OpenSSL salted 加密，未提供密钥时无法展开"
+                "文件系统，后续反编译不会有输入。")
+    else:
+        msg += "。可能不是标准 Linux 固件，或解包器未能识别分区/文件系统。"
+    return msg
+
+
 def build_manifest(job_id: str, firmware_name: str, log_dir) -> dict:
     """Parse the p99 CSV under log_dir and write manifest.json next to it."""
     log_dir = Path(log_dir)

@@ -1,0 +1,59 @@
+# fwgraph 容器化部署（Phase 3）。迁移到新机器时按顺序检查：
+#   1. cp fwgraph/.env.example fwgraph/.env 并填入 LLM_API_KEY 等真实配置
+#      （env_file 指向它；缺失也能启动——required: false——但没有 LLM key
+#      相关功能不可用）
+#   2. orchestrator.volumes 的 ./data 与 environment.SANDBOX_HOST_PREFIX 必须
+#      指向同一个宿主目录（后者为绝对路径占位符，部署时改成实际路径）：
+#      编排器经 docker.sock 让宿主 daemon 起兄弟沙箱容器，-v 源路径按宿主
+#      文件系统解析，两处不一致会导致沙箱挂载失败
+#   3. 可选构建上下文：IDA（build.additional_contexts.ida）与 cbm 二进制
+#      （cbmbin）默认指向本目录下的空占位目录；部署机有 IDA 时把 ida 指向
+#      真实安装目录（含 idat），有 cbm 时把 cbmbin 指向含真实二进制的目录
+#   4. 构建：docker compose -f deploy/docker/docker-compose.yml --profile build build
+services:
+  orchestrator:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile
+      additional_contexts:
+        # IDA Pro 安装目录（可选；缺省为空占位目录，镜像内 /opt/ida 为空，
+        # 反编译 API 报「未配置/缺 idat」）
+        ida: ./ida
+        # 含 codebase-memory-mcp 真实二进制的目录（可选；符号链接需先解
+        # 引用，如 cp -L ~/.local/bin/codebase-memory-mcp <目录>/）
+        cbmbin: ./cbmbin
+    image: fwgraph-orchestrator:local
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/data
+      - /var/run/docker.sock:/var/run/docker.sock
+    env_file:
+      # compose v2.24+ 语法：.env 缺失不报错（先用 .env.example 复制一份）
+      - path: ../../fwgraph/.env
+        required: false
+    environment:
+      # 容器内固定路径：覆盖 .env 注入的宿主侧取值
+      FWGRAPH_ROOT: /app/fwgraph
+      FWGRAPH_DATA: /data
+      IDA_DIR: /opt/ida
+      # 兄弟沙箱容器的 -v 源路径由宿主 daemon 解析：必须与上面 ./data 卷
+      # 的宿主侧绝对路径一致（迁移部署时这两处一起改）
+      SANDBOX_HOST_PREFIX: ${SANDBOX_HOST_PREFIX:-/CHANGE_ME/deploy/docker/data}
+    healthcheck:
+      # 自签证书用 -k；/login 由 SPA 回退提供，无需鉴权（401 不会出现）
+      test: ["CMD", "curl", "-kf", "https://localhost:8000/login", "-o", "/dev/null"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+  # 沙箱镜像：仅构建（--profile build build sandbox），不作为服务运行；
+  # 运行时由编排器按需 docker run 起兄弟容器
+  sandbox:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile.sandbox
+    image: fwgraph-sandbox:local
+    profiles: ["build"]

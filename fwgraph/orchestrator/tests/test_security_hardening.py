@@ -8,7 +8,7 @@
 - M4: /graph/query cypher op is read-only (write keywords -> 400)
 - M5: upload streaming cap (413), disk-headroom check (507),
   DELETE /jobs/{job_id} artifact cleanup
-- M6: global decompile/ailift semaphores honor env limits
+- M6: global decompile semaphore honors env limits
 - M9: _save_job is atomic and survives ENOSPC-style failures
 - S4: qemu_cov sandbox gate — userns probe, TRACE_ALLOW_ROOT_CHROOT opt-in,
   Chinese warning in run meta, unshare cmdline shape
@@ -363,7 +363,7 @@ class TestCypherWhitelist:
 
 
 # ---------------------------------------------------------------------------
-# M6: global decompile / ailift semaphores
+# M6: global decompile semaphore
 # ---------------------------------------------------------------------------
 
 class TestConcurrencyGates:
@@ -372,18 +372,10 @@ class TestConcurrencyGates:
         monkeypatch.setenv("DECOMPILE_MAX_JOBS", "3")
         assert main._decompile_semaphore()._value == 3
 
-    def test_ailift_sem_honors_env(self, monkeypatch):
-        monkeypatch.setattr(main, "_ailift_sem", None)
-        monkeypatch.setenv("AILIFT_MAX_JOBS", "1")
-        assert main._ailift_semaphore()._value == 1
-
     def test_defaults(self, monkeypatch):
         monkeypatch.setattr(main, "_decompile_sem", None)
-        monkeypatch.setattr(main, "_ailift_sem", None)
         monkeypatch.delenv("DECOMPILE_MAX_JOBS", raising=False)
-        monkeypatch.delenv("AILIFT_MAX_JOBS", raising=False)
         assert main._decompile_semaphore()._value == 2
-        assert main._ailift_semaphore()._value == 2
 
 
 # ---------------------------------------------------------------------------
@@ -488,20 +480,6 @@ class TestTriggerAuditQuota:
         assert last["action"] == "trace_trigger"
         assert last["user"] == "alice" and last["detail"] == JOB
 
-    def test_aienrich_trigger(self, dyn_env, monkeypatch):
-        http, tmp_path = dyn_env
-        seen = {}
-        monkeypatch.setattr(accounts, "check_quota",
-                            lambda j, k: seen.setdefault("quota", (j, k)),
-                            raising=False)
-        alice = _session("alice")
-        resp = http.post(f"/jobs/{JOB}/aienrich",
-                         json={"binary_md5": MD5},
-                         headers=_auth(alice))
-        assert resp.status_code == 202
-        assert seen["quota"] == (JOB, "aienrich")
-        assert self._last_audit(tmp_path)["action"] == "aienrich_trigger"
-
     def test_fuzz_trigger(self, dyn_env, monkeypatch):
         http, tmp_path = dyn_env
         seen = {}
@@ -560,6 +538,10 @@ class TestTraceSandbox:
     def test_root_mode_warns_in_meta(self, tmp_path, monkeypatch):
         """Gated root fallback: the Chinese warning lands in the run meta
         (and from there in trace.json)."""
+        # 固定走 Phase 2 之前的裁决：docker 可用且沙箱镜像存在时
+        # trace_exec_mode 会改判 docker，本用例语义是 root 门控
+        monkeypatch.setattr(qemu_cov.sandbox, "backend_for",
+                            lambda _component: "userns")
         monkeypatch.setattr(qemu_cov, "_USERNS_OK", False)
         monkeypatch.setenv("TRACE_ALLOW_ROOT_CHROOT", "1")
         monkeypatch.delenv("TRACE_SUDO_PASSWORD", raising=False)
@@ -591,6 +573,9 @@ class TestTraceSandbox:
     def test_userns_mode_cmdline_shape(self, tmp_path, monkeypatch):
         """userns mode: unshare -Urm, -n for one-shot runs only (service
         runs keep host net so the loopback probe/trigger still works)."""
+        # 同上：固定非 docker 后端，保证本用例覆盖 userns 命令行形态
+        monkeypatch.setattr(qemu_cov.sandbox, "backend_for",
+                            lambda _component: "userns")
         monkeypatch.setattr(qemu_cov, "_USERNS_OK", True)
         rootfs = tmp_path / "rootfs"
         (rootfs / "tmp").mkdir(parents=True)
