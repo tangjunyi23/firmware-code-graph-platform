@@ -172,6 +172,18 @@ docker compose -f deploy/docker/docker-compose.yml down
 数据（含 TLS 证书）持久化在 `deploy/docker/data/`；完整手册（.env、
 可选组件、已知限制）见 [deploy/docker/README.md](deploy/docker/README.md)。
 
+## 仓库里有什么
+
+GitHub 只收源码和一份 Archer C7 挖掘记录，**clone 下来不能当分析机直接接着挖**。
+
+| 在仓库里 | 不在仓库里（分析机本地） |
+|---|---|
+| 平台源码、工作台、dsh 插件/skill、测试 | `.env`、TLS 私钥、账号口令 |
+| `vulnagent/sessions/`（4 个会话：state、events.sse、报告） | `fwgraph/data/`：解包 rootfs、固件、IDA/IDB、伪代码、CBM 图谱、trace |
+| `vulnagent/findings/`（18 条 finding + `index.jsonl`） | EMBA、IDA Pro、qemu-user、沙箱镜像、LLM key |
+
+参考会话：`s-mt4rda4n-55d3`（主挖掘，job `3a1f3c822c22`）、`s-mt5k23tt-aaed`（stdin 验收）。finding 可直接读 JSON；要复现动态验证必须在本机重新解包建图，或继续用已有分析机上的 `fwgraph/data/`。
+
 ## API 概览
 
 统一鉴权 `Authorization: Bearer <token>`（`POST /auth/login` 换取 fws-
@@ -212,7 +224,7 @@ CLI 亦可直跑 pipeline：`python -m pipeline.trace.tracer` /
 fwgraph/                  Python 根包
   orchestrator/app/       FastAPI 编排（main/accounts/admin_api/protofuzz_api/
                           vulnagent_api/report_export/decompiler/extractor/webui）
-  orchestrator/tests/     pytest（438 项基线：437 通过 + 1 跳过）
+  orchestrator/tests/     pytest（基线见根目录 AGENTS.md）
   pipeline/               extract / decompile / graph / graphext /
                           attack / routes / inputs / surfaces / trace /
                           fuzz / frida / protofuzz / report
