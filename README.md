@@ -1,23 +1,36 @@
 # firmware-code-graph-platform (fwgraph)
 
-> Firmware attack-surface discovery with runtime-coverage evidence:
-> EMBA extraction → headless IDA decompilation → CBM code graph →
-> source/sink scoring → qemu-user differential coverage → function-level
-> fuzz / frida hooking → ICS protocol fuzzing → an upstream
-> vulnerability-mining agent.
+> EMBA 解包 → IDA 无头反编译 → CBM 图谱 → qemu-user 差分覆盖 →
+> 工作台 DeepSeek Harness 挖掘 agent。
 
-以**运行时覆盖率为核心证据**的固件攻击面发现与排序平台。对解包后的固件
-二进制，把静态分析（IDA 反编译、调用图、source/sink 规则、CFG/AST）与
-动态证据（qemu-user 翻译块覆盖率、AFL++ 函数级 fuzz、frida hook、工控
-协议模糊测试）结合，输出可验证的攻击面结论，并供上游漏洞挖掘 AI
-（vulnagent）消费。
+固件攻击面发现平台：静态（反编译、调用图、source/sink）和动态（单 ELF
+qemu-user 覆盖差分、整二进制 AFL、PoC 执行）接到同一条证据链。上游挖掘
+AI 在工作台里调平台工具，产出带调用链和 PoC 的 finding。**不做整机仿真。**
 
-平台只产出**忠实、可审计的证据**（observed / verified 分级），不下漏洞
-结论；AI 只用于标注与可读性增强，不修改任何原始反编译产物。
+当前前端入口是 **工作台**（选已完成的前置任务 → 开挖掘会话）。编排提示、
+能力验收文案不对用户展示。动态工具结果带 `hunt_next`，给 agent 自己用，
+不是给用户看的验收表。
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
 ---
+
+## 当前状态（2026-08-23）
+
+- 工作台 dsh-web：Thinking 一行、工具卡、审批允许/拒绝、全部同意/需要审批、
+  当前窗口开挖、输入框停止生成（只 cancel）、侧栏停止对话（`/stop`）。
+- `max_turns` 按 `session.prompt` 计数；到顶暂停询问「继续挖掘 / 结束本轮」。
+  暂停后再发消息走 `POST /resume`，看门狗不能把 `done` 会话偷着重开。
+- 动态：`fw_request_trace` 支持 `via=stdin` / `input_path=/tmp/<file>` /
+  `payload` / `payload_hex` / `payloads_hex`；`fw_qemu_exec` 单次跑 PoC。
+  没喂输入就 SIGSEGV 标 `crash_kind=startup`（环境，禁止放弃该 ELF）。
+- Archer C7 v2 无人值守挖掘已跑过：job `3a1f3c822c22`，主会话
+  `s-mt4rda4n-55d3`，18 条 finding 与会话事件在仓库里。解包/图谱数据仍只在
+  分析机 `fwgraph/data/`。
+- 已知限制：网络口 trace 仍大量空差分（缺处理函数覆盖）；MIPS 函数级 AFL
+  handshake 常失败，整二进制 AFL 能跑；全系统 QEMU 不做。
+
+更细的变更记在 [进度-项目.md](进度-项目.md)。
 
 ## 核心特性
 
@@ -39,36 +52,27 @@
 - **攻击面分析（M6）**：source/sink 规则 → BFS 路径 → 启发式评分
   （`source权重 + sink权重 − 边数×0.22 − 消毒×0.45`）；保守静态路由恢复
   （(字符串, handler) 指针对扫描 + GoAhead 表适配）
-- **qemu-user 差分覆盖率（M7）**：单 ELF `chroot + qemu -d exec` 跑
-  baseline/trigger 两遍，trigger-only 函数即请求处理路径；与静态路径
-  交叉验证，输出 `observed`（函数被某次 trace 观测）与 `verified`
-  （整条链被同一次运行覆盖）——**不做整机/整固件仿真**
-- **函数级 fuzz / frida hook（动态分析）**：x86 目标用 **frida**（本机附加
-  或远程真机/仿真 27042，hook 模块+导出/偏移，命中事件落盘）；ARM/MIPS 等
-  用 **AFL++ qemu persistent 函数级 fuzz**（按架构构建的 afl-qemu-trace，
-  只跑目标函数，要求函数在正常启动流程可达）
+- **qemu-user 差分覆盖率（M7）**：单 ELF 在 docker 沙箱里 `chroot + qemu -d exec`
+  跑 baseline/trigger。网络口用 port + payload；解析器/CLI 用 `via=stdin` 或
+  `input_path=/tmp/<file>`。空差分不是漏洞，agent 应改 stdin 再跑。
+  **不做整机仿真。**
+- **PoC 执行（qemu_exec）**：单次跑固件 ELF，看 crash/timeout/error。
+  启动即崩（没喂 payload）是环境；喂了 payload 才崩才当动态证据。
+- **函数级 fuzz / frida hook**：x86 用 frida；ARM/MIPS 优先整二进制 AFL++
+  qemu（函数级 persistent handshake 在 MIPS 上经常失败）
 - **工控协议模糊测试（M-ICS）**：黑盒网络协议 fuzz——协议模板库
   （Modbus TCP / S7 / OPC UA / DNP3 / MQTT / HTTP）+ 确定性字段级变异
   （boundary/bitflip/fill/overflow/random，种子可复现）+ 纯软件监视器
   （TCP 探活/ICMP/协议探测）+ 故障确认与复播复现统计；授权确认闸门 +
   公网目标默认禁止；报告注册进报告中心（DOCX/PDF 导出）
-- **vulnagent（M8）**：上游漏洞挖掘 agent（Managed Agents 抽象，Node ≥20
-  零依赖；可选 DeepSeek Harness 引擎），工具消费平台 API（含受控
-  trace/fuzz/frida 触发、identification/surfaces 攻击面产物）；**纯静态 /
-  动静结合双模式**（静态模式收回全部动态工具）；六阶段记忆驱动 hunt
-  （锁定→深挖→验证→对抗→报告）；结构化 findings（服务端权威校验 +
-  置信度锚点 + 状态生命周期）+ 中文标准报告
-- **上下文预算**：函数 brief 分诊卡（约 1KB：攻击面元数据+伪代码头+
-  危险调用行号+callees）brief-first 分级检索；`attack_surface brief=true`
-  掉链节点；builtin 会话历史自动压缩（旧工具结果换首尾摘录占位，
-  幂等可重查）；dsh 引擎自带 compaction
-- **Web 前端（M5）**：Vue 3 SPA，浅蓝专业亮色主题——仪表盘 / 任务中心
-  （专业+简易双模式：简易模式上传即全自动出报告）/ 函数 /
-  攻击面（路径抽屉 + 调用链时间线 + 伪代码/汇编双视图）/
-  输入面（路由链时间线 + 授权链）/ 图谱（手写 Canvas 2D）/ 漏洞挖掘
-  （流式思考链 + 工具卡状态机）/ 协议挖掘（真机连接 + 工控固件联动
-  双入口）/ 报告中心（Markdown 预览 + DOCX/PDF 导出）/ 用户管理 /
-  日志审计 / 系统设置
+- **vulnagent（M8）**：工作台默认 **dsh-web**（DeepSeek Harness profile
+  `fwgraph`）。工具走平台 API；`fw_get_trace` / `fw_list_traces` /
+  `fw_qemu_exec` 返回压缩结果 + `hunt_next`（读差分函数或改 via=stdin）。
+  `record_finding` 必须同时有 `call_chain`（`→`）和 `poc`。轮次上限、
+  会话预算（trace 192 / fuzz 12 / exec 8）、日配额由编排器与插件共同卡住。
+- **Web 前端**：工作台（对话在左、选前置任务后发送即开挖）+ 仪表盘 /
+  前置任务 / 函数 / 攻击面 / 输入面 / 图谱 / 协议挖掘 / 报告 / 用户 /
+  日志 / 设置。隐藏 `【编排】` 与能力验收类注入气泡。
 - **产品化与安全**：账号密码登录（防爆破锁定 + 弱口令黑名单 + 首登强制
   改密）、会话 token（fws-）+ 主 token 双轨、owner 数据隔离（他人 404）、
   全量审计日志、按 job×日配额（trace/fuzz/frida/protofuzz）、
@@ -95,15 +99,13 @@
   │                          [M6a 外部输入识别] ──► [M6b 逐输入攻击面导出]
   │                          identification.json      information/AS-*.json
   │
-  ├─ POST /jobs/{id}/trace（qemu-user baseline/trigger 差分覆盖率）
-  │        └─► 差分函数 ──► 交叉验证（observed/verified）
-  ├─ POST /jobs/{id}/fuzz（ARM/MIPS：AFL++ qemu 函数级 fuzz）
-  ├─ POST /jobs/{id}/frida（x86：frida hook，本机/远程）
-  └─ POST /protofuzz（工控协议模糊测试：真机/仿真目标）
+  ├─ POST /jobs/{id}/trace（via=net|stdin，input_path，payload/payloads_hex）
+  ├─ POST /jobs/{id}/qemu-exec（单次 PoC，crash_kind=startup|payload）
+  ├─ POST /jobs/{id}/fuzz（ARM/MIPS：整二进制 AFL++ qemu）
+  ├─ POST /jobs/{id}/frida（x86）
+  └─ POST /protofuzz
 
-[vulnagent 上游漏洞挖掘 AI]（API + 受控动态工具 ──► findings + report.md）
-        ▲                        纯静态模式收回动态工具；六阶段 hunt 可选
-[Vue 3 SPA] 仪表盘 / 任务 / 分析视图 / 漏洞挖掘 / 协议挖掘 / 报告 / 系统管理
+[工作台 dsh-web]  session.prompt 计轮次 → 工具 hunt_next → findings + report.md
 ```
 
 ## 部署要求
@@ -141,17 +143,14 @@ git clone https://github.com/e-m-b-a/emba ~/emba
 cd webui && npm ci && npx vite build
 
 # 4. 浏览器打开 https://<host>:8000 —— admin/admin123 首登强制改密
-#    简易模式：上传固件即全自动完成分析并生成报告
-#    专业模式：任务中心可逐阶段触发
+#    前置任务页上传固件跑完全自动链；工作台选该任务后发送即开始挖掘
 
-# 5. 命令行分析一个固件（$T = 登录获取的 fws- 会话 token 或主 token）
+# 5. 挖掘引擎（工作台 dsh-web，Node 22 + pnpm）
+bash vulnagent/dsh/setup.sh              # clone/build DeepSeek Harness + fwgraph profile
+cd vulnagent && cp .env.example .env     # FWGRAPH_BASE_URL / TOKEN / LLM_*
+
+# 6. 命令行上传固件（$T = fws- 会话 token 或主 token）
 curl -k -X POST -H "Authorization: Bearer $T" -F "file=@firmware.bin" $H/firmware?auto=1
-
-# 6. 漏洞挖掘（vulnagent）
-cd vulnagent && cp .env.example .env     # FWGRAPH_BASE_URL/TOKEN/JOB_ID、LLM_*
-node src/cli.js run "对 verified 路径做漏洞挖掘" --max-turns 40
-node src/cli.js hunt "预认证漏洞" --rounds 3 --mode dynamic   # 六阶段打法
-# 或打开 SPA「漏洞挖掘」页签启动并实时查看事件流（纯静态/动静结合可选）
 ```
 
 ## Docker 部署（可选）
@@ -202,14 +201,16 @@ GitHub 只收源码和一份 Archer C7 挖掘记录，**clone 下来不能当分
 | `POST·GET /jobs/{id}/routes` | 路由扫描 / 摘要 |
 | `POST·GET /jobs/{id}/inputs`、`GET /jobs/{id}/identification` | M6a 外部输入识别（identification.json，公网可达、零遗漏） |
 | `POST·GET /jobs/{id}/surfaces`、`GET /jobs/{id}/surfaces/{sid}` | M6b 逐输入攻击面导出（information/AS-*.json + AS-AUTH-*.json） |
-| `POST /jobs/{id}/trace`、`GET /jobs/{id}/traces[/{tid}]` | 差分覆盖率 |
-| `POST·GET /jobs/{id}/fuzz[/{run_id}]` | AFL++ 函数级 fuzz（ARM/MIPS） |
+| `POST /jobs/{id}/trace`、`GET /jobs/{id}/traces[/{tid}]` | 差分覆盖率（`via`/`input_path`/`payloads_hex`） |
+| `POST·GET /jobs/{id}/qemu-exec[/{run_id}]` | 单次 qemu-user PoC |
+| `POST·GET /jobs/{id}/fuzz[/{run_id}]` | AFL++ qemu fuzz（ARM/MIPS，整二进制优先） |
 | `POST·GET /jobs/{id}/frida[/{run_id}]` | frida hook（x86，本机/远程） |
 | `GET /jobs/{id}/functions[/{md5}/{addr}/source]` | 函数清单与源码（`?asm=1` 汇编） |
 | `GET /jobs/{id}/functions/{md5}/{addr}/brief` | 函数分诊卡（约 1KB：攻击面元数据+伪代码头+危险调用行号+callees） |
 | `POST /graph/query` | 统一查询：search/cypher/trace/snippet/dangerous/trace_flow/attack_surface（含 brief）/routes/cfg/ast（含截断） |
 | `GET /protofuzz/protocols`、`POST /protofuzz`、`GET /protofuzz[/{rid}]`、`POST .../stop`、`POST .../report` | 工控协议模糊测试 |
-| `POST·GET /vulnagent/sessions[...]`、`GET·POST·PATCH /vulnagent/findings[/{fid}]` | 挖掘 session 与 findings（服务端权威校验） |
+| `POST·GET /vulnagent/sessions[...]`、`POST .../continue`、`POST .../resume`、`POST .../stop` | 挖掘会话（到顶续跑 / 暂停后拉活 / 结束） |
+| `GET·POST·PATCH /vulnagent/findings[/{fid}]` | findings（服务端权威校验，须 call_chain+poc） |
 | `POST /auth/login`、`POST /auth/logout`、`GET /auth/me`、`POST /auth/password` | 认证 |
 | `GET·POST·PATCH·DELETE /users`、`GET /audit` | 用户管理 / 审计（admin） |
 | `GET /dashboard`、`GET /system/info`、`GET·PUT /system/config`、`GET /logs` | 运维面板（部分 admin） |
@@ -231,10 +232,10 @@ fwgraph/                  Python 根包
   config/                 attack_surface.yaml、naming_spec.yaml
   libc-sigs/              uClibc FLIRT 签名制作
   scripts/                运维与探测脚本
-  webui/                  Vue 3 SPA（src → vite build → dist）
-vulnagent/                上游漏洞挖掘 agent（agent.json / sessions / findings）
-  playbooks/vuln-hunt/    六阶段打法与参考库
-  dsh/                    DeepSeek Harness 引擎整合（插件 + profile + setup.sh）
+  webui/                  Vue 3 SPA；挖掘入口 src/workbench/
+vulnagent/                挖掘 agent
+  sessions/ findings/     Archer C7 会话事件与 18 条 finding（随仓库）
+  dsh/                    Harness profile、工具插件、fwgraph-firmware-hunt skill
 tools/ida-no-mcp/         rootfs 批量 ELF 分析工具（vendor）
 进度-项目.md              当前进度总览（每次改动同步）
 进度-前端.md              前端进度
@@ -259,19 +260,17 @@ fwgraph/docs/             专题笔记（如 m2b-notes.md）
 5. **安全默认**：TLS 默认开、他人数据 404、配额按日限、审计全量、
    公网 fuzz 目标默认禁止
 
-## 验证状态（2026-08-17）
+## 验证状态（2026-08-23）
 
-- 测试基线：orchestrator **438 项，437 通过** + 1 跳过；vulnagent **29 项**（node:test 零依赖）
-- 案例固件一：小米 R3 `miwifi_r3_all_55ac7_2.11.20.bin`（mips32le，274 ELF）
-  - 定向反编译 sysapihttpd：1847 函数、1490 成功（80.7%），零加固
-  - 攻击面：42 source / 188 sink / 50 路径，3 条 verified
-  - CVE-2019-18371（sysapihttpd alias 目录穿越）用 M7 设施动态复现成功
-  - vulnagent 产出 CWE-121 栈溢出 finding（已附勘误与待确认问题）
-- 案例固件二：`US_MX12V2.tar`（arm32，169 二进制）
-  - 外部输入 39 条（证据四级分级）、攻击面 39 个、授权链 24 条、
-    GoAhead 真实路由恢复 8 条
-  - CFG 67045 个（假 ret 率 0.38%）、AST 55474 个（ERROR 率 0.09%）
-  - 协议 fuzz 冒烟：假 Modbus 设备 25 用例全响应、故障注入正确分级
+- 测试基线：orchestrator **529 项，528 通过 + 1 跳过**（见 `AGENTS.md`）；
+  vulnagent 插件 `dsh_plugin.test.js` 23 项通过。改动后保持该基线，优先模块测试。
+- Archer C7 v2 `ArcherC7v2_en_us_3_15_4_up(260427).bin`（job `3a1f3c822c22`）
+  - 工作台无人值守挖掘：会话 `s-mt4rda4n-55d3`（80 轮，15+ finding，多为 static-only）
+  - stdin 验收 `s-mt5k23tt-aaed`：`input_path` `a432876827e2` 非空差分 45；
+    `via=stdin` `f55640905b63` → `ok_empty_diff`
+  - 会话与 finding 在 `vulnagent/sessions/`、`vulnagent/findings/`；解包/图谱不在 Git
+- 更早案例（2026-08-17，仍有效）：小米 R3 mips32le；`US_MX12V2.tar` arm32
+  外部输入/攻击面/CFG/AST；CVE-2019-18371 用 M7 复现过
 
 ## 文档
 
