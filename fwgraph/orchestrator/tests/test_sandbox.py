@@ -116,6 +116,33 @@ class TestRunSandboxedCmd:
         assert seen["kw"]["stderr"] == subprocess.STDOUT
         assert seen["kw"]["stdout"].name == str(log)
 
+    def test_ports_accept_host_guest_tuple(self, monkeypatch):
+        seen = self._capture(monkeypatch)
+        sandbox.run_sandboxed(
+            ["/bin/x"], image="img", mounts=[], network="bridge",
+            ports=[(10022, 22)], name="fwgraph-trace-ssh")
+        pubs = [seen["cmd"][i + 1] for i, v in enumerate(seen["cmd"]) if v == "-p"]
+        assert pubs == ["127.0.0.1:10022:22"]
+
+    def test_sysctls_are_passed(self, monkeypatch):
+        seen = self._capture(monkeypatch)
+        sandbox.run_sandboxed(
+            ["/bin/x"], image="img", mounts=[],
+            sysctls={"net.ipv4.ip_unprivileged_port_start": "0"})
+        cmd = seen["cmd"]
+        assert cmd[cmd.index("--sysctl") + 1] == \
+            "net.ipv4.ip_unprivileged_port_start=0"
+
+    def test_user_and_cap_add(self, monkeypatch):
+        seen = self._capture(monkeypatch)
+        sandbox.run_sandboxed(
+            ["/bin/x"], image="img", mounts=[],
+            user="0", cap_add=["SYS_CHROOT", "NET_BIND_SERVICE"])
+        cmd = seen["cmd"]
+        assert cmd[cmd.index("--user") + 1] == "0"
+        caps = [cmd[i + 1] for i, v in enumerate(cmd) if v == "--cap-add"]
+        assert caps == ["SYS_CHROOT", "NET_BIND_SERVICE"]
+
     def test_timeout_watchdog_removes_container(self, monkeypatch):
         removed = threading.Event()
         calls = []
@@ -289,6 +316,8 @@ class TestFuzzSandbox:
         monkeypatch.setenv("FUZZ_AFL_QEMU", "/bin/true")
         monkeypatch.setattr(docker_backend, "_DOCKER_OK", True)
         monkeypatch.setattr(sandbox, "sandbox_image_present", lambda _i: True)
+        monkeypatch.setattr(fuzz_runner, "_docker_can_exec_host_bin",
+                            lambda _p: True)
         seen = {}
 
         def fake_popen(cmd, **kw):
@@ -318,6 +347,29 @@ class TestFuzzSandbox:
         assert summary["sandbox_image"] == sandbox.SANDBOX_IMAGE
         assert summary["sandbox_limits"] == dict(sandbox.DEFAULT_LIMITS)
         assert "sandbox_warning" not in summary
+
+    def test_glibc_mismatch_falls_back_to_host(self, tmp_path, monkeypatch):
+        data_dir, md5, _ = _mk_job(tmp_path)
+        monkeypatch.setenv("FUZZ_AFL_QEMU", "/bin/true")
+        monkeypatch.setattr(docker_backend, "_DOCKER_OK", True)
+        monkeypatch.setattr(sandbox, "sandbox_image_present", lambda _i: True)
+        monkeypatch.setattr(fuzz_runner, "_docker_can_exec_host_bin",
+                            lambda _p: False)
+        seen = {}
+
+        def fake_popen(cmd, **kw):
+            seen["cmd"] = list(cmd)
+            out = Path(kw["cwd"]) / "afl_out" / "default"
+            (out / "crashes").mkdir(parents=True)
+            (out / "fuzzer_stats").write_text("execs_done : 4\n")
+            return _FakeProc()
+
+        monkeypatch.setattr(fuzz_runner.subprocess, "Popen", fake_popen)
+        summary = fuzz_runner.run_job("job1", data_dir, md5, argv=["@@"],
+                                      seconds=5)
+        assert seen["cmd"][0] == "afl-fuzz"
+        assert summary["sandbox_backend"] == "none"
+        assert "glibc" in summary["sandbox_warning"]
 
     def test_image_missing_falls_back_to_host(self, tmp_path, monkeypatch):
         data_dir, md5, _ = _mk_job(tmp_path)
@@ -385,7 +437,7 @@ class TestTraceDocker:
         monkeypatch.setattr(docker_backend, "_DOCKER_OK", True)
         monkeypatch.setattr(sandbox, "sandbox_image_present", lambda _i: True)
         rootfs = tmp_path / "rootfs"
-        for d in ("bin", "etc", "tmp"):
+        for d in ("bin", "etc", "tmp", "web", "proc"):
             (rootfs / d).mkdir(parents=True)
         rm_calls = []
         monkeypatch.setattr(
@@ -398,9 +450,10 @@ class TestTraceDocker:
         def fake(cmd, **kw):
             seen["cmd"] = list(cmd)
             seen["kw"] = kw
-            out_host = next(h for h, c, _m in kw["mounts"] if c == "/out")
+            out_host = next(h for h, _c, m in kw["mounts"] if m == "rw")
             seen["out_dir"] = out_host
-            log_rel = cmd[cmd.index("-D") + 1]          # /out/<run>.log
+            seen["tmp_seed"] = (Path(out_host) / "dec-model.conf").is_file()
+            log_rel = cmd[cmd.index("-D") + 1]
             (Path(out_host) / Path(log_rel).name).write_text(
                 "Trace 0x1 [0x400290]\n", encoding="utf-8")
             return _FakeProc()
@@ -422,19 +475,39 @@ class TestTraceDocker:
         assert kw["image"] == sandbox.SANDBOX_IMAGE
         mounts = [(h, c, m) for h, c, m in kw["mounts"]]
         assert (str(rootfs), str(rootfs), "ro") in mounts
-        assert (str(rootfs / "bin"), "/bin", "ro") in mounts
-        assert (str(rootfs / "etc"), "/etc", "ro") in mounts
-        assert (seen["out_dir"], "/out", "rw") in mounts
+        assert (str(rootfs / "bin"), "/bin", "ro") not in mounts
+        assert (str(rootfs / "etc"), "/etc", "ro") not in mounts
+        assert (seen["out_dir"], str(rootfs / "tmp"), "rw") in mounts
+        assert ("/proc", str(rootfs / "proc"), "ro") in mounts
         cmd = seen["cmd"]
-        assert cmd[0] == "/usr/bin/qemu-arm"
-        assert cmd[cmd.index("-L") + 1] == str(rootfs)
-        assert cmd[cmd.index("-D") + 1].startswith("/out/")
+        assert cmd[:3] == ["chroot", str(rootfs), "/usr/bin/qemu-arm"]
+        assert cmd[-1] == "/bin/hello"
+        assert "-L" not in cmd
+        assert cmd[cmd.index("-D") + 1].startswith("/tmp/")
+        assert kw["user"] == "0"
+        assert "SYS_CHROOT" in kw["cap_add"]
+        assert "NET_BIND_SERVICE" in kw["cap_add"]
+        assert seen["tmp_seed"] is True
         assert ["docker", "rm", "-f", "fwgraph-trace-dockertest01"] in rm_calls
         assert not Path(seen["out_dir"]).exists()  # 取回日志后已清理
         assert meta["sandbox"] == "docker"
         assert meta["sandbox_backend"] == "docker"
         assert meta["sandbox_image"] == sandbox.SANDBOX_IMAGE
         assert meta["sandbox_limits"] == dict(sandbox.DEFAULT_LIMITS)
+
+    def test_docker_usr_bin_uses_rootfs_host_path(self, tmp_path, monkeypatch):
+        """固件 /usr/bin/* 不能走容器 /usr（镜像 qemu 占着）。"""
+        rootfs, _ = self._setup(tmp_path, monkeypatch)
+        (rootfs / "usr" / "bin").mkdir(parents=True)
+        seen = {}
+        monkeypatch.setattr(qemu_cov.sandbox, "run_sandboxed",
+                            self._fake_run_sandboxed(seen))
+        qemu_cov.run_coverage(
+            rootfs, "/qemu-mips", ["/usr/bin/httpd"], "dockertest-usr",
+            run_timeout=1.0)
+        cmd = seen["cmd"]
+        assert cmd[:3] == ["chroot", str(rootfs), "/qemu-mips"]
+        assert cmd[-1] == "/usr/bin/httpd"
 
     def test_service_docker_publishes_loopback(self, tmp_path, monkeypatch):
         rootfs, _ = self._setup(tmp_path, monkeypatch)
@@ -445,8 +518,57 @@ class TestTraceDocker:
             rootfs, "/usr/bin/qemu-arm", ["/bin/svc"], "dockertest02",
             port=8080, probe_port=False, hold_seconds=0.01, run_timeout=1.0)
         assert seen["kw"]["network"] == "bridge"
-        assert seen["kw"]["ports"] == [8080]
+        assert seen["kw"]["ports"] == [(8080, 8080)]
+        assert seen["kw"]["sysctls"] == {
+            "net.ipv4.ip_unprivileged_port_start": "0"}
         assert meta["sandbox_backend"] == "docker"
+
+    def test_privileged_guest_port_is_published_high(self, tmp_path, monkeypatch):
+        """Guest 22 must not bind host sshd; docker -p 10022:22, trigger 10022."""
+        rootfs, _ = self._setup(tmp_path, monkeypatch)
+        seen = {}
+        hits = {}
+        monkeypatch.setattr(qemu_cov.sandbox, "run_sandboxed",
+                            self._fake_run_sandboxed(seen))
+        monkeypatch.setattr(qemu_cov, "publish_host_port", lambda p: 10000 + p)
+
+        def trigger(connect_port):
+            hits["port"] = connect_port
+            return {"kind": "tcp_connect", "port": connect_port}
+
+        qemu_cov.run_coverage(
+            rootfs, "/usr/bin/qemu-arm", ["/bin/dropbear"], "dockertest22",
+            port=22, probe_port=False, hold_seconds=0.01, run_timeout=1.0,
+            trigger=trigger)
+        assert seen["kw"]["ports"] == [(10022, 22)]
+        assert hits["port"] == 10022
+
+    def test_docker_stdin_redirects_from_rootfs_tmp(self, tmp_path, monkeypatch):
+        """docker 的 sh -c 在 chroot 外，stdin 必须读 rootfs/tmp bind，不是容器 /tmp。"""
+        rootfs, _ = self._setup(tmp_path, monkeypatch)
+        seen = {}
+
+        def fake(cmd, **kw):
+            seen["cmd"] = list(cmd)
+            seen["kw"] = kw
+            out_host = next(h for h, _c, m in kw["mounts"] if m == "rw")
+            seen["stdin_file"] = (Path(out_host) / "fwgraph-stdin").read_bytes()
+            (Path(out_host) / "fwgraph-cov-stdin01.log").write_text(
+                "Trace 0x1 [0x400290]\n", encoding="utf-8")
+            return _FakeProc()
+
+        monkeypatch.setattr(qemu_cov.sandbox, "run_sandboxed", fake)
+        addrs, _meta = qemu_cov.run_coverage(
+            rootfs, "/usr/bin/qemu-arm", ["/bin/md5sum"], "stdin01",
+            run_timeout=1.0, stdin_bytes=b"hello")
+        assert addrs == [0x400290]
+        assert seen["stdin_file"] == b"hello"
+        cmd = seen["cmd"]
+        assert cmd[:2] == ["sh", "-c"]
+        script = cmd[2]
+        assert f"< {rootfs / 'tmp' / 'fwgraph-stdin'}" in script
+        assert "< /tmp/fwgraph-stdin" not in script
+        assert "chroot" in script
 
     def test_image_missing_keeps_userns_path(self, tmp_path, monkeypatch):
         """镜像未构建：回退原有 userns 裁决，行为不变。"""

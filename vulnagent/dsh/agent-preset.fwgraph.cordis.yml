@@ -1,0 +1,27 @@
+# fwgraph 挖矿 agent preset（dsh web host 模式）。
+# web/subagent 在 profile 宿主层禁用；沙箱 bash/fs 由 dsh-base 默认行提供。
+# standard preset 引用了 tool-web，会因宿主 web 服务被禁用而挂载失败，
+# 所以必须用这个独立 preset。
+# persona 留空——profile 的 system-prompt 行（fwgraph 挖矿人格）生效。
+# 由 vulnagent/dsh/setup.sh 安装到 $DSH_HOME/.agent-presets/fwgraph/。
+
+# 长会话上下文压缩（与 standard preset 同构；tokenMeter 在宿主层）
+- id: compaction
+  name: cordis:group
+  group: true
+  isolate:
+    compaction: true
+    toolResultPruner: true
+  config:
+    - id: compaction-basic
+      name: '@deepseek-ai/dsh-compaction-basic'
+
+    - id: command-compact
+      name: '@deepseek-ai/dsh-command-compact'
+
+    - id: tool-result-pruner
+      name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
+      config:
+        thresholdChars: 8192
+        headChars: 4096
+        tailChars: 1024

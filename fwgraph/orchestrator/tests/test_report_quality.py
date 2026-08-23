@@ -103,10 +103,10 @@ def test_unrelated_findings_moved_to_appendix(vuln_home, tmp_path):
     _write_finding(vuln_home, _mk_finding("F-unr-00001", job_id="",
                                           title="孤立发现XYZ"))
     md = _gen("job1", tmp_path / "data")
-    sec7 = _section(md, "## 七、", "## 八、")
-    assert "孤立发现XYZ" not in sec7            # 正文不再出现
-    assert "未能关联到本任务" in sec7            # 仅保留指针
-    appendix = md.split("## 九、", 1)[1]
+    sec2 = _section(md, "## 二、", "## 三、")
+    assert "孤立发现XYZ" not in sec2            # 正文不再出现
+    assert "未能关联到本任务" in sec2            # 仅保留指针
+    appendix = md.split("## 三、", 1)[1]
     assert "孤立发现XYZ" in appendix
     assert "以下发现未能关联到本固件，仅供参考" in appendix
 
@@ -118,9 +118,8 @@ def test_unrelated_findings_moved_to_appendix(vuln_home, tmp_path):
 def test_conclusion_no_unconditional_template(vuln_home, tmp_path):
     md = _gen("job1", tmp_path / "data")
     assert "通用加固" not in md
-    sec8 = _section(md, "## 八、", "## 九、")
-    assert "签名校验" not in sec8               # 无证据不硬凑
-    assert "（无数据）" in sec8
+    assert "签名校验" not in md
+    assert "编译加固不足" not in md
 
 
 def test_conclusion_password_advice_needs_evidence(vuln_home, tmp_path):
@@ -129,13 +128,10 @@ def test_conclusion_password_advice_needs_evidence(vuln_home, tmp_path):
         vuln_class="Use of Default Credentials", cwe="CWE-798",
         remediation="首次启动强制改密"))
     md = _gen("job1", tmp_path / "data")
-    sec8 = _section(md, "## 八、", "## 九、")
-    assert "默认口令" in sec8
-    assert "首次启动强制改密" in sec8            # 分档清单带 remediation
-    # 没有凭据类发现时不出该建议
+    assert "默认管理员口令" in md
+    assert "首次启动强制改密" in md
     md2 = _gen("job2", tmp_path / "data")
-    sec8b = _section(md2, "## 八、", "## 九、")
-    assert "移除固件中的默认口令" not in sec8b
+    assert "移除固件中的默认口令" not in md2
 
 
 def test_conclusion_confidence_second_sort(vuln_home, tmp_path):
@@ -147,9 +143,8 @@ def test_conclusion_confidence_second_sort(vuln_home, tmp_path):
         "F-high-0001", title="高危低置信CCC", severity="high",
         confidence="0.1"))
     md = _gen("job1", tmp_path / "data")
-    sec8 = _section(md, "## 八、", "## 九、")
-    assert sec8.index("中危高置信BBB") < sec8.index("中危低置信AAA")
-    # 执行摘要最高风险点按 (severity, confidence) 选：高危优先
+    sec2 = _section(md, "## 二、", "## 三、")
+    assert sec2.index("中危高置信BBB") < sec2.index("中危低置信AAA")
     sec1 = _section(md, "## 一、", "## 二、")
     assert "高危低置信CCC" in sec1
 
@@ -210,10 +205,7 @@ def test_excluded_details_in_appendix(vuln_home, tmp_path):
         "metadata": {"excluded": ["EXCLUDED: hostapd (not public)"],
                      "unreadable": ["u1"]}}), encoding="utf-8")
     md = _gen("job1", data_dir)
-    sec3 = _section(md, "## 三、", "## 四、")
-    assert "excluded（非公网面，1 个）" in sec3
-    assert "EXCLUDED: hostapd" not in sec3      # 正文只有计数
-    appendix = md.split("## 九、", 1)[1]
+    appendix = md.split("## 三、", 1)[1]
     assert "输入识别 excluded/unreadable 明细" in appendix
     assert "EXCLUDED: hostapd" in appendix
     assert "UNREADABLE: u1" in appendix

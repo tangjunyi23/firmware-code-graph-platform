@@ -8,12 +8,24 @@ it never touches the agent's reasoning or the downstream evidence.
 
 Endpoints (all Bearer-auth via the orchestrator's require_token):
   POST /vulnagent/sessions               {task, max_turns?} -> 202 {session_id}
+                                         （dsh web host 模式：每会话一个 harness
+                                         web host 进程，preset=fwgraph）
   GET  /vulnagent/sessions               session list (newest first;
                                          non-admin: own sessions only)
   GET  /vulnagent/sessions/{sid}         state.json + resolved findings
   GET  /vulnagent/sessions/{sid}/events  SSE stream (live-follow while running)
+  POST /vulnagent/sessions/{sid}/rpc/{method}  harness JSON-RPC 透传（白名单：
+                                         prompt/history/cancel/updateQueue/fork/
+                                         rename/models/selectModel/list 等）
+  GET  /vulnagent/sessions/{sid}/mux     harness 事件流（WS→SSE 桥）
+  POST /vulnagent/sessions/{sid}/respond 审批/提问答复转发
   GET  /vulnagent/sessions/{sid}/report  Markdown report
   POST /vulnagent/sessions/{sid}/stop    best-effort terminate
+  POST /vulnagent/sessions/{sid}/resume  用户在暂停/结束后发消息：拉活再 prompt
+  POST /vulnagent/sessions/{sid}/continue 到顶后续跑（放宽 max_turns）
+  PATCH /vulnagent/sessions/{sid}        {archived: bool} hide/restore in the list
+  POST /vulnagent/sessions/purge-archived  delete every archived session the caller can see
+  DELETE /vulnagent/sessions/{sid}       stop if running, then remove session dir
   POST /vulnagent/findings               server-validated finding intake -> 201
   PATCH /vulnagent/findings/{fid}        {status, note?} + history[] entry
   GET  /vulnagent/findings               all findings (index.jsonl, newest first;
@@ -31,6 +43,7 @@ import asyncio
 import json
 import os
 import re
+import shutil
 import signal
 import subprocess
 import threading
@@ -41,13 +54,14 @@ from fastapi import Body, Depends, FastAPI, HTTPException
 from fastapi.responses import PlainTextResponse, StreamingResponse
 
 from . import accounts, config
+from . import dsh_host as _dsh_host
 
 FWGRAPH_ROOT = Path(__file__).resolve().parents[2]
 VULNAGENT_HOME = Path(os.getenv(
     "VULNAGENT_HOME", str(FWGRAPH_ROOT.parent / "vulnagent")))
 NODE_BIN = os.getenv("VULNAGENT_NODE_BIN", "node")
 MAX_PARALLEL = int(os.getenv("VULNAGENT_MAX_SESSIONS", "2"))
-MAX_TURNS_CAP = int(os.getenv("VULNAGENT_MAX_TURNS_CAP", "100"))
+MAX_TURNS_CAP = int(os.getenv("VULNAGENT_MAX_TURNS_CAP", "200"))
 # Session engine is DeepSeek Harness only (fwgraph profile). The builtin
 # loop remains in vulnagent/src for offline CLI tests (`--engine builtin`).
 VULNAGENT_ENGINE = "dsh"
@@ -117,11 +131,15 @@ def _read_state(sdir: Path) -> dict:
 
 
 def _alive(sid: str) -> bool:
-    """Liveness: the in-process Popen first, then the pid file left on disk
-    (survives service restarts — the runner is start_new_session=True)."""
+    """Liveness: managed dsh host, in-process CLI Popen, then the pid file
+    left on disk (survives service restarts — the runner is
+    start_new_session=True)."""
     proc = _procs.get(sid)
     if proc is not None:
         return proc.poll() is None
+    mgr = _dsh_manager
+    if mgr is not None and sid in mgr.live_sids():
+        return True
     pid = _read_pid(VULNAGENT_HOME / "sessions" / sid)
     return pid is not None and _pid_alive(pid)
 
@@ -146,13 +164,22 @@ def _pid_alive(pid: int) -> bool:
 
 
 def _live_sessions() -> list:
-    """Session ids with a live runner, from _procs + pid files (a restart
-    no longer resets the MAX_PARALLEL count)."""
+    """Session ids with a live hunt. Hosts spawned only to serve history
+    on an already-done session do not consume MAX_PARALLEL. A session
+    that is still booting (status=running, no pid file yet) counts so
+    two overlapping POSTs cannot skip the cap."""
     base = VULNAGENT_HOME / "sessions"
     if not base.is_dir():
         return []
-    return sorted(d.name for d in base.iterdir()
-                  if d.is_dir() and _alive(d.name))
+    out = []
+    for d in base.iterdir():
+        if not d.is_dir():
+            continue
+        if _read_state(d).get("status") != "running":
+            continue
+        if _alive(d.name) or not (d / "runner.pid").is_file():
+            out.append(d.name)
+    return sorted(out)
 
 
 def _session_owner(sdir: Path) -> str:
@@ -187,14 +214,35 @@ def _migrate_legacy_owners():
 
 
 def _effective_status(sid: str, state: dict) -> str:
+    status = state.get("status", "unknown")
+    # 已结束的会话可能为了 history 再拉起 host；不要把「能回放」当成还在挖。
+    if status in ("done", "error", "awaiting_continue"):
+        return status
     if _alive(sid):
         return "running"
-    status = state.get("status", "unknown")
-    # state.json may stay "running" forever when the service restarts; with
-    # no live process (managed or pid-file) report it as interrupted.
+    # still booting: state is running but the pid file is not there yet
     if status == "running":
+        sdir = VULNAGENT_HOME / "sessions" / sid
+        if not (sdir / "runner.pid").is_file():
+            return "running"
         return "interrupted"
     return status
+
+
+def _session_finding_ids(sid: str) -> list:
+    """Live finding ids for a session (disk is source of truth while running)."""
+    found = []
+    fdir = VULNAGENT_HOME / "findings"
+    if not fdir.is_dir():
+        return found
+    for f in sorted(fdir.glob("F-*.json")):
+        try:
+            doc = json.loads(f.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if doc.get("session_id") == sid and _FID_RE.match(str(doc.get("id") or "")):
+            found.append(doc["id"])
+    return found
 
 
 def _session_summary(sdir: Path) -> dict:
@@ -205,12 +253,20 @@ def _session_summary(sdir: Path) -> dict:
         "task": state.get("task", ""),
         "status": _effective_status(sid, state),
         "turns": state.get("turns", 0),
-        "findings": state.get("findings", []),
+        "findings": _session_finding_ids(sid) or state.get("findings", []),
         "usage": state.get("usage", {}),
         "created_at": state.get("created_at"),
         "updated_at": state.get("updated_at"),
         "managed": _alive(sid),
         "owner": state.get("owner") or "admin",
+        "job_id": state.get("job_id") or "",
+        "mode": state.get("mode") or "dynamic",
+        "engine": state.get("engine") or "",
+        "archived": bool(state.get("archived")),
+        "dsh_session_id": state.get("dsh_session_id") or "",
+        "error": state.get("error") or "",
+        "approval_policy": state.get("approval_policy") or "auto",
+        "max_turns": int(state.get("max_turns") or 80),
     }
 
 
@@ -280,6 +336,18 @@ def _bind_hunt_session(job_id: str, sid: str) -> None:
         if not job:
             return
         job["hunt_session_id"] = sid
+        _main._save_job(job)
+
+
+def _unbind_hunt_session(job_id: str, sid: str) -> None:
+    if not job_id or not sid:
+        return
+    from . import main as _main
+    with _main._jobs_lock:
+        job = _main._jobs.get(job_id)
+        if not job or job.get("hunt_session_id") != sid:
+            return
+        job.pop("hunt_session_id", None)
         _main._save_job(job)
 
 
@@ -403,6 +471,15 @@ def _validate_finding(payload: dict) -> dict:
         if not trace_file.is_file():
             bad(f"trace_id 对应的 trace 不存在: {trace_id}")
 
+    chain = payload.get("call_chain")
+    if not isinstance(chain, str) or not chain.strip():
+        bad("call_chain 必填，用 → 连接函数名与地址")
+    if "→" not in chain and "->" not in chain:
+        bad("call_chain 须用 → 连接调用路径（函数名+地址）")
+    poc = payload.get("poc") or payload.get("exploit_sketch")
+    if not isinstance(poc, str) or not poc.strip():
+        bad("poc 必填，须给出可复现请求或命令")
+
     confidence_reported = None
     if reachability in ("static", "static-only") and confidence > _STATIC_CONFIDENCE_CAP:
         # 静态证据封顶 0.7：原值留痕，落库值封顶
@@ -522,6 +599,198 @@ def _vulnagent_env() -> dict:
     return env
 
 
+def _inject_node_ca(env: dict, env_file: dict) -> None:
+    """Node fetch 必须信任编排器自签证书，否则 fw_* HTTP 工具全部失败。"""
+    for candidate in (
+        env_file.get("NODE_EXTRA_CA_CERTS"),
+        env.get("NODE_EXTRA_CA_CERTS"),
+        str(_data_dir() / "tls" / "cert.pem"),
+        str(FWGRAPH_ROOT / "data" / "tls" / "cert.pem"),
+    ):
+        if candidate and Path(candidate).is_file():
+            env["NODE_EXTRA_CA_CERTS"] = candidate
+            return
+
+
+def _refresh_job_report(job_id: str) -> None:
+    """finding 入库后刷新任务漏洞报告（失败不影响入库）。"""
+    if not job_id:
+        return
+    try:
+        from pipeline import report as job_report
+        job_report.generate_job_report(job_id, _data_dir())
+    except Exception:
+        pass
+
+
+# ---------------- dsh web host（工作台多轮会话/queue/steer/审批） ----------------
+
+
+def _dsh_env(sid: str, sdir: Path, state: dict) -> dict:
+    """web host 模式的 env 组装（与 _spawn_dsh 同源，值从 state 取）。"""
+    env_file = _vulnagent_env()
+    env = dict(os.environ)
+    env.update({
+        "PATH": str(Path.home() / ".local/bin") + ":" + env.get("PATH", ""),
+        "DSH_HOME": DSH_HOME,
+        "DEEPSEEK_API_KEY": env_file.get("LLM_API_KEY", ""),
+        "DEEPSEEK_BASE_URL": env_file.get("LLM_BASE_URL", ""),
+        "FWGRAPH_BASE_URL": env_file.get("FWGRAPH_BASE_URL", ""),
+        "FWGRAPH_TOKEN": env_file.get("FWGRAPH_TOKEN", ""),
+        "FWGRAPH_JOB_ID": state.get("job_id")
+                          or env_file.get("FWGRAPH_JOB_ID", ""),
+        "FWGRAPH_FINDINGS_DIR": str(VULNAGENT_HOME / "findings"),
+        "FWGRAPH_EVENTS_FILE": str(sdir / "events.sse"),
+        "FWGRAPH_SESSION_ID": sid,
+        "FWGRAPH_TASK": state.get("task", ""),
+        "FWGRAPH_MODE": state.get("mode", "dynamic"),
+        "FWGRAPH_MAX_TURNS": str(state.get("max_turns") or 40),
+        "FWGRAPH_EXTRACTED_ROOT": str(_data_dir() / "extracted"),
+        # ask = 动态工具走审批面板；auto = 无人值守直接放行（fuzz/trace 才能真正跑）
+        "FWGRAPH_APPROVAL": (
+            "1" if str(state.get("approval_policy") or "auto") == "ask"
+            else "auto"),
+    })
+    _inject_node_ca(env, env_file)
+    return env
+
+
+def _dsh_finalize(sid: str, sdir: Path, state: dict, reason: str) -> None:
+    """stop/reap 收尾：归拢本 session 的 findings、写报告、落 state、
+    补 session_end 事件（与 _watch 的一次性 CLI 收尾等价）。"""
+    fresh = _read_state(sdir) or state
+    found = _session_finding_ids(sid)
+    fresh["status"] = "done"
+    fresh["findings"] = found
+    fresh["updated_at"] = _now()
+    try:
+        _write_report(sdir, fresh)
+        _refresh_job_report(fresh.get("job_id") or "")
+    except Exception as exc:  # noqa: BLE001 - 报告失败不能拖垮收尾
+        try:
+            with open(sdir / "runner.log", "a", encoding="utf-8") as fh:
+                fh.write(f"[vulnagent_api] report generation failed: "
+                         f"{type(exc).__name__}: {exc}\n")
+        except OSError:
+            pass
+    try:
+        (sdir / "state.json").write_text(json.dumps(fresh, indent=2),
+                                         encoding="utf-8")
+    except OSError:
+        pass
+    try:
+        with open(sdir / "events.sse", "a", encoding="utf-8") as fh:
+            fh.write("event: session_end\ndata: "
+                     + json.dumps({"seq": 10**9, "ts": fresh["updated_at"],
+                                   "summary": f"dsh web host {reason}",
+                                   "findings": found}) + "\n\n")
+    except OSError:
+        pass
+
+
+_dsh_manager: _dsh_host.DshHostManager | None = None
+
+
+def _manager() -> _dsh_host.DshHostManager:
+    global _dsh_manager
+    if _dsh_manager is None:
+        _dsh_manager = _dsh_host.DshHostManager(
+            DSH_REPO, NODE_BIN, _dsh_env, _dsh_finalize,
+            persist=lambda sid, sdir, state: _save_state(sdir, state))
+    return _dsh_manager
+
+
+def _cap_detail(turns: int, max_turns: int) -> dict:
+    return {
+        "code": "max_turns",
+        "turns": turns,
+        "max_turns": max_turns,
+        "message": f"已达 {max_turns} 轮上限，确认后可继续挖掘",
+    }
+
+
+def _pause_for_continue(sdir: Path, state: dict) -> None:
+    state["status"] = "awaiting_continue"
+    _save_state(sdir, state)
+
+
+def _charge_turn(sdir: Path, state: dict) -> dict:
+    """session.prompt 计一轮。到 max_turns 后暂停并询问是否继续。"""
+    max_turns = int(state.get("max_turns") or 80)
+    turns = int(state.get("turns") or 0)
+    if turns >= max_turns:
+        _pause_for_continue(sdir, state)
+        raise HTTPException(status_code=409, detail=_cap_detail(turns, max_turns))
+    state["turns"] = turns + 1
+    if state.get("status") == "awaiting_continue":
+        state["status"] = "running"
+    _save_state(sdir, state)
+    return state
+
+
+def _save_state(sdir: Path, state: dict) -> None:
+    state["updated_at"] = _now()
+    try:
+        (sdir / "state.json").write_text(json.dumps(state, indent=2),
+                                         encoding="utf-8")
+    except OSError:
+        pass
+
+
+def _force_rmtree(path: Path) -> None:
+    """Retry rmtree: host logs / pid files may still be open for a beat."""
+
+    def _fix(func, p, _exc):
+        try:
+            os.chmod(p, 0o700)
+            func(p)
+        except OSError:
+            pass
+
+    for _ in range(12):
+        if not path.exists():
+            return
+        try:
+            shutil.rmtree(path, onexc=_fix)
+        except OSError:
+            pass
+        if not path.exists():
+            return
+        time.sleep(0.12)
+
+
+def _wipe_session(sid: str, sdir: Path, state: dict) -> None:
+    """Kill host (and keep it from respawning) then remove the session dir."""
+    try:
+        _manager().stop(sid, sdir, state, reason="delete", finalize=False,
+                        discard=True)
+    except Exception:
+        pass
+    proc = _procs.pop(sid, None)
+    if proc is not None and proc.poll() is None:
+        try:
+            proc.terminate()
+        except OSError:
+            pass
+    pid = _read_pid(sdir)
+    if pid is not None and _pid_alive(pid):
+        for sig in (signal.SIGTERM, signal.SIGKILL):
+            try:
+                os.killpg(pid, sig)
+            except OSError:
+                try:
+                    os.kill(pid, sig)
+                except OSError:
+                    break
+            deadline = time.monotonic() + (1.5 if sig == signal.SIGTERM else 0.8)
+            while time.monotonic() < deadline and _pid_alive(pid):
+                time.sleep(0.05)
+            if not _pid_alive(pid):
+                break
+    _unbind_hunt_session(str(state.get("job_id") or ""), sid)
+    _force_rmtree(sdir)
+
+
 def _spawn_dsh(sid: str, sdir: Path, task: str, mode: str = "dynamic",
                job_id: str | None = None, max_turns: int = 40,
                owner: str = "admin"):
@@ -550,7 +819,9 @@ def _spawn_dsh(sid: str, sdir: Path, task: str, mode: str = "dynamic",
         "FWGRAPH_TASK": task,
         "FWGRAPH_MODE": mode,
         "FWGRAPH_MAX_TURNS": str(max_turns),
+        "FWGRAPH_EXTRACTED_ROOT": str(_data_dir() / "extracted"),
     })
+    _inject_node_ca(env, env_file)
     cmd = [NODE_BIN, "--import", "tsx/esm", "apps/cli/src/bin.ts",
            "--profile", "fwgraph", task]
     log_file = open(sdir / "runner.log", "ab")
@@ -582,16 +853,7 @@ def _spawn_dsh(sid: str, sdir: Path, task: str, mode: str = "dynamic",
         end = _now()
         # findings the dsh tools plugin recorded under this session id
         # (no more timestamp guessing — FWGRAPH_SESSION_ID is authoritative)
-        found = []
-        fdir = VULNAGENT_HOME / "findings"
-        if fdir.is_dir():
-            for f in sorted(fdir.glob("F-*.json")):
-                try:
-                    doc = json.loads(f.read_text(encoding="utf-8"))
-                except (OSError, json.JSONDecodeError):
-                    continue
-                if doc.get("session_id") == sid and doc.get("id"):
-                    found.append(doc["id"])
+        found = _session_finding_ids(sid)
         state["status"] = "done" if rc == 0 else "error"
         state["findings"] = found
         state["updated_at"] = end
@@ -633,6 +895,14 @@ def setup(app: FastAPI, require_token) -> None:
     auth = [Depends(require_token)]
     _migrate_legacy_owners()
 
+    def _state_reader(sid: str):
+        sdir = VULNAGENT_HOME / "sessions" / sid
+        if not sdir.is_dir():
+            return None
+        return sdir, _read_state(sdir)
+
+    _manager().start_reaper(_state_reader)
+
     @app.post("/vulnagent/sessions", status_code=202)
     def start_session(payload: dict = Body(...),
                       principal: dict = Depends(require_token)):
@@ -663,7 +933,7 @@ def setup(app: FastAPI, require_token) -> None:
             raise HTTPException(
                 status_code=409,
                 detail="job 尚未完成攻击面分析——漏洞挖掘必须从攻击面与图谱取数")
-        max_turns = int(payload.get("max_turns") or 40)
+        max_turns = int(payload.get("max_turns") or 80)
         if not 1 <= max_turns <= MAX_TURNS_CAP:
             raise HTTPException(status_code=400,
                                 detail=f"max_turns must be 1..{MAX_TURNS_CAP}")
@@ -681,27 +951,66 @@ def setup(app: FastAPI, require_token) -> None:
         sid = _new_sid()
         sdir = VULNAGENT_HOME / "sessions" / sid
         sdir.mkdir(parents=True, exist_ok=True)
-        try:
-            proc = _spawn_dsh(sid, sdir, task, mode=mode, job_id=job_id,
-                              max_turns=max_turns,
-                              owner=principal["username"])
-        except OSError as exc:
-            raise HTTPException(
-                status_code=500,
-                detail=f"failed to spawn dsh: {exc}") from exc
-        _procs[sid] = proc
-        time.sleep(1.2)
-        if proc.poll() is not None:
-            tail = (sdir / "runner.log").read_text(
-                encoding="utf-8", errors="replace")[-500:]
-            raise HTTPException(
-                status_code=500,
-                detail=f"dsh runner exited rc={proc.returncode}: {tail}")
+        state = {
+            "session_id": sid,
+            "agent_id": "vuln-miner-fwgraph (dsh-web)",
+            "environment_id": "fwgraph-dsh-web",
+            "task": task, "status": "running", "turns": 1,
+            "usage": {}, "findings": [],
+            "created_at": _now(), "updated_at": _now(),
+            "engine": "dsh-web",
+            "mode": mode, "job_id": gate_job,
+            "max_turns": max_turns, "owner": principal["username"] or "admin",
+            "approval_policy": (
+                "ask" if str(payload.get("approval_policy") or "auto") == "ask"
+                else "auto"),
+        }
+        (sdir / "state.json").write_text(json.dumps(state, indent=2),
+                                         encoding="utf-8")
+
+        def _boot_and_prompt():
+            if (_read_state(sdir) or state).get("status") != "running":
+                return
+            try:
+                dsh_sid = _manager().create_session(sid, sdir, state)
+                state["dsh_session_id"] = dsh_sid
+                _save_state(sdir, state)
+            except _dsh_host.DshHostError as exc:
+                state["status"] = "error"
+                state["error"] = f"{exc.code}: {exc}"
+                _save_state(sdir, state)
+                try:
+                    _manager().stop(sid, sdir, state, reason="boot-failed",
+                                    finalize=False)
+                except Exception:
+                    pass
+                return
+            fresh = _read_state(sdir) or state
+            if fresh.get("status") != "running":
+                try:
+                    _manager().stop(sid, sdir, fresh, reason="stop")
+                except Exception:
+                    pass
+                return
+            try:
+                _manager().rpc(sid, sdir, state, "session.prompt", {
+                    "mode": "queue",
+                    "content": [{"type": "text", "text": task}],
+                })
+            except Exception as exc:  # noqa: BLE001
+                try:
+                    with open(sdir / "runner.log", "a", encoding="utf-8") as fh:
+                        fh.write(f"[vulnagent_api] first prompt failed: {exc}\n")
+                except OSError:
+                    pass
+
+        threading.Thread(target=_boot_and_prompt, daemon=True,
+                         name=f"dsh-boot-{sid}").start()
         accounts.audit(principal["username"], "session_start",
-                       f"{sid} engine=dsh job={gate_job} mode={mode}")
+                       f"{sid} engine=dsh-web job={gate_job} mode={mode}")
         _bind_hunt_session(gate_job, sid)
         return {"session_id": sid, "status": "running",
-                "engine": "dsh", "max_turns": max_turns}
+                "engine": "dsh-web", "max_turns": max_turns}
 
     @app.get("/vulnagent/sessions")
     def list_sessions(principal: dict = Depends(require_token)):
@@ -771,6 +1080,61 @@ def setup(app: FastAPI, require_token) -> None:
                                  headers={"Cache-Control": "no-cache",
                                           "X-Accel-Buffering": "no"})
 
+    @app.post("/vulnagent/sessions/{sid}/rpc/{method}")
+    def session_rpc(sid: str, method: str, payload: dict = Body(default=None),
+                    principal: dict = Depends(require_token)):
+        """harness JSON-RPC 透传（方法白名单见 dsh_host.RPC_ALLOWLIST）。
+        前端经此驱动多轮 prompt/queue/steer/cancel/fork/history。"""
+        sdir = _session_dir(sid)
+        _require_session_access(sdir, principal)
+        state = _read_state(sdir)
+        if method == "session.prompt":
+            if (state.get("status") or "") in ("done", "error"):
+                raise HTTPException(status_code=409,
+                                    detail="session already finished")
+            if (state.get("status") or "") == "awaiting_continue":
+                raise HTTPException(
+                    status_code=409,
+                    detail=_cap_detail(int(state.get("turns") or 0),
+                                       int(state.get("max_turns") or 80)))
+            state = _charge_turn(sdir, state)
+        try:
+            value = _manager().rpc(sid, sdir, state, method, payload or {})
+        except _dsh_host.DshHostError as exc:
+            status = {"bad-request": 400, "session-not-found": 404}.get(
+                exc.code, 502)
+            raise HTTPException(
+                status_code=status, detail=f"{exc.code}: {exc}") from exc
+        # fork 等方法会改 dsh_session_id，落盘保持 resume 能力
+        if state.get("dsh_session_id"):
+            _save_state(sdir, state)
+        return value
+
+    @app.get("/vulnagent/sessions/{sid}/mux")
+    async def session_mux(sid: str,
+                          principal: dict = Depends(require_token)):
+        """harness 事件流（WS→SSE 桥）：session/event、queue 快照、审批帧。"""
+        sdir = _session_dir(sid)
+        _require_session_access(sdir, principal)
+        state = _read_state(sdir)
+        return StreamingResponse(_manager().mux_sse(sid, sdir, state),
+                                 media_type="text/event-stream",
+                                 headers={"Cache-Control": "no-cache",
+                                          "X-Accel-Buffering": "no"})
+
+    @app.post("/vulnagent/sessions/{sid}/respond")
+    def session_respond(sid: str, payload: dict = Body(...),
+                        principal: dict = Depends(require_token)):
+        """审批/提问答复转发（harness /api/respond 宿主级端点）。"""
+        sdir = _session_dir(sid)
+        _require_session_access(sdir, principal)
+        state = _read_state(sdir)
+        try:
+            return _manager().respond(sid, sdir, state, payload)
+        except _dsh_host.DshHostError as exc:
+            raise HTTPException(status_code=502,
+                                detail=f"{exc.code}: {exc}") from exc
+
     @app.get("/vulnagent/sessions/{sid}/report")
     def session_report(sid: str, principal: dict = Depends(require_token)):
         sdir = _session_dir(sid)
@@ -782,10 +1146,96 @@ def setup(app: FastAPI, require_token) -> None:
         return PlainTextResponse(report.read_text(encoding="utf-8",
                                                   errors="replace"))
 
+    @app.post("/vulnagent/sessions/{sid}/resume")
+    def resume_session(sid: str, payload: dict = Body(default=None),
+                       principal: dict = Depends(require_token)):
+        """User follow-up after pause/stop. Does not raise max_turns.
+
+        Composer「停止生成」不应走到 /stop；本接口兜底已经误标 done 的会话，
+        让聊天框「继续」能拉活。看门狗仍走 session.prompt，对 done 继续 409。
+        """
+        sdir = _session_dir(sid)
+        _require_session_access(sdir, principal)
+        state = _read_state(sdir)
+        if state.get("archived"):
+            raise HTTPException(status_code=409, detail="session archived")
+        status = str(state.get("status") or "")
+        if status == "awaiting_continue":
+            raise HTTPException(
+                status_code=409,
+                detail=_cap_detail(int(state.get("turns") or 0),
+                                   int(state.get("max_turns") or 80)))
+        msg = str((payload or {}).get("message") or "").strip()
+        if not msg:
+            raise HTTPException(status_code=400, detail="message required")
+        if status in ("done", "error", "interrupted"):
+            state["status"] = "running"
+            state["error"] = ""
+            _save_state(sdir, state)
+            _manager().undiscard(sid)
+        elif status != "running":
+            raise HTTPException(status_code=409,
+                                detail=f"cannot resume status={status}")
+        try:
+            state = _charge_turn(sdir, state)
+            value = _manager().rpc(sid, sdir, state, "session.prompt", {
+                "mode": "queue",
+                "content": [{"type": "text", "text": msg}],
+            })
+        except _dsh_host.DshHostError as exc:
+            raise HTTPException(status_code=502,
+                                detail=f"{exc.code}: {exc}") from exc
+        accounts.audit(principal["username"], "session_resume", sid)
+        return {"session_id": sid, "status": "running",
+                "turns": state.get("turns"),
+                "max_turns": state.get("max_turns"),
+                "accepted": (value or {}).get("accepted", True)}
+
+    @app.post("/vulnagent/sessions/{sid}/continue")
+    def continue_session(sid: str, payload: dict = Body(default=None),
+                         principal: dict = Depends(require_token)):
+        """User confirmed: raise max_turns and resume hunting."""
+        sdir = _session_dir(sid)
+        _require_session_access(sdir, principal)
+        state = _read_state(sdir)
+        extra = int((payload or {}).get("extra_turns") or 80)
+        if extra < 1 or extra > 200:
+            raise HTTPException(status_code=400,
+                                detail="extra_turns must be 1..200")
+        turns = int(state.get("turns") or 0)
+        state["max_turns"] = turns + extra
+        state["status"] = "running"
+        state["error"] = ""
+        _save_state(sdir, state)
+        _manager().undiscard(sid)
+        msg = str((payload or {}).get("message") or (
+            "【编排】用户同意继续。轮次上限已放宽，请继续挖掘。"
+            "不要重复已经入库的漏洞。record_finding 必须 call_chain+poc。"))
+        try:
+            state = _charge_turn(sdir, state)
+            value = _manager().rpc(sid, sdir, state, "session.prompt", {
+                "mode": "queue",
+                "content": [{"type": "text", "text": msg}],
+            })
+        except _dsh_host.DshHostError as exc:
+            raise HTTPException(status_code=502,
+                                detail=f"{exc.code}: {exc}") from exc
+        accounts.audit(principal["username"], "session_continue",
+                       f"{sid} max_turns={state.get('max_turns')}")
+        return {"session_id": sid, "status": "running",
+                "turns": state.get("turns"),
+                "max_turns": state.get("max_turns"),
+                "accepted": (value or {}).get("accepted", True)}
+
     @app.post("/vulnagent/sessions/{sid}/stop")
     def stop_session(sid: str, principal: dict = Depends(require_token)):
         sdir = _session_dir(sid)
         _require_session_access(sdir, principal)
+        state = _read_state(sdir)
+        # dsh web host：杀进程 + 收割 findings/报告（finalize）
+        if _manager().stop(sid, sdir, state, reason="stop", discard=True):
+            accounts.audit(principal["username"], "session_stop", sid)
+            return {"session_id": sid, "status": "terminating"}
         proc = _procs.get(sid)
         if proc is not None and proc.poll() is None:
             proc.terminate()
@@ -803,9 +1253,91 @@ def setup(app: FastAPI, require_token) -> None:
             accounts.audit(principal["username"], "session_stop",
                            f"{sid} pid={pid}")
             return {"session_id": sid, "status": "terminating"}
+        # still booting: host is not registered yet. Flip status so the
+        # background boot thread will not prompt / will tear the host down.
+        state = _read_state(sdir) or state
+        if state.get("status") == "running":
+            state["status"] = "done"
+            _save_state(sdir, state)
+            accounts.audit(principal["username"], "session_stop",
+                           f"{sid} pre-boot")
+            return {"session_id": sid, "status": "terminating"}
         raise HTTPException(status_code=409,
                             detail="session not running (or not managed "
                                    "by this service process)")
+
+    @app.patch("/vulnagent/sessions/{sid}")
+    def patch_session(sid: str, payload: dict = Body(...),
+                      principal: dict = Depends(require_token)):
+        """Archive / unarchive a session. Archiving a live hunt also stops it."""
+        sdir = _session_dir(sid)
+        _require_session_access(sdir, principal)
+        if "archived" not in payload:
+            raise HTTPException(status_code=400, detail="archived required")
+        archived = bool(payload.get("archived"))
+        state = _read_state(sdir)
+        if archived and _effective_status(sid, state) == "running":
+            try:
+                _manager().stop(sid, sdir, state, reason="archive")
+            except Exception:
+                pass
+            state = _read_state(sdir) or state
+            if state.get("status") == "running":
+                state["status"] = "done"
+        state["archived"] = archived
+        _save_state(sdir, state)
+        accounts.audit(principal["username"],
+                       "session_archive" if archived else "session_unarchive",
+                       sid)
+        return _session_summary(sdir)
+
+    @app.post("/vulnagent/sessions/purge-archived")
+    def purge_archived(principal: dict = Depends(require_token)):
+        """Permanently delete every archived session the caller can access."""
+        base = VULNAGENT_HOME / "sessions"
+        deleted: list[str] = []
+        errors: list[str] = []
+        if base.is_dir():
+            for d in list(base.iterdir()):
+                if not d.is_dir():
+                    continue
+                state = _read_state(d)
+                if not state.get("archived"):
+                    continue
+                owner = state.get("owner") or "admin"
+                if not accounts.can_access(principal, owner):
+                    continue
+                sid = str(state.get("session_id") or d.name)
+                try:
+                    _wipe_session(sid, d, state)
+                except Exception:
+                    errors.append(sid)
+                    continue
+                if d.exists():
+                    errors.append(sid)
+                    continue
+                deleted.append(sid)
+                accounts.audit(principal["username"], "session_delete",
+                               f"{sid} purge-archived")
+        return {"deleted": deleted, "errors": errors}
+
+    @app.delete("/vulnagent/sessions/{sid}")
+    def delete_session(sid: str, principal: dict = Depends(require_token)):
+        """Stop a live hunt if needed, then remove the session directory.
+
+        Findings already recorded on the job stay in the task 漏洞报告.
+        Discard the host first so a leftover mux cannot spawn it again
+        while rmtree is running.
+        """
+        sdir = _session_dir(sid)
+        _require_session_access(sdir, principal)
+        state = _read_state(sdir)
+        _wipe_session(sid, sdir, state)
+        if sdir.exists():
+            raise HTTPException(status_code=500,
+                                detail="session directory not removed")
+        accounts.audit(principal["username"], "session_delete", sid)
+        return {"session_id": sid, "status": "deleted"}
 
     @app.post("/vulnagent/findings", status_code=201)
     def create_finding(payload: dict = Body(...),
@@ -831,8 +1363,19 @@ def setup(app: FastAPI, require_token) -> None:
             "history": [],
         })
         _save_finding(doc, is_new=True)
+        sid = str(doc.get("session_id") or "")
+        if sid and _SID_RE.match(sid):
+            sdir = VULNAGENT_HOME / "sessions" / sid
+            st = _read_state(sdir)
+            if st:
+                found = list(st.get("findings") or [])
+                if fid not in found:
+                    found.append(fid)
+                    st["findings"] = found
+                    _save_state(sdir, st)
         accounts.audit(principal["username"], "finding_create",
                        f"{fid} job={doc['job_id']} severity={doc['severity']}")
+        _refresh_job_report(doc.get("job_id") or "")
         return doc
 
     @app.patch("/vulnagent/findings/{fid}")

@@ -18,11 +18,12 @@ import { mkdirSync, writeFileSync, appendFileSync, readdirSync, readFileSync } f
 import path from "node:path";
 
 const MAX_RESULT_CHARS = 16000;
-const MAX_TRACES_PER_SESSION = 5;
-const MAX_FUZZ_PER_SESSION = 3;
+const MAX_TRACES_PER_SESSION = 192;
+const MAX_FUZZ_PER_SESSION = 12;
+const MAX_EXEC_PER_SESSION = 8;
 // 纯静态模式禁用的动态类工具（动静结合模式才开放）
 export const DYNAMIC_ONLY_TOOLS = new Set([
-  "fw_request_trace", "fw_request_fuzz", "fw_request_frida",
+  "fw_request_trace", "fw_request_fuzz", "fw_request_frida", "fw_qemu_exec",
 ]);
 
 // ---------------------------------------------------------------------------
@@ -212,8 +213,10 @@ const executors = {
         id: i.id, protocol: i.protocol, service: i.service,
         address: i.address, port: i.port, transport: i.transport,
         input_types: i.input_types, entry_files: i.entry_files,
+        binary_md5: i.binary_md5,
+        entry_md5s: i.entry_md5s,
         processing_chain: (i.processing_chain || []).map((p) => ({
-          file: p.file, libs: p.libs,
+          file: p.file, libs: p.libs, md5: p.md5,
           unresolved_needed: p.unresolved_needed || [],
           needed_complete: !(p.unresolved_needed || []).length,
         })),
@@ -279,9 +282,10 @@ const executors = {
     if (!/^[0-9a-f]{32}$/.test(input.binary_md5 ?? "")) {
       throw new Error("binary_md5 must be a 32-char lowercase md5");
     }
-    if (!Array.isArray(input.argv) || !input.argv.length
-        || input.argv.some((a) => typeof a !== "string" && typeof a !== "number")) {
-      throw new Error("argv must be a non-empty array of strings");
+    if (input.argv !== undefined && (
+        !Array.isArray(input.argv)
+        || input.argv.some((a) => typeof a !== "string" && typeof a !== "number"))) {
+      throw new Error("argv must be a list of strings (empty/omit = no extra args)");
     }
     if (input.port !== undefined
         && (!Number.isInteger(input.port) || input.port < 1 || input.port > 65535)) {
@@ -296,10 +300,15 @@ const executors = {
     }
     const resp = await fw(ctx, "POST", `/jobs/${jobId}/trace`, {
       binary_md5: input.binary_md5,
-      argv: input.argv,
+      argv: Array.isArray(input.argv) ? input.argv : [],
       ...(input.port !== undefined ? { port: input.port } : {}),
       ...(input.request_path !== undefined ? { request_path: input.request_path } : {}),
       ...(input.argv0 !== undefined ? { argv0: String(input.argv0) } : {}),
+      ...(input.payload !== undefined ? { payload: String(input.payload) } : {}),
+      ...(input.payload_hex !== undefined ? { payload_hex: String(input.payload_hex) } : {}),
+      ...(Array.isArray(input.payloads_hex) ? { payloads_hex: input.payloads_hex.map(String) } : {}),
+      ...(input.via ? { via: String(input.via) } : {}),
+      ...(input.input_path ? { input_path: String(input.input_path) } : {}),
     });
     ctx.traceCount = (ctx.traceCount ?? 0) + 1;
     return resp;
@@ -323,6 +332,42 @@ const executors = {
     const resp = await fw(ctx, "POST", `/jobs/${jobId}/fuzz`, body);
     ctx.fuzzCount = (ctx.fuzzCount ?? 0) + 1;
     return resp;
+  },
+
+  async fw_qemu_exec(ctx, input) {
+    const jobId = jobOf(ctx, input);
+    if (!/^[0-9a-f]{32}$/.test(input.binary_md5 ?? "")) {
+      throw new Error("binary_md5 must be a 32-char lowercase md5");
+    }
+    if ((ctx.execCount ?? 0) >= MAX_EXEC_PER_SESSION) {
+      throw new Error(`qemu-exec budget exhausted (${MAX_EXEC_PER_SESSION} per session)`);
+    }
+    const resp = await fw(ctx, "POST", `/jobs/${jobId}/qemu-exec`, {
+      binary_md5: input.binary_md5,
+      argv: Array.isArray(input.argv) ? input.argv : [],
+      seconds: Math.min(Number(input.seconds ?? 8), 20),
+      ...(input.argv0 ? { argv0: String(input.argv0) } : {}),
+      ...(input.stdin ? { stdin: String(input.stdin) } : {}),
+      ...(input.stdin_hex ? { stdin_hex: String(input.stdin_hex) } : {}),
+      ...(input.input_path ? { input_path: String(input.input_path) } : {}),
+    });
+    ctx.execCount = (ctx.execCount ?? 0) + 1;
+    return resp;
+  },
+
+  async fw_get_qemu_exec(ctx, input) {
+    if (!input.run_id) throw new Error("run_id is required");
+    return fw(ctx, "GET", `/jobs/${jobOf(ctx, input)}/qemu-exec/${input.run_id}`);
+  },
+
+  async fw_list_binaries(ctx, input) {
+    const jobId = jobOf(ctx, input);
+    const man = await fw(ctx, "GET", `/jobs/${jobId}/manifest`);
+    const binaries = (man.binaries || []).map((b) => ({
+      md5: b.md5, path: b.path, arch: b.arch, bits: b.bits,
+      endianness: b.endianness,
+    }));
+    return { job_id: jobId, total: binaries.length, binaries };
   },
 
   async fw_request_frida(ctx, input) {
@@ -399,6 +444,14 @@ const executors = {
     }
     if (input.reachability !== "static-only" && !input.trace_id) {
       throw new Error(`reachability=${input.reachability} 必须带 trace_id（服务端会校验该 trace 存在）`);
+    }
+    const chain = String(input.call_chain || "");
+    if (!chain.trim() || (!chain.includes("→") && !chain.includes("->"))) {
+      throw new Error("call_chain 必填，用 → 连接函数名与地址");
+    }
+    const poc = String(input.poc || input.exploit_sketch || "");
+    if (!poc.trim()) {
+      throw new Error("poc 必填，须给出可复现请求或命令");
     }
     const body = {
       job_id: jobOf(ctx, input),
@@ -633,12 +686,15 @@ export const TOOL_DEFS = [
       properties: {
         ...JOB_ID_PROP,
         binary_md5: { type: "string", description: "Target binary (must be decompiled in this job)" },
-        argv: { type: "array", items: { type: "string" }, description: "Guest argv, e.g. [\"-c\",\"/tmp/sysapihttpdconf/sysapihttpd.conf\"]" },
+        argv: { type: "array", items: { type: "string" }, description: "Extra guest argv after the binary path; empty/omit = no extra flags (e.g. /usr/bin/httpd)" },
         port: { type: "integer", description: "Service port to probe, e.g. 8098" },
         request_path: { type: "string", description: "GET path sent as the trigger, e.g. /index.html; omit for a bare TCP connect" },
         argv0: { type: "string", description: "Forge guest argv[0] (busybox multicall binaries)" },
+        payload: { type: "string", description: "Raw UTF-8 bytes sent on the port (SSH/FTP/SOAP POST)" },
+        payload_hex: { type: "string", description: "Raw hex bytes (SMB/DNS/binary)" },
+        payloads_hex: { type: "array", items: { type: "string" }, description: "Same-connection conversation (hex steps)" },
       },
-      required: ["binary_md5", "argv"],
+      required: ["binary_md5"],
     },
   },
   {
@@ -697,6 +753,38 @@ export const TOOL_DEFS = [
       type: "object",
       properties: { ...JOB_ID_PROP, query: { type: "string" } },
       required: ["query"],
+    },
+  },
+  {
+    name: "fw_list_binaries",
+    description: "Compact ELF list (md5/path/arch) from the job manifest.",
+    input_schema: { type: "object", properties: { ...JOB_ID_PROP } },
+  },
+  {
+    name: "fw_qemu_exec",
+    description: "One-shot qemu-user PoC run (stdin or /tmp file). Poll fw_get_qemu_exec. status=crash is dynamic evidence.",
+    input_schema: {
+      type: "object",
+      properties: {
+        ...JOB_ID_PROP,
+        binary_md5: { type: "string" },
+        argv: { type: "array", items: { type: "string" } },
+        argv0: { type: "string" },
+        stdin: { type: "string" },
+        stdin_hex: { type: "string" },
+        input_path: { type: "string" },
+        seconds: { type: "integer" },
+      },
+      required: ["binary_md5"],
+    },
+  },
+  {
+    name: "fw_get_qemu_exec",
+    description: "Fetch one qemu-user PoC run result.",
+    input_schema: {
+      type: "object",
+      properties: { ...JOB_ID_PROP, run_id: { type: "string" } },
+      required: ["run_id"],
     },
   },
   {

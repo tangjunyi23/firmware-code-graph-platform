@@ -289,18 +289,18 @@ class TestReports:
         listing = client.get("/reports", headers=_legacy()).json()
         assert [r["report_id"] for r in listing] == [f"job-{JOB}"]
         assert listing[0]["kind"] == "job"
-        assert "综合报告" in listing[0]["title"]
+        assert "漏洞报告" in listing[0]["title"]
 
         resp = client.get(f"/reports/job-{JOB}", headers=_legacy())
         assert resp.status_code == 200
         text = resp.text
-        assert "综合安全分析报告" in text
+        assert "漏洞报告" in text
         assert "mx12.bin" in text
         assert "（无数据）" in text  # artifacts absent in the temp dir
 
         resp = client.get(f"/jobs/{JOB}/report", headers=_legacy())
         assert resp.status_code == 200
-        assert "综合安全分析报告" in resp.text
+        assert "漏洞报告" in resp.text
 
         resp = client.get(f"/reports/job-{JOB}/download", headers=_legacy())
         assert resp.status_code == 200
@@ -352,7 +352,7 @@ class TestReports:
         bob = _session(client, "bob", "bob-pass-1")
         carol = _session(client, "carol", "carol-pass-1")
         listing = client.get("/reports", headers=bob).json()
-        assert [r["report_id"] for r in listing] == ["sess-s-rep-0001"]
+        assert listing == []
         assert client.get("/reports/sess-s-rep-0001",
                           headers=bob).status_code == 200
         assert client.get("/reports/sess-s-rep-0001",

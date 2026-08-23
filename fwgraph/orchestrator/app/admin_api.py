@@ -192,8 +192,10 @@ def _collect_logs() -> dict:
 # ---------------------------------------------------------------------------
 
 def _list_reports() -> list:
-    """data/reports/job-*.md + pf-*.md + vulnagent sessions/*/report.md,
-    newest first."""
+    """data/reports/job-*.md + pf-*.md，newest first.
+
+    会话 report.md 不再列入：漏洞只出现在任务「漏洞报告」里一份。
+    """
     data = accounts.data_dir()
     out = []
     reports_dir = data / "reports"
@@ -206,7 +208,7 @@ def _list_reports() -> list:
             out.append({
                 "report_id": path.stem,
                 "kind": "job",
-                "title": f"{job.get('firmware') or job_id} 综合报告",
+                "title": f"{job.get('firmware') or job_id} 漏洞报告",
                 "ref_id": job_id,
                 "owner": job.get("owner"),
                 "created_at": datetime.fromtimestamp(
@@ -223,27 +225,6 @@ def _list_reports() -> list:
                 "title": f"{run.get('name') or path.stem} 协议测试报告",
                 "ref_id": path.stem,
                 "owner": run.get("owner"),
-                "created_at": datetime.fromtimestamp(
-                    stat.st_mtime, timezone.utc).isoformat(),
-                "size": stat.st_size,
-            })
-    sessions_dir = vulnagent_api.VULNAGENT_HOME / "sessions"
-    if sessions_dir.is_dir():
-        for sdir in sessions_dir.iterdir():
-            report_file = sdir / "report.md"
-            if not sdir.is_dir() or not report_file.is_file():
-                continue
-            state = vulnagent_api._read_state(sdir)
-            task = (state.get("task") or "").strip()
-            title = task[:40] + ("…" if len(task) > 40 else "") or sdir.name
-            stat = report_file.stat()
-            out.append({
-                "report_id": f"sess-{sdir.name}",
-                "kind": "session",
-                "title": title,
-                "ref_id": sdir.name,
-                # sessions created before ownership existed count as admin's
-                "owner": state.get("owner") or "admin",
                 "created_at": datetime.fromtimestamp(
                     stat.st_mtime, timezone.utc).isoformat(),
                 "size": stat.st_size,

@@ -4,11 +4,11 @@
  * (with the headless task runner disabled, so NO LLM call is made) and print
  * the registered model-facing tool list, asserting the S1 lockdown:
  *
- *   - no shell class    (bash / pwsh / run_code / ralph / workflow / job_*)
- *   - no generic fs     (read / write / edit / glob / grep / str_replace_editor ...)
  *   - no web class      (web_search / web_fetch)
  *   - no subagent class (subagent / send_message / list_agents ...)
- *   - fw_* series present, including fw_browse_firmware and record_finding
+ *   - no pwsh / ralph / workflow / run_code
+ *   - sandboxed bash/fs (write/edit) ARE allowed
+ *   - fw_* series present, including fw_browse_firmware, fw_get_trace, record_finding
  *
  * Usage (on the VM):
  *   node ~/firmware-graph/vulnagent/dsh/verify_tools.mjs
@@ -57,23 +57,18 @@ const ctx = await boot(
 )
 
 const FORBIDDEN = new Set([
-  // shell / code execution
-  'bash', 'pwsh', 'run_code', 'ralph', 'workflow',
-  'job_output', 'job_list', 'job_kill',
-  // generic filesystem
-  'read', 'write', 'edit', 'read_image', 'glob', 'grep', 'str_replace_editor',
-  // web egress
+  'pwsh', 'run_code', 'ralph', 'workflow',
   'web_search', 'web_fetch',
-  // agent fan-out
   'subagent', 'subagent_fork', 'send_message', 'interrupt_agent', 'list_agents', 'report',
 ])
 const REQUIRED_FW = [
   'fw_get_identification', 'fw_list_surfaces', 'fw_get_surface',
   'fw_get_function_source', 'fw_attack_surface', 'fw_search', 'fw_call_trace',
-  'fw_routes', 'fw_list_traces', 'fw_browse_firmware',
+  'fw_routes', 'fw_list_traces', 'fw_get_trace', 'fw_browse_firmware',
   'fw_get_fuzz_run', 'fw_get_cfg', 'fw_get_ast', 'record_finding',
 ]
-const DYNAMIC_ONLY = ['fw_request_trace', 'fw_request_fuzz', 'fw_request_frida']
+const REQUIRED_SANDBOX = ['bash', 'write']
+const DYNAMIC_ONLY = ['fw_request_trace', 'fw_request_fuzz', 'fw_request_frida', 'fw_qemu_exec']
 const STATIC = (process.env.FWGRAPH_MODE ?? 'dynamic') === 'static'
 
 let failed = false
@@ -102,9 +97,14 @@ try {
     failed = true
     console.error(`\nFAIL: dynamic mode is missing: ${DYNAMIC_ONLY.filter((n) => !dynPresent.includes(n)).join(', ')}`)
   }
+  const missingSandbox = REQUIRED_SANDBOX.filter((n) => !names.includes(n))
+  if (missingSandbox.length) {
+    failed = true
+    console.error(`\nFAIL: sandbox tool(s) missing: ${missingSandbox.join(', ')}`)
+  }
   const nonFw = names.filter((n) => !n.startsWith('fw_'))
   console.log(`\nnon-fw tools still visible: ${nonFw.join(', ') || '(none)'}`)
-  if (!failed) console.log('\nOK: no shell/file-write/web/subagent tools; fw_* series complete.')
+  if (!failed) console.log('\nOK: web/subagent locked; sandbox bash/write present; fw_* series complete.')
 } finally {
   await ctx.fiber.dispose()
 }

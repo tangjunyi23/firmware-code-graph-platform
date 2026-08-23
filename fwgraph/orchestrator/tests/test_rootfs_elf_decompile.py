@@ -94,6 +94,7 @@ def test_elf_command_uses_rootfs_elf_worker(tmp_path, monkeypatch):
     assert cmd[1].endswith("ida_worker.py")
     assert "ida_export.py" not in " ".join(cmd)
     assert "--skip-memory" in cmd
+    assert "--skip-source" in cmd
     assert "--ida-dir" in cmd
 
 

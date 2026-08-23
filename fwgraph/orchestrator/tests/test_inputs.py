@@ -293,6 +293,33 @@ def test_is_public_address():
     assert services.is_public_address(None)
 
 
+def test_binwalk_carve_artifacts_not_inputs(tmp_path):
+    # Archer C7 squashfs keeps binwalk leftovers next to the real ELF
+    # (vsftpd_0_elf.raw, httpd_1493456_crc32.raw). They must not become
+    # extra public inputs or pollute entry_files via lookup prefix match.
+    root = _mk_rootfs(tmp_path)
+    _write(root / "usr/sbin/vsftpd", "\x7fELF fake")
+    _write(root / "usr/sbin/vsftpd_0_elf.raw", "\x7fELF fake")
+    _write(root / "usr/sbin/vsftpd_1493456_crc32.raw", "\x7fELF fake")
+    _write(root / "usr/bin/httpd", "\x7fELF fake")
+    _write(root / "usr/bin/httpd_0_elf.raw", "\x7fELF fake")
+    _write(root / "bin/busybox_0_elf.raw", "\x7fELF fake")
+    assert discover.is_carve_artifact("vsftpd_0_elf.raw")
+    assert discover.is_carve_artifact("httpd_1493456_crc32.raw")
+    assert not discover.is_carve_artifact("vsftpd")
+    assert not discover.is_carve_artifact("dropbearkey")
+    doc = runner.build_document(root, target="t")
+    names = {e["service"] for e in doc["inputs"]}
+    assert "vsftpd" in names
+    assert "httpd" in names
+    assert not any("elf.raw" in n or n.endswith(".raw") for n in names)
+    vs = next(e for e in doc["inputs"] if e["service"] == "vsftpd")
+    httpd = next(e for e in doc["inputs"] if e["service"] == "httpd")
+    assert vs["entry_files"] == ["usr/sbin/vsftpd"]
+    assert httpd["entry_files"] == ["usr/bin/httpd"]
+    assert runner.validate(doc) == ([], [])
+
+
 def test_locate_rootfs_nested(tmp_path):
     base = tmp_path / "extracted"
     deep = base / "firmware" / "binwalk" / "0"

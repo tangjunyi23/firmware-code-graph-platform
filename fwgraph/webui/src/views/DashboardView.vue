@@ -148,9 +148,12 @@ onUnmounted(() => clearInterval(timer))
 }
 .stat-card { text-align: center; }
 .stat-num {
-  font-size: 30px;
-  font-weight: 700;
-  color: #2b6ce5;  font-family: 'JetBrains Mono', ui-monospace, Consolas, monospace;
+  font-size: 28px;
+  font-weight: 650;
+  letter-spacing: -0.04em;
+  color: #2563eb;
+  font-family: var(--fw-font-mono, 'JetBrains Mono', ui-monospace, monospace);
+  font-variant-numeric: tabular-nums;
 }
 .stat-label {
   margin-top: 4px;

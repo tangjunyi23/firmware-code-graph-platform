@@ -33,6 +33,7 @@ extraction unless AUTO_DECOMPILE=0; auto jobs continue decompiled -> graph
 which chains attack/routes/surfaces; any failure ends in "failed").
 """
 
+import hashlib
 import json
 import logging
 import os
@@ -44,7 +45,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from dotenv import load_dotenv
-from fastapi import Body, Depends, FastAPI, File, HTTPException, Request, UploadFile
+from fastapi import Body, Depends, FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import PlainTextResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 import httpx
@@ -63,7 +64,7 @@ from pipeline.frida import runner as frida_runner
 from pipeline.surfaces import runner as surfaces_runner
 from pipeline.routes import runner as route_runner
 from pipeline.extract import px4 as px4_extractor
-from pipeline.trace import tracer
+from pipeline.trace import qemu_exec, tracer
 
 # 路径推导集中在 orchestrator.app.config（fwgraph/orchestrator/app/ -> fwgraph/）
 FWGRAPH_ROOT = config.FWGRAPH_ROOT
@@ -79,6 +80,7 @@ ATTACK_DIR = DATA_DIR / "attack"
 ROUTES_DIR = DATA_DIR / "routes"
 INPUTS_DIR = DATA_DIR / "inputs"
 FUZZ_DIR = DATA_DIR / "fuzz"
+EXEC_DIR = DATA_DIR / "qemu_exec"
 FRIDA_DIR = DATA_DIR / "frida"
 GRAPHEXT_DIR = DATA_DIR / "graphext"
 SURFACES_DIR = DATA_DIR / "surfaces"
@@ -499,6 +501,7 @@ def list_analysis_profiles(principal: dict = Depends(require_token)):
 @app.post("/firmware", status_code=201)
 def upload_firmware(request: Request, file: UploadFile = File(...),
                     auto: bool = False, profile: str = analysis_profiles.DEFAULT,
+                    task: str = Form(""),
                     principal: dict = Depends(require_token)):
     max_bytes = _max_firmware_bytes()
     # Pre-flight checks need the advertised size; chunked multipart may omit
@@ -553,6 +556,7 @@ def upload_firmware(request: Request, file: UploadFile = File(...),
         "firmware_path": str(fw_path),
         "log_dir": str(EXTRACTED_DIR / job_id),
         "size_bytes": fw_path.stat().st_size,
+        "task": (task or "").strip()[:4000],
     }
     with _jobs_lock:
         _jobs[job_id] = job
@@ -802,6 +806,111 @@ def get_inputs(job_id: str):
     return out
 
 
+_MD5_HEX = re.compile(r"^[0-9a-f]{32}$")
+
+
+def _md5_file(path: Path) -> str | None:
+    try:
+        digest = hashlib.md5()
+        with path.open("rb") as fh:
+            for chunk in iter(lambda: fh.read(1 << 20), b""):
+                digest.update(chunk)
+        return digest.hexdigest()
+    except OSError:
+        return None
+
+
+def annotate_identification_md5(job_id: str, doc: dict) -> dict:
+    """Join identification entry files onto manifest md5s.
+
+    identification.json 只记路径（usr/bin/dropbear），manifest 按内容去重
+    （同一 ELF 的 scp/dropbear 硬链接只留一条 path）。挖掘 agent 拿不到
+    binary_md5 就会停。GET 时按路径/basename/文件内容补上 md5，并写入
+    input_types 的 binary_md5= 标签（旧插件压缩视图也会带出来）。
+    """
+    man_file = EXTRACTED_DIR / job_id / "manifest.json"
+    if not man_file.is_file():
+        return doc
+    try:
+        manifest = json.loads(man_file.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return doc
+    by_path: dict[str, str] = {}
+    by_base: dict[str, set[str]] = {}
+    known: set[str] = set()
+    for binary in manifest.get("binaries") or []:
+        md5 = str(binary.get("md5") or "").lower()
+        if not _MD5_HEX.match(md5):
+            continue
+        known.add(md5)
+        raw = str(binary.get("path") or "").replace("\\", "/").lstrip("./")
+        if not raw:
+            continue
+        by_path[raw] = md5
+        by_base.setdefault(raw.rsplit("/", 1)[-1], set()).add(md5)
+
+    extracted = EXTRACTED_DIR / job_id
+    hashed: dict[str, str | None] = {}
+
+    def resolve(rel: str) -> str | None:
+        if not rel:
+            return None
+        norm = rel.replace("\\", "/").lstrip("./")
+        if norm in by_path:
+            return by_path[norm]
+        for man_path, md5 in by_path.items():
+            if norm.endswith("/" + man_path) or man_path.endswith("/" + norm):
+                return md5
+        base = norm.rsplit("/", 1)[-1]
+        hits = by_base.get(base) or set()
+        if len(hits) == 1:
+            return next(iter(hits))
+        if rel in hashed:
+            return hashed[rel]
+        md5 = None
+        cand = extracted / norm
+        if cand.is_file():
+            digest = _md5_file(cand)
+            if digest and digest in known:
+                md5 = digest
+        hashed[rel] = md5
+        return md5
+
+    out = dict(doc)
+    annotated = []
+    for item in doc.get("inputs") or []:
+        row = dict(item)
+        files = list(row.get("entry_files") or [])
+        entry_md5s = [{"path": path, "md5": resolve(path)} for path in files]
+        chain = []
+        for proc in row.get("processing_chain") or []:
+            pc = dict(proc)
+            md5 = resolve(str(pc.get("file") or ""))
+            if md5:
+                pc["md5"] = md5
+            chain.append(pc)
+        row["processing_chain"] = chain
+        md5s = []
+        for rec in entry_md5s:
+            if rec.get("md5") and rec["md5"] not in md5s:
+                md5s.append(rec["md5"])
+        for pc in chain:
+            if pc.get("md5") and pc["md5"] not in md5s:
+                md5s.append(pc["md5"])
+        if md5s:
+            row["binary_md5"] = md5s[0]
+            row["entry_md5s"] = entry_md5s
+            types = list(row.get("input_types") or [])
+            for md5 in md5s:
+                tag = f"binary_md5={md5}"
+                if tag not in types:
+                    types.append(tag)
+            row["input_types"] = types
+        annotated.append(row)
+    out["inputs"] = annotated
+    return out
+
+
 @app.get("/jobs/{job_id}/identification", dependencies=[Depends(require_token), Depends(job_guard)])
 def get_identification(job_id: str):
     if job_id not in _jobs:
@@ -810,7 +919,8 @@ def get_identification(job_id: str):
     if not doc.is_file():
         raise HTTPException(status_code=404,
                             detail="identification.json not built yet")
-    return json.loads(doc.read_text(encoding="utf-8"))
+    return annotate_identification_md5(
+        job_id, json.loads(doc.read_text(encoding="utf-8")))
 
 
 # ---------------------------------------------------------------------------
@@ -879,8 +989,10 @@ def get_surface(job_id: str, surface_id: str):
 # ---------------------------------------------------------------------------
 
 _FUZZ_RUN_RE = re.compile(r"^fz-[0-9a-f]{8}$")
+_EXEC_RUN_RE = re.compile(r"^qe-[0-9a-f]{8}$")
 _FRIDA_RUN_RE = re.compile(r"^fs-[0-9a-f]{8}$")
 _FUZZ_LOCK = threading.Lock()
+_EXEC_LOCK = threading.Lock()
 _FRIDA_LOCK = threading.Lock()
 
 
@@ -949,6 +1061,73 @@ def list_fuzz(job_id: str):
     if job_id not in _jobs:
         raise HTTPException(status_code=404, detail="job not found")
     return {"job_id": job_id, "runs": fuzz_runner.list_runs(job_id, DATA_DIR)}
+
+
+@app.post("/jobs/{job_id}/qemu-exec", status_code=202,
+          dependencies=[Depends(job_guard)])
+def trigger_qemu_exec(job_id: str, payload: dict = Body(...),
+                      principal: dict = Depends(require_token)):
+    """One-shot qemu-user PoC run: stdin or /tmp file, report crash/rc."""
+    job = _jobs.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="job not found")
+    md5 = str(payload.get("binary_md5") or "")
+    if not re.fullmatch(r"[0-9a-f]{32}", md5):
+        raise HTTPException(status_code=400,
+                            detail="binary_md5 must be 32 lowercase hex")
+    argv = payload.get("argv") or []
+    if not isinstance(argv, list) or len(argv) > 16:
+        raise HTTPException(status_code=400, detail="argv must be a list <= 16")
+    try:
+        stdin = qemu_exec.decode_bytes(
+            payload.get("stdin"), payload.get("stdin_hex"), "stdin")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    input_path = payload.get("input_path")
+    if input_path is not None and not isinstance(input_path, str):
+        raise HTTPException(status_code=400, detail="input_path must be a string")
+    seconds = int(payload.get("seconds") or 8)
+    manifest_file = EXTRACTED_DIR / job_id / "manifest.json"
+    if not manifest_file.is_file():
+        raise HTTPException(status_code=409, detail="no manifest.json")
+    if not any(b.get("md5") == md5 for b in
+               json.loads(manifest_file.read_text(encoding="utf-8"))
+               .get("binaries") or []):
+        raise HTTPException(status_code=404, detail=f"binary {md5} not in manifest")
+    _check_quota(job_id, "exec")
+    accounts.audit(principal["username"], "qemu_exec", job_id)
+    run_id = f"qe-{uuid.uuid4().hex[:8]}"
+    run_dir = EXEC_DIR / job_id / run_id
+    run_dir.mkdir(parents=True, exist_ok=True)
+    run_file = run_dir / "exec.json"
+    run_file.write_text(json.dumps(
+        {"run_id": run_id, "job_id": job_id, "engine": "qemu-user",
+         "status": "running", "binary_md5": md5}), encoding="utf-8")
+
+    def _go():
+        with _EXEC_LOCK:
+            _dyn_worker(
+                "qemu-user", job_id, run_dir, run_file,
+                lambda: qemu_exec.run_job(
+                    job_id, DATA_DIR, md5, argv=argv,
+                    argv0=payload.get("argv0"), stdin=stdin,
+                    input_path=input_path, seconds=seconds, run_id=run_id))
+    threading.Thread(target=_go, daemon=True).start()
+    return {"job_id": job_id, "run_id": run_id, "status": "running",
+            "next": "poll GET /jobs/{id}/qemu-exec/{run_id} until status is not running"}
+
+
+@app.get("/jobs/{job_id}/qemu-exec/{run_id}",
+         dependencies=[Depends(require_token), Depends(job_guard)])
+def get_qemu_exec(job_id: str, run_id: str):
+    if job_id not in _jobs:
+        raise HTTPException(status_code=404, detail="job not found")
+    if not _EXEC_RUN_RE.match(run_id):
+        raise HTTPException(status_code=400, detail="bad run id")
+    try:
+        return qemu_exec.get_run(job_id, DATA_DIR, run_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="exec run not found")
 
 
 @app.get("/jobs/{job_id}/fuzz/{run_id}", dependencies=[Depends(require_token), Depends(job_guard)])
@@ -1079,21 +1258,61 @@ def _trace_worker(job_id: str, trace_id: str, req: dict):
     # cbm hand-off only makes sense once the graph exists
     project = graph_ingest.project_name(job_id) \
         if (CBM_DIR / job_id / "graph_done.json").is_file() else None
+    refresh = False
     try:
         trace = tracer.run_trace(
             job_id, DATA_DIR, req["binary_md5"], req["argv"],
             port=req.get("port"), request_path=req.get("request_path"),
-            trace_id=trace_id, cbm_project=project, argv0=req.get("argv0"))
-        if str(trace.get("status") or "").startswith("ok") \
-                and (ATTACK_DIR / job_id / "attack_paths.json").is_file():
-            try:
-                attack_runner.run_job(job_id, DATA_DIR)
-            except Exception:
-                pass  # trace remains authoritative; attack can be retried manually
+            trace_id=trace_id, cbm_project=project, argv0=req.get("argv0"),
+            payload=req.get("payload"), via=req.get("via"),
+            input_path=req.get("input_path"))
+        # empty-diff traces do not add request-handling functions; reloading
+        # 28MB symbols.json after every ok_empty_diff balloons RSS.
+        status = str(trace.get("status") or "")
+        refresh = status in ("ok", "ok_trigger_error") \
+            and (ATTACK_DIR / job_id / "attack_paths.json").is_file()
     except Exception:  # noqa: BLE001 - run_trace persists its own failure
         pass
     finally:
         TRACE_LOCK.release()
+    # 攻击路径刷新可能很久，绝不能占着 TRACE_LOCK，否则后续 fw_request_trace 全 409
+    if refresh:
+        try:
+            attack_runner.run_job(job_id, DATA_DIR)
+        except Exception:
+            pass
+
+
+def _reap_stale_running_trace(trace: dict, trace_file: Path) -> dict:
+    """编排器重启会把 running 的 worker 杀掉，trace.json 会一直 running。
+    GET/LIST 时若超过 2*TRACE_RUN_TIMEOUT+30s 仍 running，标 failed 让
+    挖掘 agent 停止空转轮询并重试 fw_request_trace。"""
+    if not isinstance(trace, dict) or trace.get("status") != "running":
+        return trace
+    created = str(trace.get("created_at") or "")
+    try:
+        t0 = datetime.fromisoformat(created.replace("Z", "+00:00"))
+    except ValueError:
+        return trace
+    limit = 2 * float(os.getenv("TRACE_RUN_TIMEOUT", "60")) + 30.0
+    age = (datetime.now(timezone.utc) - t0).total_seconds()
+    if age < limit:
+        return trace
+    trace = dict(trace)
+    trace["status"] = "failed"
+    trace["error"] = (
+        f"QemuError: trace worker lost after {int(age)}s "
+        "(orchestrator restart or hung qemu); retry fw_request_trace"
+    )
+    trace["finished_at"] = _now()
+    trace["elapsed_seconds"] = round(age, 2)
+    try:
+        tmp = trace_file.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(trace, indent=2), encoding="utf-8")
+        tmp.replace(trace_file)
+    except OSError:
+        pass
+    return trace
 
 
 def _trace_summary(trace: dict) -> dict:
@@ -1120,9 +1339,12 @@ def trigger_trace(job_id: str, payload: dict = Body(...),
                   principal: dict = Depends(require_token)):
     """M7: run a baseline/trigger differential coverage trace.
 
-    Body: {binary_md5, argv=[...], port?, request_path?, argv0?}. argv0
-    forges the guest argv[0] via qemu -0 (busybox multicall binaries
-    dispatch on argv[0]; a copy named busybox-arm needs argv0="busybox").
+    Body: {binary_md5, argv=[...], port?, request_path?, argv0?,
+    payload?, payload_hex?, payloads_hex?, via?, input_path?}.
+    via=stdin feeds payload on qemu stdin (parsers/CLI) instead of a
+    listen port. input_path=/tmp/<name> drops the bytes as a guest file.
+    payload/payload_hex is one blob; payloads_hex is a same-connection
+    conversation. Omit both to use the per-port default probe.
     The job's main status is untouched; trace status lives in trace.json
     (running -> ok | ok_empty_diff | failed). Typical wall time is
     2x(ready+hold) plus qemu overhead, well under 5 minutes
@@ -1136,10 +1358,13 @@ def trigger_trace(job_id: str, payload: dict = Body(...),
         raise HTTPException(status_code=400, detail="binary_md5 must be "
                             "a 32-char lowercase md5")
     argv = payload.get("argv")
-    if not isinstance(argv, list) or not argv \
+    if argv is None:
+        argv = []
+    if not isinstance(argv, list) \
             or not all(isinstance(a, (str, int)) for a in argv):
         raise HTTPException(status_code=400,
-                            detail="argv must be a non-empty list of strings")
+                            detail="argv must be a list of strings "
+                                   "(empty = run the binary with no extra args)")
     port = payload.get("port")
     if port is not None and not (isinstance(port, int)
                                  and 1 <= port <= 65535):
@@ -1155,21 +1380,43 @@ def trigger_trace(job_id: str, payload: dict = Body(...),
     if not (PSEUDOCODE_DIR / job_id / "symbols.json").is_file():
         raise HTTPException(status_code=409,
                             detail="job not decompiled yet (no symbols.json)")
-    _check_quota(job_id, "trace")
+    try:
+        chunks = tracer.decode_payloads(
+            payload.get("payload"), payload.get("payload_hex"),
+            payload.get("payloads_hex"))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    raw_payload = None if not chunks else (
+        chunks[0] if len(chunks) == 1 else chunks)
+    via = str(payload.get("via") or "").strip().lower() or None
+    if via and via not in ("net", "stdin"):
+        raise HTTPException(status_code=400, detail="via 必须是 net 或 stdin")
+    input_path = payload.get("input_path")
+    if input_path is not None:
+        input_path = str(input_path)
+        if not tracer._INPUT_PATH_RE.match(input_path):
+            raise HTTPException(status_code=400,
+                                detail="input_path 必须是 /tmp/<简单文件名>")
     if not TRACE_LOCK.acquire(blocking=False):
         raise HTTPException(status_code=409, detail="another trace is running")
+    try:
+        _check_quota(job_id, "trace")
+    except HTTPException:
+        TRACE_LOCK.release()
+        raise
     accounts.audit(principal["username"], "trace_trigger", job_id)
     trace_id = tracer.new_trace_id()
     req = {"binary_md5": md5, "argv": argv, "port": port,
            "request_path": payload.get("request_path"),
-           "argv0": payload.get("argv0")}
+           "argv0": payload.get("argv0"),
+           "payload": raw_payload, "via": via, "input_path": input_path}
     threading.Thread(target=_trace_worker, args=(job_id, trace_id, req),
                      daemon=True).start()
     return {"job_id": job_id, "trace_id": trace_id, "status": "running"}
 
 
 @app.get("/jobs/{job_id}/traces", dependencies=[Depends(require_token), Depends(job_guard)])
-def list_traces(job_id: str):
+def list_traces(job_id: str, limit: int | None = Query(default=None, ge=1, le=500)):
     job = _jobs.get(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="job not found")
@@ -1178,12 +1425,15 @@ def list_traces(job_id: str):
     if root.is_dir():
         for tf in root.glob("*/trace.json"):
             try:
-                traces.append(_trace_summary(
-                    json.loads(tf.read_text(encoding="utf-8"))))
+                traces.append(_trace_summary(_reap_stale_running_trace(
+                    json.loads(tf.read_text(encoding="utf-8")), tf)))
             except (OSError, json.JSONDecodeError):
                 continue
     traces.sort(key=lambda t: t.get("created_at") or "", reverse=True)
-    return {"job_id": job_id, "total": len(traces), "traces": traces}
+    total = len(traces)
+    if limit is not None:
+        traces = traces[:limit]
+    return {"job_id": job_id, "total": total, "traces": traces}
 
 
 @app.get("/jobs/{job_id}/traces/{trace_id}",
@@ -1197,7 +1447,8 @@ def get_trace(job_id: str, trace_id: str):
     trace_file = TRACES_DIR / job_id / trace_id / "trace.json"
     if not trace_file.is_file():
         raise HTTPException(status_code=404, detail="trace not found")
-    return json.loads(trace_file.read_text(encoding="utf-8"))
+    return _reap_stale_running_trace(
+        json.loads(trace_file.read_text(encoding="utf-8")), trace_file)
 
 
 def _trace_flow(job_id: str, payload: dict):
@@ -1560,6 +1811,7 @@ def list_jobs(principal: dict = Depends(require_token)):
             "profile": j.get("profile") or analysis_profiles.DEFAULT,
             "hunt_session_id": j.get("hunt_session_id"),
             "owner": j.get("owner"),
+            "task": j.get("task") or "",
         } for j in jobs if _can_access(principal, j.get("owner"))]
 
 
@@ -1575,6 +1827,7 @@ def get_job(job_id: str):
         "profile": job.get("profile") or analysis_profiles.DEFAULT,
         "owner": job.get("owner"),
         "hunt_session_id": job.get("hunt_session_id"),
+        "task": job.get("task") or "",
         "log_tail": _log_tail(job_id),
         "manifest_summary": _manifest_summary(job_id),
     }
@@ -1638,7 +1891,8 @@ def _job_artifact_dirs(job_id: str) -> list:
         FIRMWARE_DIR / job_id, EXTRACTED_DIR / job_id, PSEUDOCODE_DIR / job_id,
         CBM_DIR / job_id, TRACES_DIR / job_id, ATTACK_DIR / job_id,
         ROUTES_DIR / job_id, INPUTS_DIR / job_id, FUZZ_DIR / job_id,
-        FRIDA_DIR / job_id, GRAPHEXT_DIR / job_id, SURFACES_DIR / job_id,
+        EXEC_DIR / job_id, FRIDA_DIR / job_id, GRAPHEXT_DIR / job_id,
+        SURFACES_DIR / job_id,
         *[DATA_DIR / name / job_id for name in _JOB_DATA_DIR_NAMES],
     ]
 

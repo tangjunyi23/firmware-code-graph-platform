@@ -16,7 +16,17 @@ export default defineConfig({
       '/healthz': proxyTarget,
       '/cbmui': proxyTarget,
       '/api': proxyTarget,
-      '/rpc': proxyTarget
+      '/rpc': proxyTarget,
+      '/vulnagent': proxyTarget,
+      '/auth': proxyTarget,
+      '/users': proxyTarget,
+      '/audit': proxyTarget,
+      '/dashboard': proxyTarget,
+      '/system': proxyTarget,
+      '/logs': proxyTarget,
+      '/reports': proxyTarget,
+      '/protofuzz': proxyTarget,
+      '/analysis-profiles': proxyTarget
     }
   }
 })

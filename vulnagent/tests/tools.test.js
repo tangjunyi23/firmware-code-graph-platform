@@ -29,6 +29,8 @@ const VALID = {
   vuln_class: "stack_buffer_overflow", cwe: "CWE-121",
   binary_md5: "a".repeat(32), binary_path: "/usr/sbin/httpd",
   reachability: "static-only", summary: "摘要", evidence: ["伪代码行 x"],
+  call_chain: "main@0x401000 → handle_req@0x402000 → strcpy",
+  poc: "POST /goform/x HTTP/1.1\\n\\nmac=AAAA",
 };
 
 /** Replace global fetch with a mock; returns captured calls. */
@@ -119,6 +121,8 @@ test("record_finding local precheck mirrors server rules (no HTTP round-trip)", 
     // severity/reachability 枚举
     await assert.rejects(executeTool(ctx, "record_finding", { ...VALID, severity: "严重" }), /severity/);
     await assert.rejects(executeTool(ctx, "record_finding", { ...VALID, reachability: "static" }), /reachability/);
+    await assert.rejects(executeTool(ctx, "record_finding", { ...VALID, call_chain: "" }), /call_chain/);
+    await assert.rejects(executeTool(ctx, "record_finding", { ...VALID, poc: "" }), /poc/);
     // 以上全部本地拒绝，零 HTTP 调用
     assert.equal(m.calls.length, 0);
   } finally {
@@ -130,7 +134,7 @@ test("executeTool hard-rejects dynamic-only tools in static mode (H2)", async ()
   const ctx = makeCtx({ mode: "static" });
   const m = mockFetch(async () => jsonResponse(200, {}));
   try {
-    for (const name of ["fw_request_trace", "fw_request_fuzz", "fw_request_frida"]) {
+    for (const name of ["fw_request_trace", "fw_request_fuzz", "fw_request_frida", "fw_qemu_exec"]) {
       await assert.rejects(
         executeTool(ctx, name, { binary_md5: "a".repeat(32), argv: ["x"], process: "p", functions: [{}] }),
         (err) => {

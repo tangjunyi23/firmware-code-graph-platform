@@ -26,15 +26,22 @@ RUN git clone --depth 1 "$AFL_REPO" /opt/AFLplusplus \
     && make -C /opt/AFLplusplus -j"$(nproc)"
 
 # frida-server（x86 固件本地插桩模式的沙箱内服务端）
+# 下载与 chmod 合为一个 RUN 并在脚本内自检，避免静默产出空层
 RUN python3 - "$FRIDA_VERSION" <<'EOF'
-import lzma, shutil, sys, urllib.request
+import lzma, os, shutil, sys, urllib.request
 ver = sys.argv[1]
 url = ("https://github.com/frida/frida/releases/download/"
        f"{ver}/frida-server-{ver}-linux-x86_64.xz")
 tmp = "/tmp/frida-server.xz"
 urllib.request.urlretrieve(url, tmp)
+size = os.path.getsize(tmp)
+with open(tmp, "rb") as fh:
+    magic = fh.read(6)
+assert magic == b"\xfd7zXZ\x00", f"bad xz magic {magic!r} (size {size})"
+assert size > 1_000_000, f"suspiciously small download: {size} bytes"
 with lzma.open(tmp, "rb") as src, open("/usr/local/bin/frida-server", "wb") as dst:
     shutil.copyfileobj(src, dst)
+assert os.path.getsize("/usr/local/bin/frida-server") > 1_000_000
 EOF
 RUN chmod 755 /usr/local/bin/frida-server
 

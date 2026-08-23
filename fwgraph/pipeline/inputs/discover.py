@@ -43,6 +43,19 @@ ROOTFS_MARKERS = ("bin", "sbin", "usr", "etc", "lib", "www", "cgi-bin",
 # directories we never descend into when globbing for configs
 _SKIP_DIRS = {"proc", "sys", "dev", "run", "tmp", "lost+found"}
 
+# binwalk recursive carve sitting next to the original ELF inside the
+# extracted squashfs, e.g. httpd_0_elf.raw / httpd_1493456_crc32.raw.
+# These are signature hits, not daemons. The underscore prefix fallback
+# in services.lookup would otherwise treat httpd_0_elf.raw as httpd.
+_CARVE_RX = re.compile(
+    r".+_\d+_[A-Za-z][A-Za-z0-9_]{0,40}\.raw$", re.IGNORECASE)
+
+
+def is_carve_artifact(name: str) -> bool:
+    """True for binwalk-carved siblings of a real firmware binary."""
+    base = str(name or "").rsplit("/", 1)[-1]
+    return bool(_CARVE_RX.match(base))
+
 # superservers / client tools that must never become inputs themselves
 _SKIP_NAMES = {"inetd", "xinetd", "tcpd", "start-stop-daemon", "daemon",
                "logger", "sh", "bash", "busybox", "killall", "pidof",
@@ -884,6 +897,8 @@ def _scan_binaries(rootfs, cands):
         for f in entries:
             if not f.is_file() or f.name in _SKIP_NAMES:
                 continue
+            if is_carve_artifact(f.name):
+                continue
             svc = services.lookup(f.name)
             if svc is None:
                 continue
@@ -914,6 +929,8 @@ def _scan_elf_promotion(rootfs, cands):
             continue
         for f in entries:
             if not f.is_file() or f.name in _SKIP_NAMES:
+                continue
+            if is_carve_artifact(f.name):
                 continue
             if services.lookup(f.name) is not None:
                 continue  # known daemons are handled by _scan_binaries

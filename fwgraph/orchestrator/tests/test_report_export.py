@@ -67,7 +67,7 @@ class TestReportExport:
         assert resp.content[:2] == b"PK"
         with zipfile.ZipFile(io.BytesIO(resp.content)) as zf:
             xml = zf.read("word/document.xml").decode("utf-8")
-        assert "综合安全分析报告" in xml
+        assert "漏洞报告" in xml
         assert "mx12.bin" in xml
 
     def test_export_docx_cached_regenerated(self, client, tmp_path):

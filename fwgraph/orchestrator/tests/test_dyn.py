@@ -1,6 +1,7 @@
 """Tests for pipeline.fuzz (AFL++ qemu mode) and pipeline.frida stages."""
 
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -78,6 +79,74 @@ def test_fuzz_bad_md5(tmp_path):
     data_dir, _ = _mk_job(tmp_path)
     with pytest.raises(KeyError):
         fuzz_runner.run_job("job1", data_dir, "b" * 32, seconds=5)
+
+
+def test_fuzz_function_mode_sets_persistent_env(tmp_path, monkeypatch):
+    data_dir, md5 = _mk_job(tmp_path)
+    hook = tmp_path / "fake.so"
+    hook.write_bytes(b"x")
+    monkeypatch.setattr(fuzz_runner, "_hook_for", lambda *_a, **_k: hook)
+    monkeypatch.setattr(fuzz_runner.sandbox, "backend_for",
+                        lambda _component: "none")
+    monkeypatch.setenv("FUZZ_AFL_QEMU", "/bin/true")
+    seen = {}
+
+    def fake_popen(cmd, **kw):
+        seen["env"] = kw.get("env") or {}
+        out = Path(kw["cwd"]) / "afl_out" / "default"
+        out.mkdir(parents=True)
+        (out / "fuzzer_stats").write_text("execs_done : 3\n")
+        return _FakeProc(0)
+
+    monkeypatch.setattr(fuzz_runner.subprocess, "Popen", fake_popen)
+    summary = fuzz_runner.run_job(
+        "job1", data_dir, md5, function="0x401000",
+        args=["buf", "len"], seconds=5)
+    assert summary["mode"] == "function"
+    assert summary["function"] == "0x401000"
+    assert seen["env"]["AFL_QEMU_PERSISTENT_ADDR"] == "0x401000"
+    assert seen["env"]["AFL_ENTRYPOINT"] == "0x401000"
+    assert seen["env"]["AFL_QEMU_PERSISTENT_HOOK"] == str(hook)
+    assert seen["env"]["FUZZHOOK_ARGS"] == "buf,len"
+    assert seen["env"]["FUZZHOOK_FUNC_ADDR"] == "0x401000"
+    assert seen["env"]["AFL_MAP_SIZE"] == "10000000"
+
+
+def _afl_api_h():
+    return (Path(os.environ.get("AFL_REPO", str(Path.home() / "AFLplusplus")))
+            / "qemu_mode" / "qemuafl" / "qemuafl" / "api.h")
+
+
+@pytest.mark.skipif(not _afl_api_h().is_file(),
+                    reason="AFL++ qemuafl api.h not present")
+def test_fuzz_mips_hook_compiles(tmp_path):
+    hook = fuzz_runner._hook_for("mips", tmp_path / "hooks")
+    assert hook.is_file() and hook.stat().st_size > 1000
+    import subprocess
+    exported = subprocess.check_output(["nm", "-D", str(hook)], text=True)
+    assert "afl_persistent_hook" in exported
+
+
+@pytest.mark.skipif(not _afl_api_h().is_file(),
+                    reason="AFL++ qemuafl api.h not present")
+def test_fuzz_hook_rebuilds_when_src_newer(tmp_path, monkeypatch):
+    import os
+    import time
+    src = tmp_path / "fw_fuzzhook.c"
+    src.write_text(fuzz_runner.HOOK_SRC.read_text(encoding="utf-8"))
+    monkeypatch.setattr(fuzz_runner, "HOOK_SRC", src)
+    cache = tmp_path / "hooks"
+    hook = fuzz_runner._hook_for("mips", cache)
+    older = hook.stat().st_mtime - 120
+    os.utime(hook, (older, older))
+    os.utime(src, None)
+    rebuilt = fuzz_runner._hook_for("mips", cache)
+    assert rebuilt.stat().st_mtime > older + 60
+    # cache hit when src is not newer
+    m2 = rebuilt.stat().st_mtime
+    time.sleep(0.05)
+    again = fuzz_runner._hook_for("mips", cache)
+    assert again.stat().st_mtime == m2
 
 
 def test_frida_unreachable_device(tmp_path, monkeypatch):

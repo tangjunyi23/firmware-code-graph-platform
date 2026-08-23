@@ -81,7 +81,7 @@ QEMU_MAP = {
 # extracted binary belongs to: the shallowest ancestor of the binary whose
 # relative path starts with one of these.
 ROOTFS_TOPDIRS = {"bin", "sbin", "usr", "lib", "lib64", "etc", "var", "opt",
-                  "home", "root", "www", "cgi-bin"}
+                  "home", "root", "www", "web", "cgi-bin"}
 
 # qemu 10: "Trace 0: 0xHOST [FLAGS/GUESTPC/...]"
 _TRACE_NEW_RE = re.compile(
@@ -94,10 +94,12 @@ _SEARCH_PATH_RE = re.compile(r"(?:Library runpath|Library rpath): \[([^]]*)\]")
 
 # docker trace 模式下绑定进容器同名路径的 rootfs 顶层目录：容器内不做
 # chroot，guest 运行期的绝对路径 open() 靠这些只读绑定保持 rootfs 文件语义。
-# 不含 usr——保护镜像自带的 /usr/bin/qemu-*（固件库多在 /lib，/usr/lib
-# 属已知精度缺口）。
-_DOCKER_BIND_TOPDIRS = ("bin", "sbin", "etc", "lib", "lib64", "var", "opt",
-                        "home", "root", "www", "cgi-bin")
+# 不含 usr——保护镜像 /usr/bin/qemu-*。不含 etc——盖住 /etc 会让
+# docker --read-only 无法挂 hostname。不含 lib/lib64——盖住会把
+# qemu 自己的动态链接器换成固件 uclibc，表现为 stat qemu: no such file。
+# 固件库靠 qemu -L <rootfs>；固件 /usr/bin/* 走 rootfs 宿主路径 bind。
+_DOCKER_BIND_TOPDIRS = ("var", "opt",
+                        "home", "root", "www", "web", "cgi-bin")
 
 SUDO_TIMEOUT = 30
 
@@ -282,7 +284,12 @@ def inspect_dynamic_linker(rootfs, target_in_rootfs: str) -> dict:
             if not item:
                 continue
             expanded = item.replace("$ORIGIN", str(target.parent))
-            search_paths.append(str(_safe_guest_path(expanded, "library search")))
+            try:
+                search_paths.append(str(_safe_guest_path(expanded, "library search")))
+            except QemuError:
+                # leftover host RPATH (build-machine paths, "..") is not a
+                # guest search dir; DT_NEEDED still resolves via /lib.
+                continue
     search_paths.extend(["/lib", "/usr/lib", "/lib32", "/usr/lib32"])
 
     resolved = {}
@@ -347,8 +354,16 @@ def prepare_rootfs(rootfs, qemu_name: str, target_in_rootfs: str) -> str:
             sudo_run(["chmod", "+x", str(path)])
 
     if mode == "docker":
+        # 容器内 chroot 进固件 rootfs：必须把宿主 qemu 拷进树，不能用镜像
+        # /usr/bin/qemu-*（chroot 后那是固件自己的 /usr/bin）。
         _chmod_x(rootfs / target_in_rootfs.lstrip("/"))
-        return f"/usr/bin/{qemu_name}"
+        qemu_dest = rootfs / qemu_name
+        qemu_src = Path(QEMU_BIN_DIR) / qemu_name
+        if (not qemu_dest.is_file()
+                or qemu_dest.stat().st_size != qemu_src.stat().st_size):
+            shutil.copyfile(qemu_src, qemu_dest)
+        _chmod_x(qemu_dest)
+        return "/" + qemu_name
 
     qemu_dest = rootfs / qemu_name
     qemu_src = Path(QEMU_BIN_DIR) / qemu_name
@@ -388,6 +403,32 @@ def parse_exec_log(log_path) -> list:
     return addrs
 
 
+def publish_host_port(guest_port: int) -> int:
+    """Host loopback port for docker -p / the trigger probe.
+
+    Guest 22/80 collide with host sshd/http; publishing 127.0.0.1:22:22
+    makes docker fail with rc=125. Privileged ports shift to 10000+guest.
+    """
+    preferred = guest_port if guest_port >= 1024 else 10000 + guest_port
+    for cand in (preferred, *range(11000, 12000)):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            try:
+                sock.bind(("127.0.0.1", cand))
+                return cand
+            except OSError:
+                continue
+    raise QemuError(f"no free loopback port to publish guest {guest_port}")
+
+
+def _call_trigger(trigger, connect_port):
+    """New callbacks take the host connect port; old 0-arg lambdas still run."""
+    try:
+        return trigger(connect_port)
+    except TypeError:
+        return trigger()
+
+
 def wait_port(port: int, proc, timeout: float):
     """Poll until 127.0.0.1:port accepts a TCP connection.
 
@@ -410,12 +451,47 @@ def wait_port(port: int, proc, timeout: float):
     raise QemuError(f"port {port} not ready within {timeout}s")
 
 
+def seed_guest_tmp(rootfs, tmp_dir):
+    """Pre-create guest /tmp files qemu-user httpd (and similar) need.
+
+    TP-Link httpd creates /tmp/dec-model.conf with mode 020 then reopens
+    O_RDONLY (EACCES → SIGSEGV). An existing 0666 file keeps a readable
+    mode. Copy web/oem/model.conf beside it when present.
+    """
+    tmp_dir = Path(tmp_dir)
+    tmp_dir.mkdir(parents=True, exist_ok=True)
+    seed = tmp_dir / "dec-model.conf"
+    if not seed.exists():
+        seed.write_bytes(b"")
+    try:
+        os.chmod(seed, 0o666)
+    except OSError:
+        pass
+    model = Path(rootfs) / "web" / "oem" / "model.conf"
+    if model.is_file():
+        dest = tmp_dir / "model.conf"
+        if not dest.exists():
+            shutil.copyfile(model, dest)
+        try:
+            os.chmod(dest, 0o666)
+        except OSError:
+            pass
+
+
+def _with_stdin_redirect(argv, stdin_path):
+    return ["sh", "-c", "exec "
+            + " ".join(shlex.quote(str(a)) for a in argv)
+            + " < " + shlex.quote(str(stdin_path))]
+
+
 def run_coverage(rootfs, qemu_in_rootfs: str, argv_in_rootfs, run_id: str,
                  port: int | None = None, probe_port: bool = True,
                  ready_timeout: float = 10.0, hold_seconds: float = 2.0,
                  run_timeout: float = 60.0,
                  trigger=None, argv0: str | None = None,
-                 sysroot_prefix: str | None = None):
+                 sysroot_prefix: str | None = None,
+                 host_port: int | None = None,
+                 stdin_bytes=None, input_blob=None):
     """One coverage run. Returns (ordered PCs, meta).
 
     Two lifecycles:
@@ -441,39 +517,59 @@ def run_coverage(rootfs, qemu_in_rootfs: str, argv_in_rootfs, run_id: str,
     'docker' mode runs qemu inside the fwgraph-sandbox image and is cleaned
     up via `docker rm -f fwgraph-trace-<run_id>`.
     """
+    rootfs = Path(rootfs).resolve()
     log_in_rootfs = f"/tmp/fwgraph-cov-{run_id}.log"
     log_host = Path(rootfs) / log_in_rootfs.lstrip("/")
     if log_host.exists():
         log_host.unlink()
     mode = trace_exec_mode()
+    argv_list = [str(a) for a in argv_in_rootfs]
     log_label = log_in_rootfs
     container = None
     out_dir = None
     if mode == "docker":
-        # 容器内 /tmp 是随容器销毁的 tmpfs，exec 日志经独立挂载的 /out 取回
+        # chroot 进固件 rootfs：guest 的 /etc /web /usr 都是固件的。
+        # exec 日志写到 chroot /tmp（把 out_dir bind 上去），宿主编排器再读。
         out_dir = Path(tempfile.mkdtemp(prefix=f"fwgraph-cov-{run_id}-"))
-        out_dir.chmod(0o777)  # 容器内 sandbox 用户（uid 1000）需要可写
-        log_label = f"/out/fwgraph-cov-{run_id}.log"
+        out_dir.chmod(0o777)
+        log_label = f"/tmp/fwgraph-cov-{run_id}.log"
         log_host = out_dir / f"fwgraph-cov-{run_id}.log"
         container = f"fwgraph-trace-{run_id}"
-        qemu_argv = ([qemu_in_rootfs]
+        qemu_argv = (["chroot", str(rootfs), qemu_in_rootfs]
                      + (["-0", argv0] if argv0 else [])
-                     # qemu -L 以 rootfs 为前缀：可执行文件与 ELF 解释器/库
-                     # 均按 guest 路径在 rootfs（同路径只读挂载）内解析
-                     + ["-L", str(rootfs)]
                      + ["-d", "exec", "-D", log_label]
-                     + [str(a) for a in argv_in_rootfs])
-        mounts = [(str(rootfs), str(rootfs), "ro")]
-        for top in _DOCKER_BIND_TOPDIRS:
-            if (Path(rootfs) / top).exists():
-                mounts.append((str(Path(rootfs) / top), f"/{top}", "ro"))
-        mounts.append((str(out_dir), "/out", "rw"))
+                     + argv_list)
+        io_dir = out_dir
+        mounts = [
+            (str(rootfs), str(rootfs), "ro"),
+            (str(out_dir), str(Path(rootfs) / "tmp"), "rw"),
+            ("/proc", str(Path(rootfs) / "proc"), "ro"),
+        ]
     else:
         qemu_argv = ([qemu_in_rootfs]
                      + (["-0", argv0] if argv0 else [])
                      + (["-L", sysroot_prefix] if sysroot_prefix else [])
                      + ["-d", "exec", "-D", log_in_rootfs]
-                     + [str(a) for a in argv_in_rootfs])
+                     + argv_list)
+        io_dir = Path(rootfs) / "tmp"
+        io_dir.mkdir(parents=True, exist_ok=True)
+    seed_guest_tmp(rootfs, io_dir)
+    if stdin_bytes is not None:
+        stdin_file = io_dir / "fwgraph-stdin"
+        stdin_file.write_bytes(stdin_bytes)
+        try:
+            os.chmod(stdin_file, 0o666)
+        except OSError:
+            pass
+        # docker: 外层 sh 在容器里、chroot 外；容器 /tmp 是 tmpfs。
+        # stdin 文件在 out_dir，bind 到 rootfs/tmp（与 qemu_exec 同路径）。
+        # userns/root: sh 已在 chroot 内，读 /tmp/fwgraph-stdin。
+        stdin_path = (Path(rootfs) / "tmp" / "fwgraph-stdin"
+                      if mode == "docker" else "/tmp/fwgraph-stdin")
+        qemu_argv = _with_stdin_redirect(qemu_argv, stdin_path)
+    if input_blob:
+        name, blob = input_blob
+        (io_dir / str(name)).write_bytes(blob or b"")
     if mode == "userns":
         # -U/-r: fake root via uid map; -m: private mount ns so the in-run
         # proc mount dies with the namespace; -n: no network — skipped for
@@ -494,10 +590,16 @@ def run_coverage(rootfs, qemu_in_rootfs: str, argv_in_rootfs, run_id: str,
     if mode == "docker":
         # service 型发布 127.0.0.1:<port>，就绪探针/trigger 逻辑不变；
         # timeout 不传——生命周期由下面 finally 的 docker rm -f 兜底
+        if port and host_port is None:
+            host_port = publish_host_port(port)
         proc = sandbox.run_sandboxed(
             qemu_argv, image=sandbox.SANDBOX_IMAGE, name=container,
             mounts=mounts, network="bridge" if port else "none",
-            ports=[port] if port else None)
+            ports=[(host_port, port)] if port else None,
+            user="0",
+            cap_add=["SYS_CHROOT", "NET_BIND_SERVICE"],
+            sysctls=({"net.ipv4.ip_unprivileged_port_start": "0"}
+                     if port else None))
         password = ""
     else:
         proc = subprocess.Popen(cmd,
@@ -512,17 +614,18 @@ def run_coverage(rootfs, qemu_in_rootfs: str, argv_in_rootfs, run_id: str,
             proc.stdin.close()
         if port:
             if probe_port:
-                wait_port(port, proc, min(ready_timeout, run_timeout))
+                wait_port(host_port or port, proc,
+                          min(ready_timeout, run_timeout))
             else:
                 # baseline: plain startup window — a probe connection would
                 # be accept()ed by the service and pollute the diff
                 _sleep_or_die(proc, hold_seconds)
             if trigger is not None:
-                trigger_result = trigger()
+                trigger_result = _call_trigger(trigger, host_port or port)
             _sleep_or_die(proc, hold_seconds)
         else:
             if trigger is not None:
-                trigger_result = trigger()
+                trigger_result = _call_trigger(trigger, host_port or port)
             _wait_exit(proc, run_timeout)
     finally:
         if mode == "docker":
@@ -546,8 +649,16 @@ def run_coverage(rootfs, qemu_in_rootfs: str, argv_in_rootfs, run_id: str,
         sudo_run(["chmod", "644", str(log_host)], check=False)
     try:
         if not log_host.is_file() or log_host.stat().st_size == 0:
-            raise QemuError(f"empty coverage log (target rc={proc.poll()}); "
-                            f"check qemu can run the binary")
+            extra = ""
+            try:
+                if proc.stderr:
+                    extra = (proc.stderr.read() or "")[-400:]
+            except Exception:
+                extra = ""
+            raise QemuError(
+                f"empty coverage log (target rc={proc.poll()}); "
+                f"check qemu can run the binary"
+                + (f": {extra.strip()}" if extra.strip() else ""))
         addrs = parse_exec_log(log_host)
     finally:
         if out_dir is not None:

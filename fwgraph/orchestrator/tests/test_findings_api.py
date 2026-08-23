@@ -104,6 +104,8 @@ def _payload(**over):
         "reachability": "static",
         "summary": "handle_req 中 strcpy 未检查长度",
         "evidence": ["0x108d8 strcpy(dst, src)", "attack path P3"],
+        "call_chain": "main@0x108d8 → handle_req@0x10900 → strcpy",
+        "poc": "POST /goform/setMac HTTP/1.1\n\nmac=" + "A" * 40,
     }
     base.update(over)
     return base
@@ -114,6 +116,14 @@ def _post(http, headers, **over):
 
 
 class TestFindingCreate:
+    def test_create_requires_call_chain_and_poc(self, client):
+        resp = _post(client, _legacy(), call_chain="", poc="")
+        assert resp.status_code == 422
+        assert "call_chain" in resp.json()["detail"]
+        resp = _post(client, _legacy(), poc="")
+        assert resp.status_code == 422
+        assert "poc" in resp.json()["detail"]
+
     def test_create_ok(self, client, tmp_path):
         resp = _post(client, _legacy())
         assert resp.status_code == 201, resp.text
@@ -392,6 +402,8 @@ class TestSessionOwnership:
                           headers=bob).status_code == 404
         assert client.post("/vulnagent/sessions/s-bbb-0002/stop",
                            headers=bob).status_code == 404
+        assert client.delete("/vulnagent/sessions/s-bbb-0002",
+                             headers=bob).status_code == 404
         assert client.get("/vulnagent/sessions/s-bbb-0002/events?follow=0",
                           headers=bob).status_code == 404
         # the owner herself gets through
@@ -403,6 +415,24 @@ class TestSessionOwnership:
         # not running -> stop is a 409, not a 404
         assert client.post("/vulnagent/sessions/s-bbb-0002/stop",
                            headers=carol).status_code == 409
+        assert client.delete("/vulnagent/sessions/s-bbb-0002",
+                             headers=carol).status_code == 200
+        assert client.get("/vulnagent/sessions/s-bbb-0002",
+                          headers=carol).status_code == 404
+
+    def test_get_session_lists_live_findings(self, client, tmp_path):
+        sid = "s-live-0001"
+        self._seed_session(tmp_path, sid, owner="bob", status="running")
+        fdir = tmp_path / "vulnagent" / "findings"
+        fid = "F-abc123-dead"
+        (fdir / f"{fid}.json").write_text(json.dumps({
+            "id": fid, "session_id": sid, "job_id": JOB,
+            "title": "live finding", "status": "draft",
+        }), encoding="utf-8")
+        body = client.get(f"/vulnagent/sessions/{sid}",
+                          headers=_bob(client)).json()
+        assert fid in body["findings"]
+        assert body["finding_objects"][0]["id"] == fid
 
     def test_legacy_session_is_admin_owned(self, client, tmp_path):
         self._seed_session(tmp_path, "s-old-0004")  # no owner field

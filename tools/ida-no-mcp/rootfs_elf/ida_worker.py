@@ -457,6 +457,7 @@ def export_all(
     no_decompile_funcs: bool,
     no_function_index: bool,
     log_path: str,
+    skip_source: bool = False,
 ) -> None:
     _import_ida()
     _ensure_dir(out_dir)
@@ -471,8 +472,14 @@ def export_all(
     ida_auto.auto_wait()
     _append_log(log_path, "[analysis] auto_wait done")
 
-    if ida_hexrays.init_hexrays_plugin():
-        source_path = os.path.join(out_dir, "source.c")
+    source_path = os.path.join(out_dir, "source.c")
+    if skip_source:
+        # Whole-binary Hex-Rays dump is unused by fwgraph (per-function
+        # decompile/*.c is the product input) and can burn the entire
+        # IDA_TIMEOUT on large binaries such as samba_multicall.
+        _write_text(source_path, "/* skipped: --skip-source */\n")
+        _append_log(log_path, "[decompile] source.c skipped")
+    elif ida_hexrays.init_hexrays_plugin():
         flags = (
             ida_hexrays.VDRUN_NEWFILE
             | ida_hexrays.VDRUN_SILENT
@@ -481,7 +488,6 @@ def export_all(
         ida_hexrays.decompile_many(source_path, None, flags)
         _append_log(log_path, "[decompile] source.c exported")
     else:
-        source_path = os.path.join(out_dir, "source.c")
         _write_text(source_path, "/* hexrays unavailable */\n")
         _append_log(log_path, "[decompile] hexrays unavailable")
 
@@ -518,6 +524,10 @@ def main() -> None:
     parser.add_argument("--elf", required=True)
     parser.add_argument("--out-dir", required=True)
     parser.add_argument("--skip-memory", action="store_true", default=False)
+    parser.add_argument(
+        "--skip-source", action="store_true", default=False,
+        help="Skip whole-binary source.c dump; still export decompile/*.c",
+    )
     parser.add_argument("--no-decompile-funcs", action="store_true", default=False)
     parser.add_argument("--no-function-index", action="store_true", default=False)
     parser.add_argument("--ida-dir", default=None, help="IDA install root for idalib")
@@ -535,6 +545,7 @@ def main() -> None:
             no_decompile_funcs=args.no_decompile_funcs,
             no_function_index=args.no_function_index,
             log_path=args.log_path or "",
+            skip_source=args.skip_source,
         )
     except Exception as exc:
         _append_log(args.log_path or "", f"[error] {exc}")

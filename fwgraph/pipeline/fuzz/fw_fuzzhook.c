@@ -21,6 +21,11 @@
  * to it); the firmware is never "fully emulated".
  */
 
+#if defined(__FWHOOK_MIPS__) && !defined(TARGET_MIPS) && !defined(TARGET_MIPS64)
+/* qemuafl/api.h only exposes struct mips_regs under TARGET_MIPS
+ * (see AFLplusplus utils/qemu_persistent_hook/mipsel_read_into_a0.c). */
+# define TARGET_MIPS
+#endif
 #include <qemuafl/api.h>   /* -I <AFLplusplus>/qemu_mode/qemuafl */
 
 #include <stdio.h>
@@ -36,6 +41,7 @@
 
 static char g_argspec[256];
 static uint64_t g_ret;
+static uint64_t g_func;
 static int g_inited = 0;
 
 static uint64_t parse_num(const char *s) { return strtoull(s, NULL, 0); }
@@ -44,8 +50,10 @@ static void lazy_init(void) {
   if (g_inited) return;
   const char *spec = getenv("FUZZHOOK_ARGS");
   const char *ret = getenv("FUZZHOOK_RET_VALUE");
+  const char *fn = getenv("FUZZHOOK_FUNC_ADDR");
   snprintf(g_argspec, sizeof(g_argspec), "%s", spec ? spec : "buf,len");
   g_ret = ret ? parse_num(ret) : 0;
+  g_func = fn ? parse_num(fn) : 0;
   g_inited = 1;
 }
 
@@ -107,9 +115,13 @@ void afl_persistent_hook(struct mips_regs *regs, uint64_t guest_base,
   lazy_init();
   uint64_t buflen = input_buf_len;
   PLACE_INPUT(regs->sp);
-  uint64_t *argregs = &regs->a0;
-  APPLY_ARGS({ if (i < 4) argregs[i] = v; });
-  if (g_ret) regs->ra = g_ret;
+  /* mips/mipsel GPRs are target_ulong (32-bit); a uint64_t* walk skips a1. */
+  target_ulong *argregs = &regs->a0;
+  APPLY_ARGS({ if (i < 4) argregs[i] = (target_ulong)v; });
+  if (g_ret) regs->ra = (target_ulong)g_ret;
+  /* PIC/psABI: callee prologue loads gp via t9; jumping at AFL_ENTRYPOINT
+   * without t9 == function address SIGSEGVs before the persistent loop. */
+  if (g_func) regs->t9 = (target_ulong)g_func;
 }
 
 #else  /* x86_64 — for host-side harness validation */

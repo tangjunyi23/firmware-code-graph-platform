@@ -71,6 +71,7 @@ def _rootfs_elf_command(elf: Path, outdir: Path) -> list[str]:
         "--elf", str(elf),
         "--out-dir", str(outdir),
         "--skip-memory",
+        "--skip-source",
         "--log-path", str(outdir / "idat.log"),
     ]
     ida = config.ida_dir()

@@ -98,7 +98,7 @@ def run_sandboxed(cmd, *, image, mounts, workdir=None, network="none",
                   extra_hosts=None, ports=None, env=None,
                   mem=DEFAULT_LIMITS["memory"], cpus=DEFAULT_LIMITS["cpus"],
                   pids=DEFAULT_LIMITS["pids"], timeout=None, log_path=None,
-                  name=None):
+                  name=None, sysctls=None, user=None, cap_add=None):
     """以隔离容器运行 cmd，返回 docker run 客户端的 Popen。
 
     cmd            容器内执行的 argv（调用方负责容器内路径的正确性）
@@ -106,12 +106,18 @@ def run_sandboxed(cmd, *, image, mounts, workdir=None, network="none",
                    host_path 经 host_mount_path() 改写为宿主侧路径（仅当
                    SANDBOX_HOST_PREFIX 非空且源路径在 FWGRAPH_DATA 下）
     ports          需发布到宿主 127.0.0.1 的端口列表（service 型 trace 用）
+    sysctls        docker --sysctl 键值（service 型 trace 把
+                   net.ipv4.ip_unprivileged_port_start=0，让 uid 1000 能
+                   bind 80；否则 docker-proxy 接上后 RST，覆盖无差分）
     timeout        硬上限（秒）：到期由看门狗线程 docker rm -f 容器并
                    SIGKILL 客户端进程组；None 则完全交给调用方控制生命周期
     log_path       给定时容器 stdout/stderr 追加写入该文件，否则
                    stdout=DEVNULL、stderr=PIPE(text)（对齐 fuzz 现有用法）
     name           容器名（默认 fwgraph-sbx-<rand>）；调用方可经返回 Popen 的
                    sandbox_container 属性取回，用于自行 docker rm -f
+    user           docker --user（trace chroot 用 0）
+    cap_add        docker --cap-add 列表（chroot 需要 SYS_CHROOT；root 绑 80
+                   需要 NET_BIND_SERVICE，因为 --cap-drop ALL 会拿掉它）
     """
     name = name or f"fwgraph-sbx-{os.urandom(4).hex()}"
     docker_cmd = ["docker", "run", "--rm", "--name", name,
@@ -124,8 +130,18 @@ def run_sandboxed(cmd, *, image, mounts, workdir=None, network="none",
     for host_path, container_path, mode in mounts or []:
         docker_cmd += ["-v", f"{host_mount_path(host_path)}:"
                              f"{container_path}:{mode}"]
-    for port in ports or []:
-        docker_cmd += ["-p", f"127.0.0.1:{port}:{port}"]
+    for spec in ports or []:
+        if isinstance(spec, (tuple, list)) and len(spec) == 2:
+            host_p, guest_p = spec
+            docker_cmd += ["-p", f"127.0.0.1:{host_p}:{guest_p}"]
+        else:
+            docker_cmd += ["-p", f"127.0.0.1:{spec}:{spec}"]
+    for key, value in (sysctls or {}).items():
+        docker_cmd += ["--sysctl", f"{key}={value}"]
+    if user is not None:
+        docker_cmd += ["--user", str(user)]
+    for cap in cap_add or []:
+        docker_cmd += ["--cap-add", cap]
     for host in extra_hosts or []:
         docker_cmd += ["--add-host", host]
     for key, value in (env or {}).items():

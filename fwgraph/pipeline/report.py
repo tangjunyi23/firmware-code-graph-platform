@@ -234,8 +234,8 @@ def _summary_section(job_id: str, data_dir: Path, findings: list,
                 f"（score {best.get('score')}）。")
     else:
         risk = "未发现明显高风险点。"
-    lines += [f"# {firmware} 综合安全分析报告", "",
-              "## 一、执行摘要", ""]
+    lines += [f"# {firmware} 漏洞报告", "",
+              "## 一、摘要", ""]
     if not any([manifest, idoc, surfaces, paths, findings]):
         lines += ["（无数据）", ""]
         return
@@ -246,8 +246,9 @@ def _summary_section(job_id: str, data_dir: Path, findings: list,
         f"{len((manifest or {}).get('binaries') or [])} 个二进制，识别出 "
         f"{len((idoc or {}).get('inputs') or [])} 个公网输入、"
         f"{len(surfaces)} 个攻击面、{len(auth_chains)} 条授权链、"
-        f"{len(paths)} 条攻击路径；AI 挖掘发现 {len(findings)} 个"
-        f"（{sev_desc or '无'}）。{risk}")
+        f"{len(paths)} 条攻击路径。挖掘发现 {len(findings)} 个"
+        f"（{sev_desc or '无'}）。{risk} "
+        "正文只保留调用链与 PoC；前置分析明细在任务产物里，不在此展开。")
     lines.append("")
 
 
@@ -550,7 +551,7 @@ def _finding_block(f: dict, index: int, lines: list):
     sev = f.get("severity") or "info"
     fid = f.get("id") or "?"
     title = _esc(f.get("title") or fid, in_table=True)
-    lines += [f"### 7.{index}【{_SEV_LABEL.get(sev, sev)}】{title}"
+    lines += [f"### {index}.【{_SEV_LABEL.get(sev, sev)}】{title}"
               f"（{fid}）", ""]
     meta = [f"严重级别：{_sev_text(sev)}"]
     if f.get("vuln_class"):
@@ -590,12 +591,13 @@ def _finding_block(f: dict, index: int, lines: list):
         lines += [f"**修复建议**：{_fclip(f['remediation'], 500, fid)}", ""]
 
 
-def _findings_section(job_id: str, lines: list) -> list:
-    lines += ["## 七、AI 挖掘发现", ""]
+def _findings_section(job_id: str, data_dir: Path, lines: list) -> list:
+    lines += ["## 二、漏洞（调用链与 PoC）", ""]
     related, unrelated = _collect_findings(job_id)
     if not related and not unrelated:
-        lines += ["（无数据）", ""]
+        lines += ["（尚无挖掘发现。在工作台选中该前置任务并发送提示词后开始挖掘。）", ""]
         return []
+    fuzz_runs = _load_fuzz_runs(job_id, data_dir)
     if related:
         sev_count = {}
         for f in related:
@@ -608,6 +610,21 @@ def _findings_section(job_id: str, lines: list) -> list:
         lines += [f"关联本任务的发现共 {len(related)} 个（{desc}）：", ""]
         for i, f in enumerate(related, 1):
             _finding_block(f, i, lines)
+            for r in fuzz_runs:
+                if not (r.get("crashes") or 0):
+                    continue
+                same = r.get("binary_md5") == f.get("binary_md5") or (
+                    _base(r.get("binary_path") or "")
+                    == _base(f.get("binary_path") or "")
+                    and _base(f.get("binary_path") or ""))
+                if same:
+                    lines.append(
+                        f"- 运行 {r.get('run_id')} 在 "
+                        f"{_base(r.get('binary_path') or '?')} 上产出 "
+                        f"{r.get('crashes')} 个 crash，与发现 "
+                        f"{f.get('id')} 指向同一二进制，"
+                        "建议结合崩溃样本复核这些发现。")
+                    lines.append("")
     else:
         lines += ["（本任务无关联发现）", ""]
     if unrelated:
@@ -706,14 +723,9 @@ def _appendix_section(job_id: str, data_dir: Path, unrelated: list,
     if not model:
         settings = _read_json(Path(data_dir) / "settings.json") or {}
         model = str(settings.get("LLM_MODEL") or "")
-    lines += ["## 九、附录", "",
-              "- 分析工具链：EMBA（固件提取）、IDA Pro（反编译/调用图）、"
-              "CBM（代码索引）、AFL++ QEMU（模糊测试）、frida（动态插桩）、"
-              "dsh vulnagent（AI 漏洞挖掘）",
-              f"- AI 模型：{model or '（未配置）'}",
-              "- 报告生成方式：确定性规则汇总（未调用 LLM）",
-              f"- 报告生成时间:{datetime.now(timezone.utc).isoformat()}",
-              "- 平台：FWGraph 固件安全分析平台", ""]
+    lines += ["## 三、附录", "",
+              f"- 生成时间：{datetime.now(timezone.utc).isoformat()}",
+              f"- 模型：{model or '（未配置）'}", ""]
     if unrelated:
         lines += ["### 未关联任务的其他发现", "",
                   "**警示：以下发现未能关联到本固件，仅供参考，"
@@ -752,13 +764,7 @@ def generate_job_report(job_id: str, data_dir) -> Path:
     lines: list = []
     findings, unrelated = _collect_findings(job_id)
     _summary_section(job_id, data_dir, findings, lines)
-    _manifest_section(job_id, data_dir, lines)
-    _inputs_section(job_id, data_dir, lines)
-    _surfaces_section(job_id, data_dir, lines)
-    _attack_section(job_id, data_dir, lines)
-    _dynamic_section(job_id, data_dir, findings, lines)
-    _findings_section(job_id, lines)
-    _conclusion_section(job_id, data_dir, findings, lines)
+    _findings_section(job_id, data_dir, lines)
     _appendix_section(job_id, data_dir, unrelated, lines)
     out = data_dir / "reports" / f"job-{job_id}.md"
     out.parent.mkdir(parents=True, exist_ok=True)

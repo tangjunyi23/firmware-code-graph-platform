@@ -395,28 +395,86 @@ class TestSpaHosting:
             encoding="utf-8")
         events = (webui_src / "views" / "EventsView.vue").read_text(
             encoding="utf-8")
-        assert "HomeChat" in jobs
+        assert "WorkbenchView" in jobs
+        assert "PrepareView" in app
+        assert "prepare" in app
         assert ":size=\"isNarrow ? '96%' : '58%'\"" in functions
         assert "(max-width: 720px)" in helper
         assert "watch(functionsView, loadPendingFunctionJob)" in app
         assert "EventsView" in app
         assert "index: 'vuln'" not in app
         assert "简易模式" not in app
-        home = (webui_src / "views" / "HomeChat.vue").read_text(encoding="utf-8")
-        assert "上传固件" in home
-        assert "fwgraph_home_run" in home
-        assert "pipe-steps" in home
-        assert "uploadFirmware" in home
-        assert "gear-btn" not in home
-        assert "id: 'xhigh'" not in home
+        prepare = (webui_src / "views" / "PrepareView.vue").read_text(
+            encoding="utf-8")
+        assert "uploadFirmware" in prepare
+        assert "gear-btn" not in prepare
+        wb = (webui_src / "workbench" / "WorkbenchView.vue").read_text(
+            encoding="utf-8")
+        dsh = (webui_src / "workbench" / "dshClient.js").read_text(
+            encoding="utf-8")
+        assert "huntPrompt" not in wb
+        assert "fw_get_identification" not in wb
+        assert "src.kind !== 'user'" in dsh
+        assert "isInjectedHuntHint" in dsh
+        assert "【编排】" in dsh
+        assert "只做能力验收" in dsh
+        assert "平台已修好" in dsh
+        assert "禁止再说缺少平台能力" in dsh
+        assert "record_finding" in dsh
+        assert "summary.status !== 'running'" in dsh
+        assert "data.chunk" in dsh
+        assert "blk-${turn}-${step}-${idx}" in dsh
+        assert "_seenSeq" in dsh
+        assert "feedText" in dsh
+        assert "think-${turn}" in dsh
+        assert "expectRunning" in dsh
+        ml = (webui_src / "workbench" / "MessageList.vue").read_text(
+            encoding="utf-8")
+        assert "Deep diving" not in ml
+        assert "Thinking" in ml
+        assert "thinkPreview" in ml
+        assert "think-preview" in ml
+        assert "DeepAgent" not in ml
+        assert "deepagent" not in ml.lower()
+        assert ml.count("composer-seat") == 0
+        wb = (webui_src / "workbench" / "WorkbenchView.vue").read_text(
+            encoding="utf-8")
+        assert "composer-seat" in wb
+        qd = (webui_src / "workbench" / "QueueDock.vue").read_text(
+            encoding="utf-8")
+        assert "isInjectedHuntHint" in qd
+        assert "scroll-wrap" in wb
+        assert "expectRunning: true" in wb
+        assert "onStopCurrent" in wb
+        assert "onInterruptCurrent" in wb
+        assert '@stop="onInterruptCurrent"' in wb
+        assert "resumeHunt" in dsh
+        assert "/resume" in dsh
+        sidebar = (webui_src / "workbench" / "SidebarJobs.vue").read_text(
+            encoding="utf-8")
+        composer = (webui_src / "workbench" / "Composer.vue").read_text(
+            encoding="utf-8")
+        assert "session.stop" in sidebar
+        assert "session.archive" in sidebar
+        assert "session.purgeArchived" in sidebar
+        assert "sess-menu" in sidebar
+        assert "onStopSession" in wb
+        assert "onArchiveSession" in wb
+        assert "onPurgeArchived" in wb
+        assert "if (running.value)" in composer
+        assert "emit('stop')" in composer
+        assert "approval.auto" in composer
+        assert "approval.ask" in composer
+        assert "setApprovalPolicy" in composer
+        assert "ok: true" in dsh
+        assert "approvalId" in dsh
+        assert "setApprovalPolicy" in dsh
+        ap = (webui_src / "workbench" / "ApprovalPanel.vue").read_text(
+            encoding="utf-8")
+        assert "session.approve" in ap
+        assert "respond('rejected')" in ap
+        assert "respond('allowed-once')" in ap
         assert "chat-home" in app
         assert "/jobs/${jobId.value}/logs" in events or "/jobs/" in events
         assert "挖掘事件" not in events
-        assert "agent-hud" in home
-        assert "工作中" in home
-        assert "dsh-card" in home
-        assert "dsh-row-sweep" in home
-        assert "goto', 'events'" not in home
-        assert "goto', 'vuln'" not in home
-        assert "新会话" in home
-        assert "newSession" in home
+        assert "goto', 'vuln'" not in app

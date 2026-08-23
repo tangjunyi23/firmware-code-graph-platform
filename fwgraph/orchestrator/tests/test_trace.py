@@ -121,6 +121,28 @@ class TestDynamicLinker:
         assert out["sysroot"] == "/"
         assert out["resolved"] == {"libc.so.0": "/lib/libc.so.0"}
 
+    def test_host_rpath_is_skipped_when_libs_are_in_rootfs(self, tmp_path, monkeypatch):
+        target = tmp_path / "bin" / "minidlnad"
+        target.parent.mkdir()
+        target.write_bytes(b"ELF")
+        (tmp_path / "lib").mkdir()
+        (tmp_path / "lib" / "ld.so").write_bytes(b"loader")
+        (tmp_path / "lib" / "libc.so.0").write_bytes(b"libc")
+
+        def fake_readelf(args, binary):
+            if args == ["-lW"]:
+                return "Requesting program interpreter: /lib/ld.so]"
+            return (
+                "Shared library: [libc.so.0]\n"
+                "Library rpath: [/home/pc/Code/C7v2_us/model_qca_dual_band/"
+                "build/../apps/nas/naspackage/minidlna/lib]\n"
+            )
+
+        monkeypatch.setattr(qemu_cov, "_readelf", fake_readelf)
+        out = qemu_cov.inspect_dynamic_linker(tmp_path, "/bin/minidlnad")
+        assert out["resolved"]["libc.so.0"] == "/lib/libc.so.0"
+        assert all("/home/pc" not in p for p in out["search_paths"])
+
     def test_dynamic_missing_needed_is_explicit(self, tmp_path, monkeypatch):
         target = tmp_path / "bin" / "app"
         target.parent.mkdir()
@@ -222,8 +244,9 @@ class TestHttpTrigger:
             def __init__(self, host, port, timeout):
                 assert (host, port, timeout) == ("127.0.0.1", 8098, 5)
 
-            def request(self, method, path):
+            def request(self, method, path, body=None, headers=None):
                 assert (method, path) == ("GET", "/")
+                assert (headers or {}).get("Host") == "192.168.0.1"
 
             def getresponse(self):
                 raise tracer.http.client.RemoteDisconnected("closed")
@@ -237,6 +260,202 @@ class TestHttpTrigger:
                           "status": None, "bytes": 0,
                           "error": "RemoteDisconnected: closed"}
         assert closed == [True]
+
+    def test_connection_reset_is_retried_then_succeeds(self, monkeypatch):
+        hits = {"n": 0}
+
+        class FakeResp:
+            status = 200
+
+            def read(self, _n):
+                return b"ok"
+
+        class FakeConnection:
+            def __init__(self, host, port, timeout):
+                assert (host, port, timeout) == ("127.0.0.1", 80, 5)
+
+            def request(self, method, path, body=None, headers=None):
+                hits["n"] += 1
+                if hits["n"] < 3:
+                    raise ConnectionResetError("peer")
+                assert (method, path) == ("GET", "/userRpm/LoginRpm.htm")
+                assert (headers or {}).get("Host") == "192.168.0.1"
+
+            def getresponse(self):
+                return FakeResp()
+
+            def close(self):
+                pass
+
+        monkeypatch.setattr(tracer.http.client, "HTTPConnection",
+                            FakeConnection)
+        monkeypatch.setattr(tracer.time, "sleep", lambda *_a, **_k: None)
+        result = tracer._http_trigger(80, "/userRpm/LoginRpm.htm")
+        assert hits["n"] == 3
+        assert result == {"kind": "http_get",
+                          "path": "/userRpm/LoginRpm.htm",
+                          "status": 200, "bytes": 2}
+
+    def test_connection_reset_exhausted_is_preserved(self, monkeypatch):
+        class FakeConnection:
+            def __init__(self, host, port, timeout):
+                pass
+
+            def request(self, method, path, body=None, headers=None):
+                raise ConnectionResetError("[Errno 104] Connection reset by peer")
+
+            def close(self):
+                pass
+
+        monkeypatch.setattr(tracer.http.client, "HTTPConnection",
+                            FakeConnection)
+        monkeypatch.setattr(tracer.time, "sleep", lambda *_a, **_k: None)
+        result = tracer._http_trigger(80, "/")
+        assert result["error"].startswith("ConnectionResetError:")
+
+    def test_service_trigger_uses_tcp_on_ftp_slash(self, monkeypatch):
+        seen = {}
+
+        class FakeSock:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def settimeout(self, _t):
+                pass
+
+            def sendall(self, data):
+                seen["sent"] = data
+
+            def recv(self, _n):
+                return b""
+
+        def fake_connect(addr, timeout=None):
+            seen["addr"] = addr
+            seen["timeout"] = timeout
+            return FakeSock()
+
+        import socket as _socket
+        monkeypatch.setattr(_socket, "create_connection", fake_connect)
+        result = tracer._service_trigger(21, "/")
+        assert result["kind"] == "tcp_payload"
+        assert result["port"] == 21
+        assert seen["sent"].startswith(b"USER ")
+        assert seen["addr"] == ("127.0.0.1", 21)
+
+    def test_service_trigger_sends_raw_payload(self, monkeypatch):
+        seen = {}
+
+        class FakeSock:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def settimeout(self, _t):
+                pass
+
+            def sendall(self, data):
+                seen["sent"] = data
+
+            def recv(self, _n):
+                return b"OK"
+
+        import socket as _socket
+        monkeypatch.setattr(_socket, "create_connection",
+                            lambda addr, timeout=None: FakeSock())
+        result = tracer._service_trigger(22, None, payload=b"SSH-2.0-x\r\n")
+        assert result["kind"] == "tcp_payload"
+        assert seen["sent"] == b"SSH-2.0-x\r\n"
+        assert result["recv"] == 2
+
+    def test_service_trigger_conversation_sends_steps(self, monkeypatch):
+        seen = {"sent": []}
+
+        class FakeSock:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def settimeout(self, _t):
+                pass
+
+            def sendall(self, data):
+                seen["sent"].append(data)
+
+            def recv(self, _n):
+                return b"OK"
+
+        import socket as _socket
+        monkeypatch.setattr(_socket, "create_connection",
+                            lambda addr, timeout=None: FakeSock())
+        monkeypatch.setattr(tracer.time, "sleep", lambda *_a, **_k: None)
+        result = tracer._service_trigger(
+            22, None, payload=[b"SSH-2.0-x\r\n", b"kexinit"])
+        assert result["kind"] == "tcp_conversation"
+        assert result["steps"] == 2
+        assert seen["sent"] == [b"SSH-2.0-x\r\n", b"kexinit"]
+        assert result["sent"] == len(b"SSH-2.0-x\r\n") + len(b"kexinit")
+
+    def test_service_trigger_keeps_http_on_port_80(self, monkeypatch):
+        class FakeResp:
+            status = 200
+
+            def read(self, _n):
+                return b"ok"
+
+        class FakeConnection:
+            def __init__(self, host, port, timeout):
+                assert port == 80
+
+            def request(self, method, path, body=None, headers=None):
+                assert (method, path) == ("GET", "/")
+
+            def getresponse(self):
+                return FakeResp()
+
+            def close(self):
+                pass
+
+        monkeypatch.setattr(tracer.http.client, "HTTPConnection",
+                            FakeConnection)
+        result = tracer._service_trigger(80, "/")
+        assert result["kind"] == "http_get"
+        assert result["status"] == 200
+
+    def test_service_trigger_udp_on_dhcp6(self, monkeypatch):
+        sent = {}
+
+        class FakeUdp:
+            def settimeout(self, _t):
+                pass
+
+            def sendto(self, data, addr):
+                sent["data"] = data
+                sent["addr"] = addr
+
+            def recvfrom(self, _n):
+                raise TimeoutError("no reply")
+
+            def close(self):
+                sent["closed"] = True
+
+        class _Timeout(OSError):
+            pass
+
+        import socket as _socket
+        monkeypatch.setattr(_socket, "socket", lambda *a, **k: FakeUdp())
+        monkeypatch.setattr(_socket, "timeout", TimeoutError)
+        result = tracer._service_trigger(547, "/")
+        assert result["kind"] == "udp_payload"
+        assert result["port"] == 547
+        assert sent["addr"] == ("127.0.0.1", 547)
+        assert sent["data"].startswith(b"\x01")
 
 
 # ---------------------------------------------------------------------------
@@ -323,10 +542,12 @@ class TestTriggerTrace:
 
         def fake_run_trace(job_id, data_dir, md5, argv, port=None,
                            request_path=None, trace_id=None,
-                           cbm_project=None, argv0=None):
+                           cbm_project=None, argv0=None, payload=None,
+                           via=None, input_path=None):
             seen.update(job_id=job_id, md5=md5, argv=argv, port=port,
                         request_path=request_path, trace_id=trace_id,
-                        argv0=argv0)
+                        argv0=argv0, payload=payload, via=via,
+                        input_path=input_path)
             return {"status": "ok"}
 
         attack_dir = main.ATTACK_DIR / JOB
@@ -352,8 +573,173 @@ class TestTriggerTrace:
         assert seen["argv"] == ["httpd", "-f", "-p", "8080"]
         assert seen["port"] == 8080
         assert seen["request_path"] == "/index.html"
+        assert seen["payload"] is None
         assert seen["trace_id"] == body["trace_id"]
         assert refreshed == {"job_id": JOB, "data_dir": main.DATA_DIR}
+        assert main.TRACE_LOCK.acquire(blocking=False)
+        main.TRACE_LOCK.release()
+
+    def test_empty_diff_does_not_refresh_attack(self, client, monkeypatch):
+        http, _ = client
+        refreshed = {}
+
+        class FakeThread:
+            def __init__(self, target, args=(), daemon=None):
+                self._t, self._a = target, args
+
+            def start(self):
+                self._t(*self._a)
+
+        def fake_run_trace(*_a, **_k):
+            return {"status": "ok_empty_diff"}
+
+        def fake_attack(job_id, data_dir):
+            refreshed.update(job_id=job_id, data_dir=data_dir)
+
+        attack_dir = main.ATTACK_DIR / JOB
+        attack_dir.mkdir(parents=True, exist_ok=True)
+        (attack_dir / "attack_paths.json").write_text("{}", encoding="utf-8")
+        monkeypatch.setattr(main, "threading",
+                            SimpleNamespace(Thread=FakeThread))
+        monkeypatch.setattr(main.tracer, "run_trace", fake_run_trace)
+        monkeypatch.setattr(main.attack_runner, "run_job", fake_attack)
+        resp = http.post(f"/jobs/{JOB}/trace", json={
+            "binary_md5": MD5, "port": 22, "payload_hex": "00"})
+        assert resp.status_code == 202, resp.text
+        assert refreshed == {}
+        assert main.TRACE_LOCK.acquire(blocking=False)
+        main.TRACE_LOCK.release()
+
+    def test_omitted_argv_runs_binary_only(self, client, monkeypatch):
+        http, _ = client
+        seen = {}
+
+        class FakeThread:
+            def __init__(self, target, args=(), daemon=None):
+                self._t, self._a = target, args
+
+            def start(self):
+                self._t(*self._a)
+
+        def fake_run_trace(job_id, data_dir, md5, argv, port=None,
+                           request_path=None, trace_id=None,
+                           cbm_project=None, argv0=None, payload=None,
+                           via=None, input_path=None):
+            seen["argv"] = argv
+            seen["payload"] = payload
+            seen["via"] = via
+            return {"status": "ok"}
+
+        monkeypatch.setattr(main, "threading",
+                            SimpleNamespace(Thread=FakeThread))
+        monkeypatch.setattr(main.tracer, "run_trace", fake_run_trace)
+        resp = http.post(f"/jobs/{JOB}/trace", json={
+            "binary_md5": MD5, "port": 80, "request_path": "/"})
+        assert resp.status_code == 202, resp.text
+        assert seen["argv"] == []
+
+    def test_payload_hex_is_forwarded(self, client, monkeypatch):
+        http, _ = client
+        seen = {}
+
+        class FakeThread:
+            def __init__(self, target, args=(), daemon=None):
+                self._t, self._a = target, args
+
+            def start(self):
+                self._t(*self._a)
+
+        def fake_run_trace(*_a, **kw):
+            seen["payload"] = kw.get("payload")
+            return {"status": "ok"}
+
+        monkeypatch.setattr(main, "threading",
+                            SimpleNamespace(Thread=FakeThread))
+        monkeypatch.setattr(main.tracer, "run_trace", fake_run_trace)
+        resp = http.post(f"/jobs/{JOB}/trace", json={
+            "binary_md5": MD5, "port": 22, "payload_hex": "5353482d322e300d0a"})
+        assert resp.status_code == 202, resp.text
+        assert seen["payload"] == b"SSH-2.0\r\n"
+
+    def test_payload_unescapes_crlf(self):
+        assert tracer.decode_payload("USER x\\r\\nPASS y\\r\\n", None) == b"USER x\r\nPASS y\r\n"
+
+    def test_payload_hex_strips_0x_and_pads_odd(self):
+        assert tracer.decode_payload(None, "0x5353") == b"SS"
+        assert tracer.decode_payload(None, "A") == b"\n"
+
+    def test_via_stdin_is_forwarded(self, client, monkeypatch):
+        http, _ = client
+        seen = {}
+
+        class FakeThread:
+            def __init__(self, target, args=(), daemon=None):
+                self._t, self._a = target, args
+
+            def start(self):
+                self._t(*self._a)
+
+        def fake_run_trace(*_a, **kw):
+            seen["via"] = kw.get("via")
+            seen["payload"] = kw.get("payload")
+            seen["input_path"] = kw.get("input_path")
+            return {"status": "ok"}
+
+        monkeypatch.setattr(main, "threading",
+                            SimpleNamespace(Thread=FakeThread))
+        monkeypatch.setattr(main.tracer, "run_trace", fake_run_trace)
+        resp = http.post(f"/jobs/{JOB}/trace", json={
+            "binary_md5": MD5, "via": "stdin", "payload_hex": "4142"})
+        assert resp.status_code == 202, resp.text
+        assert seen["via"] == "stdin"
+        assert seen["payload"] == b"AB"
+
+    def test_bad_via_400(self, client):
+        http, _ = client
+        resp = http.post(f"/jobs/{JOB}/trace", json={
+            "binary_md5": MD5, "via": "qemu-system"})
+        assert resp.status_code == 400
+
+    def test_decode_payloads_hex_conversation(self):
+        got = tracer.decode_payloads(None, None, ["5353480d0a", "6b6578"])
+        assert got == [b"SSH\r\n", b"kex"]
+
+    def test_payloads_hex_is_forwarded(self, client, monkeypatch):
+        http, _ = client
+        seen = {}
+
+        class FakeThread:
+            def __init__(self, target, args=(), daemon=None):
+                self._t, self._a = target, args
+
+            def start(self):
+                self._t(*self._a)
+
+        def fake_run_trace(*_a, **kw):
+            seen["payload"] = kw.get("payload")
+            return {"status": "ok"}
+
+        monkeypatch.setattr(main, "threading",
+                            SimpleNamespace(Thread=FakeThread))
+        monkeypatch.setattr(main.tracer, "run_trace", fake_run_trace)
+        resp = http.post(f"/jobs/{JOB}/trace", json={
+            "binary_md5": MD5, "port": 22,
+            "payloads_hex": ["5353480d0a", "6b6578"]})
+        assert resp.status_code == 202, resp.text
+        assert seen["payload"] == [b"SSH\r\n", b"kex"]
+
+    def test_payloads_hex_mixed_400(self, client):
+        http, _ = client
+        resp = http.post(f"/jobs/{JOB}/trace", json={
+            "binary_md5": MD5, "port": 22,
+            "payload_hex": "00", "payloads_hex": ["01"]})
+        assert resp.status_code == 400
+
+    def test_bad_payload_hex_400(self, client):
+        http, _ = client
+        resp = http.post(f"/jobs/{JOB}/trace", json={
+            "binary_md5": MD5, "port": 22, "payload_hex": "zz"})
+        assert resp.status_code == 400
 
     def test_bad_md5_400(self, client):
         http, _ = client
@@ -364,7 +750,7 @@ class TestTriggerTrace:
     def test_bad_argv_400(self, client):
         http, _ = client
         resp = http.post(f"/jobs/{JOB}/trace",
-                         json={"binary_md5": MD5, "argv": []})
+                         json={"binary_md5": MD5, "argv": "httpd"})
         assert resp.status_code == 400
 
     def test_unknown_binary_404(self, client):
@@ -399,6 +785,11 @@ class TestTriggerTrace:
         resp = http.post(f"/jobs/{JOB}/trace",
                          json={"binary_md5": MD5, "argv": ["x"]})
         assert resp.status_code == 409
+        # 409 不得扣当日配额，否则重试几次就把 hunt 卡死
+        qpath = main.DATA_DIR / "quotas.json"
+        if qpath.is_file():
+            doc = json.loads(qpath.read_text(encoding="utf-8"))
+            assert all(":trace:" not in k or v == 0 for k, v in doc.items())
 
 
 class TestTraceReads:
@@ -412,12 +803,36 @@ class TestTraceReads:
         assert row["trace_id"] == "abc123def456"
         assert row["diff_functions"] == 3
         assert row["baseline_functions"] == 100
+        limited = http.get(f"/jobs/{JOB}/traces?limit=1")
+        assert limited.status_code == 200
+        assert limited.json()["total"] == 1
+        assert len(limited.json()["traces"]) == 1
 
     def test_detail(self, client):
         http, _ = client
         resp = http.get(f"/jobs/{JOB}/traces/abc123def456")
         assert resp.status_code == 200
         assert resp.json()["diff"]["function_count"] == 3
+
+    def test_stale_running_trace_is_marked_failed(self, client):
+        http, tmp_path = client
+        tid = "aaaaaaaaaaaa"
+        d = main.TRACES_DIR / JOB / tid
+        d.mkdir(parents=True)
+        (d / "trace.json").write_text(json.dumps({
+            "trace_id": tid, "job_id": JOB, "status": "running",
+            "error": None,
+            "created_at": "2020-01-01T00:00:00+00:00",
+            "finished_at": None, "binary": {"md5": MD5},
+        }), encoding="utf-8")
+        resp = http.get(f"/jobs/{JOB}/traces/{tid}")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["status"] == "failed"
+        assert "worker lost" in body["error"]
+        listed = http.get(f"/jobs/{JOB}/traces").json()["traces"]
+        row = next(t for t in listed if t["trace_id"] == tid)
+        assert row["status"] == "failed"
 
     def test_missing_trace_404(self, client):
         http, _ = client

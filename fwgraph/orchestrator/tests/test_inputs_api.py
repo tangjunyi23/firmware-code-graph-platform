@@ -78,6 +78,40 @@ def test_inputs_endpoint_cycle(client, monkeypatch):
     assert r.json()["inputs"][0]["id"] == "IN-001"
 
 
+def test_identification_annotates_md5_via_file_hash(client):
+    http, _tmp = client
+    ext = main.EXTRACTED_DIR / JOB
+    blob = b"\x7fELF dropbear-or-scp-same-inode"
+    (ext / "usr" / "bin").mkdir(parents=True, exist_ok=True)
+    (ext / "usr" / "bin" / "scp").write_bytes(blob)
+    (ext / "usr" / "bin" / "dropbear").write_bytes(blob)
+    md5 = __import__("hashlib").md5(blob).hexdigest()
+    (ext / "manifest.json").write_text(json.dumps({
+        "firmware": "fw.bin", "job_id": JOB,
+        "binaries": [{"path": "usr/bin/scp", "arch": "mips", "md5": md5}],
+        "stats": {},
+    }), encoding="utf-8")
+    idir = main.INPUTS_DIR / JOB
+    idir.mkdir(parents=True, exist_ok=True)
+    (idir / "identification.json").write_text(json.dumps({
+        "metadata": {"total_inputs": 1},
+        "inputs": [{
+            "id": "IN-013", "protocol": "ssh", "service": "dropbear",
+            "port": 22, "transport": "tcp",
+            "input_types": ["SSH handshake/KEX"],
+            "entry_files": ["usr/bin/dropbear"],
+            "processing_chain": [{"file": "usr/bin/dropbear", "libs": []}],
+        }],
+    }), encoding="utf-8")
+    r = http.get(f"/jobs/{JOB}/identification")
+    assert r.status_code == 200
+    inp = r.json()["inputs"][0]
+    assert inp["binary_md5"] == md5
+    assert f"binary_md5={md5}" in inp["input_types"]
+    assert inp["processing_chain"][0]["md5"] == md5
+    assert inp["entry_md5s"][0]["md5"] == md5
+
+
 def test_surfaces_endpoint_cycle(client, monkeypatch):
     http, tmp_path = client
     monkeypatch.setattr(main.threading, "Thread", FakeThread)

@@ -19,7 +19,7 @@
           <el-tag size="small"
                   :type="r.kind === 'job' ? 'success' : r.kind === 'protofuzz' ? 'primary' : 'warning'"
                   effect="dark">
-            {{ r.kind === 'job' ? '综合报告' : r.kind === 'protofuzz' ? '协议测试' : '挖掘报告' }}
+            {{ r.kind === 'job' ? '漏洞报告' : r.kind === 'protofuzz' ? '协议测试' : '报告' }}
           </el-tag>
           <span class="muted">{{ fmtTime(r.created_at) }}</span>
         </div>

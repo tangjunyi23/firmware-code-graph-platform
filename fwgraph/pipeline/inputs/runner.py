@@ -64,7 +64,9 @@ def _build_entry(idx, cand, rootfs, prefix):
     svc = cand.svc or {}
     entry_files = []
     for f in [cand.path, *cand.endpoints]:
-        if f and f not in entry_files:
+        if not f or discover.is_carve_artifact(f):
+            continue
+        if f not in entry_files:
             entry_files.append(f if not prefix else prefix + f)
     processing_chain = []
     dispatch = []

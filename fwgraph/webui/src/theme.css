@@ -1,0 +1,58 @@
+/* Product typography + shared type scale. Inter covers Latin/digits;
+   CJK falls through to system UI faces so the console stays usable offline. */
+
+@import '@fontsource-variable/inter/wght.css';
+@import '@fontsource/jetbrains-mono/latin-400.css';
+@import '@fontsource/jetbrains-mono/latin-500.css';
+
+:root {
+  --fw-font: 'Inter Variable', Inter, 'Noto Sans SC', 'Source Han Sans SC',
+    'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei UI', 'Microsoft YaHei',
+    system-ui, sans-serif;
+  --fw-font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Consolas,
+    'Liberation Mono', Menlo, 'PingFang SC', 'Microsoft YaHei UI', monospace;
+
+  --fw-text: #152033;
+  --fw-text-2: #3d4f66;
+  --fw-text-3: #6b7c90;
+  --fw-brand: #2563eb;
+  --fw-brand-hover: #1d4ed8;
+  --fw-surface: #ffffff;
+  --fw-page: #f3f6fb;
+
+  --el-font-family: var(--fw-font);
+  --el-font-size-base: 14px;
+}
+
+html {
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  font-family: var(--fw-font);
+  font-optical-sizing: auto;
+  font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11', 'ss01';
+  letter-spacing: -0.011em;
+  line-height: 1.5;
+}
+
+.mono, pre, code, kbd, samp {
+  font-family: var(--fw-font-mono);
+  font-feature-settings: 'ss01', 'zero';
+  letter-spacing: 0;
+}
+
+.el-button,
+.el-input__inner,
+.el-textarea__inner,
+.el-menu,
+.el-table,
+.el-dialog,
+.el-message,
+.el-dropdown-menu,
+.el-tag {
+  font-family: var(--fw-font);
+}

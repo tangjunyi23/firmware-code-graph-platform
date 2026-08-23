@@ -22,8 +22,12 @@ export function clearToken () {
 
 export class ApiError extends Error {
   constructor (status, message) {
-    super(message)
+    const text = (message && typeof message === 'object')
+      ? (message.message || JSON.stringify(message))
+      : message
+    super(text)
     this.status = status
+    this.detail = message
   }
 }
 
@@ -83,11 +87,14 @@ function _xhrDetail (xhr) {
 
 /** Multipart firmware upload with progress. Job is created only after the
  *  body is fully received, so callers should show percent until resolve. */
-export function uploadFirmware (file, { auto = true, onProgress } = {}) {
+export function uploadFirmware (file, { auto = true, onProgress, task = '', profile } = {}) {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest()
-    const q = auto ? '?auto=1' : ''
-    xhr.open('POST', `/firmware${q}`)
+    const q = new URLSearchParams()
+    if (auto) q.set('auto', '1')
+    if (profile) q.set('profile', profile)
+    const qs = q.toString()
+    xhr.open('POST', `/firmware${qs ? '?' + qs : ''}`)
     const token = getToken()
     if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`)
     xhr.upload.onprogress = (ev) => {
@@ -113,8 +120,65 @@ export function uploadFirmware (file, { auto = true, onProgress } = {}) {
     xhr.onabort = () => reject(new ApiError(0, '上传已取消'))
     const fd = new FormData()
     fd.append('file', file)
+    if (task) fd.append('task', task)
     xhr.send(fd)
   })
+}
+
+// ---- SSE streaming ---------------------------------------------------------
+
+/**
+ * SSE reader with the Authorization header (EventSource cannot set headers).
+ * Parses `event:`/`data:` frames; `data` is JSON-parsed when possible.
+ * `onFrame(parsed, {event, raw})` fires per frame; resolves when the stream
+ * ends; rejects on HTTP/network errors (ApiError) or AbortError via signal.
+ */
+export async function streamSse (path, { signal, onFrame } = {}) {
+  const headers = { Accept: 'text/event-stream' }
+  const token = getToken()
+  if (token) headers.Authorization = `Bearer ${token}`
+  const resp = await fetch(path, { headers, signal })
+  if (resp.status === 401) {
+    if (onUnauthorized) onUnauthorized()
+    throw new ApiError(401, '登录状态已失效，请重新登录')
+  }
+  if (!resp.ok || !resp.body) {
+    let detail = `${resp.status}`
+    try {
+      const j = await resp.json()
+      if (j && j.detail) detail = j.detail
+    } catch { /* non-JSON error body */ }
+    throw new ApiError(resp.status, detail)
+  }
+  const reader = resp.body.getReader()
+  const decoder = new TextDecoder()
+  let buf = ''
+  const dispatch = (block) => {
+    let event = 'message'
+    const dataLines = []
+    for (const line of block.split('\n')) {
+      if (line.startsWith(':') || line === '') continue
+      if (line.startsWith('event:')) event = line.slice(6).trim()
+      else if (line.startsWith('data:')) dataLines.push(line.slice(5).replace(/^ /, ''))
+    }
+    if (!dataLines.length) return
+    const raw = dataLines.join('\n')
+    let parsed = raw
+    try { parsed = JSON.parse(raw) } catch { /* keep raw text */ }
+    if (onFrame) onFrame(parsed, { event, raw })
+  }
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buf += decoder.decode(value, { stream: true })
+    let idx
+    while ((idx = buf.indexOf('\n\n')) !== -1) {
+      const block = buf.slice(0, idx)
+      buf = buf.slice(idx + 2)
+      dispatch(block)
+    }
+  }
+  if (buf.trim()) dispatch(buf)
 }
 
 // ---- auth helpers ----------------------------------------------------------

@@ -106,7 +106,8 @@ def _hook_for(arch, work_cache):
     if qemu_arch is None:
         raise RuntimeError(f"unsupported fuzz arch: {arch}")
     hook = work_cache / f"fw_fuzzhook_{qemu_arch}.so"
-    if hook.is_file():
+    src_mtime = HOOK_SRC.stat().st_mtime if HOOK_SRC.is_file() else 0
+    if hook.is_file() and hook.stat().st_mtime >= src_mtime:
         return hook
     work_cache.mkdir(parents=True, exist_ok=True)
     afl_repo = _afl_repo()
@@ -127,6 +128,28 @@ def _seed_dir(work):
     (seeds / "seed0").write_bytes(b"GET / HTTP/1.0\r\n\r\n")
     (seeds / "seed1").write_bytes(b"\x00" * 64)
     return seeds
+
+
+_GLIBC_DOCKER_OK = {}
+
+
+def _docker_can_exec_host_bin(path: str) -> bool:
+    """宿主编译的 afl-qemu-trace 能否在沙箱镜像里跑（glibc 版本）。"""
+    path = str(Path(path).resolve())
+    cached = _GLIBC_DOCKER_OK.get(path)
+    if cached is not None:
+        return cached
+    try:
+        proc = subprocess.run(
+            ["docker", "run", "--rm", "--network", "none",
+             "-v", f"{path}:{path}:ro", sandbox.SANDBOX_IMAGE, path, "-h"],
+            capture_output=True, timeout=25)
+        blob = (proc.stdout or b"") + (proc.stderr or b"")
+        ok = b"GLIBC_" not in blob
+    except Exception:
+        ok = False
+    _GLIBC_DOCKER_OK[path] = ok
+    return ok
 
 
 def _sandbox_fallback_warning(backend):
@@ -221,10 +244,17 @@ def run_job(job_id, data_dir, binary_md5, function=None, args=None,
             else int(function)
         hook = _hook_for(arch, data_dir / "fuzz" / "hooks")
         env["AFL_QEMU_PERSISTENT_ADDR"] = hex(func_addr)
+        # forkserver starts at the function; otherwise qemu must execute
+        # through startup until this BB (firmware daemons rarely do).
+        env["AFL_ENTRYPOINT"] = hex(func_addr)
         env["AFL_QEMU_PERSISTENT_GPR"] = "1"
         env["AFL_QEMU_PERSISTENT_EXITS"] = "1"
         env["AFL_QEMU_PERSISTENT_HOOK"] = str(hook)
         env["FUZZHOOK_ARGS"] = ",".join(args or ["buf", "len"])
+        env["FUZZHOOK_FUNC_ADDR"] = hex(func_addr)
+        # CTOR-heavy firmware ELFs often need a larger coverage map or the
+        # forkserver handshake dies before the first persistent iteration.
+        env.setdefault("AFL_MAP_SIZE", os.getenv("AFL_MAP_SIZE", "10000000"))
 
     cmd = ["afl-fuzz", "-Q", "-i", str(seeds), "-o", str(out_dir),
            "-V", str(seconds), "--", str(target)]
@@ -235,6 +265,13 @@ def run_job(job_id, data_dir, binary_md5, function=None, args=None,
     use_docker = backend == "docker" and \
         sandbox.sandbox_image_present(sandbox.SANDBOX_IMAGE)
     sandbox_warning = None if use_docker else _sandbox_fallback_warning(backend)
+    if use_docker and not _docker_can_exec_host_bin(qemu_trace):
+        use_docker = False
+        sandbox_warning = (
+            "警告：沙箱镜像 glibc 低于宿主 afl-qemu-trace 所需，本次 fuzz "
+            "在宿主机直接运行不可信固件代码。重建匹配镜像或设 "
+            "FUZZ_SANDBOX_BACKEND=none。"
+        )
 
     started = time.time()
     if use_docker:
@@ -242,11 +279,13 @@ def run_job(job_id, data_dir, binary_md5, function=None, args=None,
                                  qemu_trace, hook, seconds)
     else:
         proc = subprocess.Popen(cmd, cwd=str(work), env=env,
-                                stdout=subprocess.DEVNULL,
-                                stderr=subprocess.PIPE, text=True,
+                                stdout=subprocess.PIPE,
+                                stderr=subprocess.STDOUT, text=True,
                                 start_new_session=True)
     try:
-        _, stderr = proc.communicate(timeout=seconds + 120)
+        # host: stdout=PIPE + stderr=STDOUT so AFL_NO_UI 日志在 stdout
+        out, err = proc.communicate(timeout=seconds + 120)
+        stderr = out or err or ""
         rc = proc.returncode
     except subprocess.TimeoutExpired:
         try:
@@ -272,9 +311,17 @@ def run_job(job_id, data_dir, binary_md5, function=None, args=None,
 
     detail = None
     if rc not in (0, -signal.SIGKILL) and "handshake" in (stderr or ""):
-        detail = ("forkserver handshake failed — 目标函数在正常启动流程中"
-                  "未被到达（qemu 的 persistent 模式要求执行自然经过该函数"
-                  "入口）；请换启动可达的函数，或改用 frida/整机 trace")
+        if "GLIBC_" in (stderr or ""):
+            detail = ("afl-qemu-trace 无法在沙箱内启动（glibc 版本不够）；"
+                      "应回退宿主运行")
+        elif mode == "function":
+            detail = ("forkserver handshake failed — AFL++ qemu persistent "
+                      "官方只保证 x86/arm/aarch64，MIPS 函数级常在 handshake "
+                      "阶段崩。请改整二进制（fw_request_fuzz 只传 binary_md5，"
+                      "不要 function）；若 stderr 提到 AFL_MAP_SIZE 再加大 map")
+        else:
+            detail = ("forkserver handshake failed — 检查 afl-qemu-trace 能否"
+                      "运行该架构目标")
     summary = {
         "run_id": run_id, "job_id": job_id, "engine": "afl-qemu",
         "mode": mode,

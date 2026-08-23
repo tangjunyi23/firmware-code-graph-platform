@@ -3,11 +3,14 @@
     <!-- ===== 登录页 ===== -->
     <div v-if="!token" class="login-wrap">
       <div class="login-brand">
-        <h1 class="login-title">固件攻击面分析平台</h1>
-        <p class="login-slogan">FWGraph · 固件解包 / 代码图谱 / 攻击面分析 / 智能漏洞挖掘</p>
+        <BrandMark :size="40" class="login-mark" />
+        <h1 class="login-title">FWGraph</h1>
+        <p class="login-slogan">固件攻击面分析平台</p>
+        <p class="login-hint">解包 · 代码图谱 · 攻击面 · 智能挖掘</p>
       </div>
       <el-card class="login-card">
-        <h2>登 录</h2>
+        <h2>欢迎回来</h2>
+        <p class="login-card-sub">使用账号登录以继续</p>
         <el-input
           v-model="loginForm.username"
           placeholder="用户名"
@@ -27,7 +30,7 @@
           <template #prefix><el-icon><Lock /></el-icon></template>
         </el-input>
         <el-button type="primary" class="login-btn" :loading="loginLoading" @click="doLogin">
-          登 录
+          登录
         </el-button>
         <el-alert v-if="loginError" :title="loginError" type="error" :closable="false" />
         <el-collapse class="token-collapse">
@@ -49,66 +52,80 @@
 
     <!-- ===== 主壳 ===== -->
     <div v-else class="shell">
-      <aside class="sidebar" :class="{ collapsed }">
-        <div class="side-brand" @click="go(defaultPage)">
-          <span class="logo-dot"></span>
-          <span v-if="!collapsed" class="side-brand-text">FWGraph</span>
+      <header class="topbar">
+        <div class="topbar-left">
+          <div class="side-brand" @click="go(defaultPage)">
+            <BrandMark :size="26" class="top-mark" />
+            <span class="side-brand-text">FWGraph</span>
+          </div>
+          <nav class="top-nav">
+            <template v-for="item in menuItems" :key="item.index || item.group">
+              <div v-if="item.group" class="nav-wrap">
+                <button
+                  type="button"
+                  class="nav-tab"
+                  :class="{
+                    active: isGroupActive(item),
+                    open: openGroup === item.group
+                  }"
+                  @click.stop="toggleGroup(item.group, $event)"
+                >
+                  {{ item.title }}
+                  <el-icon class="nav-chev" :class="{ flip: openGroup === item.group }"><ArrowDown /></el-icon>
+                </button>
+                <Teleport to="body">
+                  <div
+                    v-if="openGroup === item.group"
+                    class="nav-drop"
+                    :style="dropStyle"
+                    @click.stop
+                  >
+                    <button
+                      v-for="child in item.children"
+                      :key="child.index"
+                      type="button"
+                      class="nav-drop-item"
+                      :class="{ active: page === child.index }"
+                      @click="go(child.index)"
+                    >{{ child.title }}</button>
+                  </div>
+                </Teleport>
+              </div>
+              <button
+                v-else
+                type="button"
+                class="nav-tab"
+                :class="{ active: page === item.index }"
+                @click="go(item.index)"
+              >{{ item.title }}</button>
+            </template>
+          </nav>
         </div>
-        <el-menu
-          :default-active="page"
-          class="side-menu"
-          :collapse="collapsed"
-          @select="go"
-        >
-          <template v-for="item in menuItems" :key="item.index || item.group">
-            <el-sub-menu v-if="item.group" :index="item.group">
-              <template #title>
-                <el-icon><component :is="item.icon" /></el-icon>
-                <span>{{ item.title }}</span>
-              </template>
-              <el-menu-item v-for="child in item.children" :key="child.index" :index="child.index">
-                <el-icon><component :is="child.icon" /></el-icon>
-                <span>{{ child.title }}</span>
-              </el-menu-item>
-            </el-sub-menu>
-            <el-menu-item v-else :index="item.index">
-              <el-icon><component :is="item.icon" /></el-icon>
-              <span>{{ item.title }}</span>
-            </el-menu-item>
-          </template>
-        </el-menu>
-      </aside>
+        <div class="topbar-right">
+          <el-dropdown trigger="click" @command="onUserCommand">
+            <span class="user-chip">
+              <span class="user-avatar">{{ (principal?.username || '用').slice(0, 1) }}</span>
+              <span class="user-name">{{ principal?.username || '用户' }}</span>
+              <el-tag size="small" :type="isAdmin ? 'warning' : 'info'" effect="dark">
+                {{ principal?.role === 'admin' ? '管理员' : '普通用户' }}
+              </el-tag>
+              <el-icon class="muted"><ArrowDown /></el-icon>
+            </span>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item command="password">
+                  <el-icon><Key /></el-icon>修改密码
+                </el-dropdown-item>
+                <el-dropdown-item command="logout" divided>
+                  <el-icon><SwitchButton /></el-icon>退出登录
+                </el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
+        </div>
+      </header>
 
-      <div class="main">
-        <header class="topbar">
-          <div class="topbar-left">
-            <span class="page-title">{{ pageTitle }}</span>
-          </div>
-          <div class="topbar-right">
-            <el-dropdown trigger="click" @command="onUserCommand">
-              <span class="user-chip">
-                <el-icon><User /></el-icon>
-                <span class="user-name">{{ principal?.username || '用户' }}</span>
-                <el-tag size="small" :type="isAdmin ? 'warning' : 'info'" effect="dark">
-                  {{ principal?.role === 'admin' ? '管理员' : '普通用户' }}
-                </el-tag>
-                <el-icon class="muted"><ArrowDown /></el-icon>
-              </span>
-              <template #dropdown>
-                <el-dropdown-menu>
-                  <el-dropdown-item command="password">
-                    <el-icon><Key /></el-icon>修改密码
-                  </el-dropdown-item>
-                  <el-dropdown-item command="logout" divided>
-                    <el-icon><SwitchButton /></el-icon>退出登录
-                  </el-dropdown-item>
-                </el-dropdown-menu>
-              </template>
-            </el-dropdown>
-          </div>
-        </header>
-
-        <main class="content" :class="{ 'chat-home': isChatHome }">
+      <main class="content" :class="{ 'chat-home': isChatHome }">
           <transition name="fade">
             <div :key="page" class="page-pane">
               <DashboardView v-if="page === 'dashboard'" @goto="go" />
@@ -117,6 +134,7 @@
                 @open-functions="openFunctions"
                 @goto="go"
               />
+              <PrepareView v-else-if="page === 'prepare'" />
               <EventsView v-else-if="page === 'events'" />
               <FunctionsView v-else-if="page === 'functions'" ref="functionsView" />
               <AttackView v-else-if="page === 'attack'" />
@@ -130,7 +148,6 @@
             </div>
           </transition>
         </main>
-      </div>
     </div>
 
     <!-- 修改密码（pwdForced 时为首次登录强制改密，不可关闭） -->
@@ -165,9 +182,11 @@ import {
   login as apiLogin, logout as apiLogout, fetchMe, changePassword,
   setUnauthorizedHandler
 } from './api'
+import BrandMark from './components/BrandMark.vue'
 
 const DashboardView = defineAsyncComponent(() => import('./views/DashboardView.vue'))
 const JobsView = defineAsyncComponent(() => import('./views/JobsView.vue'))
+const PrepareView = defineAsyncComponent(() => import('./views/PrepareView.vue'))
 const FunctionsView = defineAsyncComponent(() => import('./views/FunctionsView.vue'))
 const AttackView = defineAsyncComponent(() => import('./views/AttackView.vue'))
 const InputsView = defineAsyncComponent(() => import('./views/InputsView.vue'))
@@ -197,14 +216,14 @@ if (qsToken) {
   window.history.replaceState(null, '', cleanUrl)
 }
 
-const ALL_PAGES = ['jobs', 'events', 'dashboard', 'functions', 'attack', 'inputs',
+const ALL_PAGES = ['jobs', 'prepare', 'events', 'dashboard', 'functions', 'attack', 'inputs',
   'graph', 'protofuzz', 'reports', 'users', 'logs', 'settings']
 const PAGE_TITLES = {
-  jobs: '工作台', events: '事件流', dashboard: '仪表盘', functions: '函数',
+  jobs: '工作台', prepare: '前置任务', events: '事件流', dashboard: '仪表盘', functions: '函数',
   attack: '攻击面', inputs: '输入面', graph: '图谱', protofuzz: '协议挖掘',
   reports: '报告中心', users: '用户管理', logs: '日志审计', settings: '系统设置'
 }
-const USER_PAGES = ['jobs', 'events', 'dashboard', 'functions', 'attack', 'inputs',
+const USER_PAGES = ['jobs', 'prepare', 'events', 'dashboard', 'functions', 'attack', 'inputs',
   'graph', 'protofuzz', 'reports']
 const ADMIN_PAGES = ['users', 'logs', 'settings']
 
@@ -223,12 +242,13 @@ const pendingFunctionJob = ref('')
 
 const isAdmin = computed(() => principal.value?.role === 'admin')
 const defaultPage = computed(() => 'jobs')
-const isChatHome = computed(() => page.value === 'jobs')
+const isChatHome = computed(() => page.value === 'jobs' || page.value === 'prepare')
 const pageTitle = computed(() => PAGE_TITLES[page.value] || '')
 
 const MENUS = {
   main: [
     { index: 'jobs', title: '工作台', icon: 'Monitor' },
+    { index: 'prepare', title: '前置任务', icon: 'Upload' },
     { index: 'events', title: '事件流', icon: 'ChatDotRound' },
     { index: 'dashboard', title: '仪表盘', icon: 'Odometer' },
     {
@@ -268,11 +288,34 @@ function ensurePageAllowed () {
   }
 }
 
+const openGroup = ref('')
+const dropStyle = ref({})
+function isGroupActive (item) {
+  return (item.children || []).some((c) => c.index === page.value)
+}
+function toggleGroup (group, ev) {
+  if (openGroup.value === group) {
+    openGroup.value = ''
+    return
+  }
+  const r = ev.currentTarget.getBoundingClientRect()
+  dropStyle.value = {
+    top: `${Math.round(r.bottom + 6)}px`,
+    left: `${Math.round(r.left)}px`
+  }
+  openGroup.value = group
+}
+function onDocClick (e) {
+  if (e.target.closest('.nav-wrap') || e.target.closest('.nav-drop')) return
+  openGroup.value = ''
+}
+
 function go (p) {
   if (p === 'vuln') p = 'events'
   if (!ALL_PAGES.includes(p)) return
   if (!allowedPages().includes(p)) return
   page.value = p
+  openGroup.value = ''
 }
 
 // keep the address bar shareable (?page=), drop the token once consumed
@@ -413,24 +456,16 @@ async function openFunctions (jobId) {
 
 watch(functionsView, loadPendingFunctionJob)
 
-// ---- narrow viewport: collapse the sidebar to an icon rail ------------------
-const collapsed = ref(false)
-let mq = null
-function onMq (e) { collapsed.value = e.matches }
-onMounted(() => {
-  mq = window.matchMedia('(max-width: 900px)')
-  onMq(mq)
-  mq.addEventListener('change', onMq)
-})
-onUnmounted(() => mq?.removeEventListener('change', onMq))
+onMounted(() => document.addEventListener('click', onDocClick))
+onUnmounted(() => document.removeEventListener('click', onDocClick))
 </script>
 
 <style>
 /* ===== 浅蓝专业主题：Element Plus 浅色变量覆写 ===== */
 :root {
   color-scheme: light;
-  --el-color-primary: #2b6ce5;
-  --el-color-primary-dark-2: #1f56b8;
+  --el-color-primary: #2563eb;
+  --el-color-primary-dark-2: #1d4ed8;
   --el-color-primary-light-3: #5d8dec;
   --el-color-primary-light-5: #8fb3f2;
   --el-color-primary-light-7: #c0d4f8;
@@ -500,23 +535,21 @@ onUnmounted(() => mq?.removeEventListener('change', onMq))
 
 body {
   margin: 0;
-  font-family: -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
-  color: #1c2b3a;
-  background-color: #eef3fa;
+  color: var(--fw-text, #152033);
+  background-color: var(--fw-page, #f3f6fb);
   background-image:
-    radial-gradient(ellipse 80% 50% at 50% -10%, rgba(43, 108, 229, .07), transparent);
+    radial-gradient(ellipse 90% 55% at 50% -8%, rgba(37, 99, 235, .08), transparent 60%);
   background-attachment: fixed;
 }
 
-::selection { background: rgba(43, 108, 229, .18); color: #1c2b3a; }
+::selection { background: rgba(37, 99, 235, .16); color: #152033; }
 
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: #c6d5e6; border-radius: 4px; }
-::-webkit-scrollbar-thumb:hover { background: #a8bed6; }
+::-webkit-scrollbar-thumb { background: #c5d0de; border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #a8b6c8; }
 
-.muted { color: #64748f; font-size: 13px; }
-.mono, pre { font-family: 'JetBrains Mono', ui-monospace, Consolas, 'Courier New', monospace; }
+.muted { color: var(--fw-text-3, #6b7c90); font-size: 13px; }
 
 /* ===== 登录页 ===== */
 .login-wrap {
@@ -525,143 +558,207 @@ body {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 24px 16px 8vh;
+  padding: 32px 16px 10vh;
   box-sizing: border-box;
 }
-.login-brand { text-align: center; margin-bottom: 26px; }
+.login-brand {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  margin-bottom: 28px;
+}
+.login-mark { color: #2563eb; margin-bottom: 14px; }
 .login-title {
   margin: 0;
-  font-size: 32px;
-  letter-spacing: 4px;
-  color: #1c2b3a;
+  font-size: 28px;
+  font-weight: 650;
+  letter-spacing: -0.03em;
+  color: #152033;
+  line-height: 1.2;
 }
-.login-title::first-letter { color: #2b6ce5; }
-.login-slogan { margin: 10px 0 0; color: #64748f; letter-spacing: 1.5px; font-size: 13px; }
+.login-slogan {
+  margin: 8px 0 0;
+  color: #3d4f66;
+  font-size: 15px;
+  font-weight: 500;
+  letter-spacing: 0;
+}
+.login-hint {
+  margin: 6px 0 0;
+  color: #6b7c90;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+}
 .login-card {
-  width: 400px;
+  width: 380px;
   max-width: 92vw;
-  border: 1px solid #e2eaf3;
-  box-shadow: 0 8px 40px rgba(16, 42, 67, .10);
+  border: 1px solid #e4ebf3;
+  border-radius: 16px;
+  box-shadow: 0 1px 2px rgba(16, 42, 67, .04), 0 16px 40px rgba(16, 42, 67, .08);
 }
+.login-card .el-card__body { padding: 28px 28px 22px; }
 .login-card h2 {
-  margin: 0 0 18px;
-  letter-spacing: 3px;
-  text-align: center;
-  color: #1c2b3a;
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  text-align: left;
+  color: #152033;
 }
-.login-field { margin-bottom: 14px; }
-.login-btn { width: 100%; margin: 6px 0 12px; }
-.token-collapse { margin-top: 6px; --el-collapse-header-bg-color: transparent; --el-collapse-content-bg-color: transparent; }
+.login-card-sub {
+  margin: 4px 0 20px;
+  color: #6b7c90;
+  font-size: 13px;
+}
+.login-field { margin-bottom: 12px; }
+.login-btn { width: 100%; margin: 8px 0 12px; height: 40px; font-weight: 600; }
+.token-collapse { margin-top: 4px; --el-collapse-header-bg-color: transparent; --el-collapse-content-bg-color: transparent; }
+.token-collapse .el-collapse-item__header { font-size: 13px; color: #6b7c90; }
 .pwd-alert { margin-bottom: 14px; }
 
 /* ===== 主壳布局 ===== */
-.shell { display: flex; min-height: 100vh; }
-.sidebar {
-  position: sticky;
-  top: 0;
-  height: 100vh;
-  width: 208px;
-  flex: none;
+.shell {
   display: flex;
   flex-direction: column;
-  background: #ffffff;
-  border-right: 1px solid #e3ebf4;
-  transition: width .2s ease;
-  z-index: 20;
+  min-height: 100vh;
+  height: 100vh;
 }
-.sidebar.collapsed { width: 64px; }
 .side-brand {
   display: flex;
   align-items: center;
   gap: 10px;
-  height: 56px;
-  padding: 0 18px;
+  flex: none;
   cursor: pointer;
-  border-bottom: 1px solid #eef2f8;
   overflow: hidden;
   white-space: nowrap;
 }
-.logo-dot {
-  width: 12px;
-  height: 12px;
-  flex: none;
-  border-radius: 50%;
-  background: radial-gradient(circle at 35% 35%, #5d8dec, #2b6ce5);
-}
+.top-mark { color: #2563eb; flex: none; display: block; }
 .side-brand-text {
-  font-size: 17px;
-  font-weight: 700;
-  letter-spacing: 2px;
-  color: #2b6ce5;
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: -0.03em;
+  color: #152033;
 }
-.side-menu {
-  flex: 1;
-  border-right: none;
-  background: transparent;
-  --el-menu-bg-color: transparent;
-  --el-menu-text-color: #44586f;
-  --el-menu-hover-bg-color: #f0f5fb;
-  --el-menu-active-color: #2b6ce5;
-  --el-menu-item-height: 46px;
-  --el-menu-sub-item-height: 40px;
-  overflow-y: auto;
-  overflow-x: hidden;
-}
-.side-menu:not(.el-menu--collapse) { width: 100%; }
-.side-menu .el-menu-item:hover, .side-menu .el-sub-menu__title:hover {
-  background: #f0f5fb;
-}
-.side-menu .el-menu-item.is-active {
-  color: #2b6ce5;
-  font-weight: 600;
-  background: #e9f2fd;
-  box-shadow: inset 3px 0 0 #2b6ce5;
-}
-.side-menu .el-sub-menu.is-active > .el-sub-menu__title { color: #2b6ce5; }
-.side-menu .el-menu--inline { background: #f7fafd; }
-
-.main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .topbar {
   position: sticky;
   top: 0;
-  z-index: 15;
+  z-index: 30;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 12px;
+  gap: 16px;
   height: 56px;
-  padding: 0 20px;
-  background: rgba(255, 255, 255, .88);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border-bottom: 1px solid #e3ebf4;
+  padding: 0 18px 0 20px;
+  background: rgba(255, 255, 255, .86);
+  backdrop-filter: blur(16px) saturate(1.4);
+  -webkit-backdrop-filter: blur(16px) saturate(1.4);
+  border-bottom: 1px solid rgba(216, 226, 237, .9);
 }
-.page-title {
-  font-size: 16px;
+.topbar-left {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  min-width: 0;
+  flex: 1;
+}
+.top-nav {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  overflow: visible;
+}
+.nav-wrap { position: relative; flex: none; }
+.nav-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 34px;
+  padding: 0 12px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: #3d4f66;
+  font-size: 13.5px;
+  font-weight: 500;
+  line-height: 20px;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.nav-tab:hover { background: #f0f4fa; color: #152033; }
+.nav-tab.active {
+  color: #2563eb;
   font-weight: 600;
-  letter-spacing: 1px;
-  color: #1c2b3a;
+  background: #edf3ff;
 }
+.nav-tab.open { background: #e9f2fd; }
+.nav-chev { font-size: 12px; color: #8aa0b8; transition: transform .15s ease; }
+.nav-chev.flip { transform: rotate(180deg); }
+.nav-drop {
+  position: fixed;
+  z-index: 4000;
+  min-width: 160px;
+  padding: 6px;
+  border: 1px solid #e3ebf4;
+  border-radius: 10px;
+  background: #ffffff;
+  box-shadow: 0 8px 24px rgba(16, 42, 67, .12);
+}
+.nav-drop-item {
+  display: block;
+  width: 100%;
+  height: 34px;
+  padding: 0 10px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: #3d5470;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+.nav-drop-item:hover { background: #f0f5fb; color: #1c2b3a; }
+.nav-drop-item.active { color: #2b6ce5; font-weight: 600; background: #e9f2fd; }
 .topbar-right { display: flex; align-items: center; gap: 16px; }
 .user-chip {
   display: inline-flex;
   align-items: center;
   gap: 8px;
   cursor: pointer;
-  color: #3d5470;
-  padding: 5px 10px;
-  border: 1px solid #dbe6f2;
-  border-radius: 8px;
-  background: #f7fafd;
+  color: #3d4f66;
+  padding: 4px 8px 4px 4px;
+  border: 1px solid #e2eaf3;
+  border-radius: 999px;
+  background: #fff;
   outline: none;
 }
-.user-chip:hover { border-color: #a3c2f0; background: #eef4fc; }
-.user-name { font-size: 13px; }
-.content { padding: 16px 20px 40px; }
-.content.chat-home {
-  padding: 0;
+.user-chip:hover { border-color: #c5d6ef; background: #f7f9fc; }
+.user-avatar {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #edf3ff;
+  color: #2563eb;
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+.user-name { font-size: 13px; font-weight: 500; }
+.content {
   flex: 1;
   min-height: 0;
+  overflow: auto;
+  padding: 16px 20px 40px;
+}
+.content.chat-home {
+  padding: 0;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
 }
@@ -672,6 +769,7 @@ body {
   min-height: 0;
   display: flex;
   flex-direction: column;
+  height: 100%;
 }
 .page-pane { max-width: 1500px; margin: 0 auto; }
 
@@ -689,16 +787,17 @@ body {
 
 /* 卡片：白底 + 细浅边 + 轻投影 */
 .el-card {
-  --el-card-border-color: #e3ebf4;
+  --el-card-border-color: #e4ebf3;
   --el-card-bg-color: #ffffff;
   border: 1px solid var(--el-card-border-color);
-  border-radius: 10px;
-  box-shadow: 0 1px 2px rgba(16, 42, 67, .04), 0 4px 16px rgba(16, 42, 67, .05);
+  border-radius: 12px;
+  box-shadow: 0 1px 2px rgba(16, 42, 67, .04), 0 8px 24px rgba(16, 42, 67, .04);
 }
 .el-card__header {
-  letter-spacing: .5px;
-  color: #1c2b3a;
+  letter-spacing: -0.01em;
+  color: #152033;
   font-weight: 600;
+  font-size: 14px;
   border-bottom: 1px solid #eef2f8;
 }
 
@@ -707,19 +806,22 @@ body {
   --el-button-text-color: #ffffff;
   --el-button-hover-text-color: #ffffff;
   --el-button-active-text-color: #ffffff;
-  background: #2b6ce5;
-  border-color: #2b6ce5;
+  background: #2563eb;
+  border-color: #2563eb;
   font-weight: 600;
+  letter-spacing: -0.01em;
+  border-radius: 8px;
 }
 .el-button--primary:hover,
 .el-button--primary:focus {
-  background: #2559c7;
-  border-color: #2559c7;
+  background: #1d4ed8;
+  border-color: #1d4ed8;
   box-shadow: 0 4px 12px rgba(43, 108, 229, .25);
 }
 .el-button--primary:active { background: #1f4faf; border-color: #1f4faf; }
+.el-button { border-radius: 8px; font-weight: 500; }
 .el-button--primary.is-link,
-.el-button--primary.is-text { background: none; color: #2b6ce5; }
+.el-button--primary.is-text { background: none; color: #2563eb; }
 .el-button:not(.el-button--primary):not(.el-button--danger):not(.el-button--success):not(.el-button--warning):hover {
   box-shadow: 0 2px 8px rgba(43, 108, 229, .12);
 }
@@ -728,10 +830,11 @@ body {
 .el-table { --el-table-row-hover-bg-color: #f0f5fb; }
 
 /* markdown 报告渲染基础排版 */
-.md-body { line-height: 1.7; color: #3d5470; font-size: 14px; }
+.md-body { line-height: 1.7; color: #3d4f66; font-size: 14px; }
 .md-body h1, .md-body h2, .md-body h3, .md-body h4 {
-  color: #1c2b3a;
-  letter-spacing: .5px;
+  color: #152033;
+  letter-spacing: -0.02em;
+  font-weight: 650;
 }
 .md-body h1 { font-size: 20px; border-bottom: 1px solid #e3ebf4; padding-bottom: 8px; }
 .md-body h2 { font-size: 17px; margin-top: 22px; }
