@@ -1,0 +1,30 @@
+{
+  "job_id": "3a1f3c822c22",
+  "title": "httpd WlanSecurityRpm radiusSecret 无界 strcpy 全局缓冲越界写（CWE-120）",
+  "severity": "medium",
+  "confidence": 0.3,
+  "vuln_class": "buffer-overflow",
+  "cwe": "CWE-120",
+  "binary_md5": "9582aa23b0bc2de099b9997b09457d01",
+  "binary_path": "firmware/binwalk_extracted/firmware.extracted/100000/squashfs-root/usr/bin/httpd",
+  "reachability": "static-only",
+  "summary": "httpd /userRpm/WlanSecurityRpm.htm 处理器 sub_46B5FC（0x46b5fc）在 Save 分支读取 WPA-Enterprise 共享密钥参数 radiusSecret 后直接 strcpy(byte_5EF6A0, v30)，无任何长度校验（同页 pskSecret 有 strlen-8>=0x39 拒绝规则、WEP key 有 v40 长度精确匹配，唯独 radiusSecret 缺失）。任意长字符串经直接 POST 越界写全局 byte_5EF6A0（相邻全局区含 byte_5EF720/byte_5EF68C.../dword_5EF684 等无线状态标志），可破坏相邻无线配置状态。Web JS 长度限制可绕过。属 BSS 越界写（非栈），影响限于全局状态区。",
+  "evidence": [
+    "httpd sub_46B5FC 0x46b5fc: v30=(const char*)httpGetEnv(a1,\"radiusSecret\"); if(!v30){...} strcpy(byte_5EF6A0, v30); —— 无长度检查",
+    "同函数 pskSecret 分支有 if(strlen(v20)-8>=0x39) goto error 的长度管控；WEP key 有 v40!=((byte_5EF778==1)+1)*v14 长度匹配——唯 radiusSecret 缺失",
+    "byte_5EF6A0 全局定位：同函数 pageParaSet(&v69, byte_5EF6A0, 8) 引用；邻接 byte_5EF720（pskSecret strcpy 目标）",
+    "httpd checksec: canary=false nx=false pie=false"
+  ],
+  "session_id": "s-mt4rda4n-55d3",
+  "function_name": "sub_46B5FC",
+  "preconditions": "管理员认证会话；WPA-Enterprise（secType=2/3）Save 路径；直接 POST 绕过前端长度限制；radiusIp 需合法（inet_addr+swChkLegalIpAddr）以进入 radiusSecret 处理段",
+  "exploit_sketch": "radiusSecret 任意长度无界 strcpy 至 BSS：破坏邻接无线口令与标志字节，配合后续无线应用（execWlanCmd）消费被污染状态；不直接控制流（BSS），故 medium。缓解：strncpy 限长。",
+  "poc": "curl -b cookies -d 'Save=1&secType=2&radiusIp=192.168.1.10&radiusPort=1812&radiusSecret=BBBB...（≥0x80 个 B）' 'http://192.168.1.1/userRpm/WlanSecurityRpm.htm' —— httpd 将 radiusSecret 无界 strcpy 到全局 byte_5EF6A0，覆盖相邻无线配置标志/口令区（含 byte_5EF720 WPA 口令、配置标志位）。静态分析，未动态复核；典型利用为破坏无线配置状态，间接影响后续无线应用链。",
+  "call_chain": "POST /userRpm/WlanSecurityRpm.htm（admin 会话, Save=1&secType=2&radiusSecret=<超长>） → httpDispatcher(0x425d08) → sub_46B5FC(0x46b5fc) → httpGetEnv(\\\"radiusSecret\\\") → strcpy(byte_5EF6A0, radiusSecret)（无界） → BSS 越界写",
+  "function_addr": "0x46b5fc",
+  "id": "F-mt4uric9-3a51",
+  "status": "draft",
+  "owner": "token-admin",
+  "recorded_at": "2026-08-22T20:50:34Z",
+  "history": []
+}

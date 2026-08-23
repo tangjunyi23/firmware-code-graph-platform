@@ -1,0 +1,30 @@
+{
+  "job_id": "3a1f3c822c22",
+  "title": "httpd NAS volumnName 参数无界 strcat 栈缓冲区溢出（CWE-121）",
+  "severity": "medium",
+  "confidence": 0.4,
+  "vuln_class": "stack-overflow",
+  "cwe": "CWE-121",
+  "binary_md5": "9582aa23b0bc2de099b9997b09457d01",
+  "binary_path": "firmware/binwalk_extracted/firmware.extracted/100000/squashfs-root/usr/bin/httpd",
+  "reachability": "static-only",
+  "summary": "httpd /userRpm/NasFolderAdvRpmNew.htm 处理器 sub_49E330（0x49e330，437 行）在 LABEL_40 段读取 POST 参数 volumnName 后：strcpy(v90, \\\"/tmp/usbdisk/\\\")（13 字节前缀）→ strcat(v90, v21) 将 volumnName 原样追加到 256 字节栈缓冲 v90（sp+0x338），无任何服务端长度校验。volumnName ≥ 243 字符即溢出 v90，覆盖相邻栈局部（v91 参数描述数组、v92..v97、v98[1948]dword 共享配置等）直至保存寄存器；httpd 无栈保护（canary=false,nx=false）。与已入库 displayName（sub_49D184）同属 NAS 共享管理页家族，此为独立函数/gadget。值经直接 POST 即可注入（Web 端 JS 长度限制可被绕过）。",
+  "evidence": [
+    "httpd sub_49E330 0x49e330 LABEL_40: v21=httpGetEnv(a1,\"volumnName\"); if(v21){ memset(v90,0,0x100u); strcpy(v90,\"/tmp/usbdisk/\"); v22=strcat(v90,v21); snprintf(v89,0x100u,\"%s\",v22); ... —— strcat 无长度检查",
+    "v90 声明 char v90[256] [sp+338h]（同一栈帧内 v91[2]/v92../v98[1948]dword 紧随其后）",
+    "httpd checksec: canary=false nx=false pie=false relro=none（trace 70f79dca3ee7 官方输出）",
+    "唯一前置为 0x49E330 的 subpage/modify 流程进入条件：实现为 if(!modify) 分支内的 volumnName 处理，直接 POST 即可命中"
+  ],
+  "session_id": "s-mt4rda4n-55d3",
+  "function_name": "sub_49E330",
+  "preconditions": "管理员认证会话（默认 admin/admin）；直接 POST 绕过前端 JS 长度限制；命中 NasFolderAdvRpmNew 的 volumnName 处理分支（需 v98[1032]>0 即有 NAS 卷，否则回退 sub_49D184）",
+  "exploit_sketch": "volumnName 无界 strcat 直接覆盖栈上 256B 之后的 v91-v98 大数组区；以 6-7KB 输入可一路延伸到栈底 $ra；MIPS 无 NX/canary，可 ROP 或注入 shellcode。与 displayName 溢出复用同一 NAS 管理页家族。",
+  "poc": "curl（已登录 cookie）：POST http://192.168.1.1/userRpm/NasFolderAdvRpmNew.htm 数据：volumnName=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA（≥243 个 A）&pageIndex=0 —— httpd 栈溢出崩溃（RST→看门狗重启）或（配合无 NX）ROP 提权。静态分析，未动态复核。",
+  "call_chain": "POST /userRpm/NasFolderAdvRpmNew.htm VolumnName=AAAA...(≥243B, admin 会话) → httpDispatcher(0x425d08) 匹配 → sub_49E330(0x49e330) → LABEL_40: httpGetEnv(\\\"volumnName\\\") → strcpy(v90,\\\"/tmp/usbdisk/\\\") → strcat(v90, volumnName)（无界）→ 栈溢出(v90[256], 无 canary)",
+  "function_addr": "0x49e330",
+  "id": "F-mt4uk9s8-cd70",
+  "status": "draft",
+  "owner": "token-admin",
+  "recorded_at": "2026-08-22T20:44:56Z",
+  "history": []
+}

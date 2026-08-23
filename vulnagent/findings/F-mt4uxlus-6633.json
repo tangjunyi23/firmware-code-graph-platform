@@ -1,0 +1,32 @@
+{
+  "job_id": "3a1f3c822c22",
+  "title": "uclited 访问控制 URL/域名规则注入 accessCtrl.sh 脚本命令执行（CWE-78）",
+  "severity": "high",
+  "confidence": 0.55,
+  "vuln_class": "command-injection",
+  "cwe": "CWE-78",
+  "binary_md5": "d61e67ed20163b7fee8bd3c606fb0331",
+  "binary_path": "firmware/binwalk_extracted/firmware.extracted/100000/squashfs-root/usr/bin/uclited",
+  "reachability": "static-only",
+  "summary": "uclited 访问控制（ACL，URL/域名过滤）应用链：refreshAccessCtrlTbl(0x42f5f0) 以 fopen(\"/tmp/wr841n/accessCtrl.sh\",\"wt\") 写 shell 脚本后执行 system(\"sh /tmp/wr841n/accessCtrl.sh\")；其中 sub_42E490(0x42e490) 把每条 ACL 规则生成 iptables 行 fprintf 进该脚本。规则中的 URL 列表字段（v25，来自条目 v38[31*i]，4×31B 的 URL/关键字段）经 sprintf(\"-p tcp --dport 80 -m multiurl --urls %s \", v25) 原样写入；DNS 域名字段（v24 仅做 . 与大写转换，; $ ` 等原样保留）经 sprintf(\"-p udp --dport 53 -m string --string %s ...\", v25) 写入——均无 shell 元字符过滤。ACL 规则条目中的 URL 或域名含 ; / $(...) / 反引号 即注入 accessCtrl.sh，由 system 以 root 执行（sh 解析）。触发面：/userRpm/AccessCtrlRpm.htm 保存 ACL（认证后）→ ucm 回环 IPC → ucFilterSave(0x4c2a0c, a1==3) → refreshAccessCtrlTbl → sub_42E490。",
+  "evidence": [
+    "uclited refreshAccessCtrlTbl 0x42f5f0: filterScriptFile=fopen(\"/tmp/wr841n/accessCtrl.sh\",\"wt\"); ...系统调 fclose 后 system(\"sh /tmp/wr841n/accessCtrl.sh\")",
+    "uclited sub_42E490 0x42e490: 对每条规则配置 v38[31*i]（URL/关键字, 31B/个）: for(i<4){ if(v38[31*i]) sprintf(&v25[...],\"%s,\",&v38[31*i]); } → sprintf(dest,\"-p tcp --dport 80 -m multiurl --urls %s \", v25) 原样入脚本，无转义",
+    "同函数 DNS 分支: v24 仅做 '.'→计数替换、大写转小写（; $ ` 反引号不被触碰）→ sprintf(dest,\"-p udp --dport 53 -m string --string %s ...\", v25) → fprintf(filterScriptFile)",
+    "ucFilterSave 0x4c2a0c: if(a1==3) refreshAccessCtrlTbl(ucAccessCtrlRulesTable) —— a1==3 为 URL/域名过滤模式",
+    "uclited checksec 同族无 canary（httpd/dhcp6s 全部 canary=false）",
+    "其余 v19 拼接字段（swIpAddr2Str/协议白名单/端口数值）均安全，危险面为 URL 与域名两处字符串"
+  ],
+  "session_id": "s-mt4rda4n-55d3",
+  "function_name": "sub_42E490",
+  "preconditions": "管理员认证；访问控制功能启用（ucIsAccessCtrlEnabled）；过滤模式 3（URL/域名过滤，ucFilterSave a1==3）；规则 URL/域名字段在 Web 端无 shell 字符限制（该固件访问控制页允许任意可打印字符）",
+  "exploit_sketch": "URL 字段注入 `;` 直接截断 iptables 命令行并追加任意命令；脚本由 sh 执行（system 双转义？无——fprintf 原始内容，system(\"sh file\") 由 sh 解析文件内容）。payload: x;telnetd -l /bin/sh;#（<31B 限制内可选 `x;sh -i;` 等短载荷）。与 PPPoE/NAS 注入同族（配置字符串入 system）。",
+  "poc": "1) 管理员登录 → 访问控制/URL 过滤页；2) 新增规则，URL 字段填：x;telnetd -l /bin/sh;#（或域名字段 y$(id>/tmp/pwn).com）；3) 保存并启用过滤：uclited 生成 /tmp/wr841n/accessCtrl.sh 含 \"iptables ... -m multiurl --urls x;telnetd -l /bin/sh;# ...\"，system(\"sh /tmp/wr841n/accessCtrl.sh\") 解析 `;` 后段 → 23 端口 root shell。静态分析，未动态复核。",
+  "call_chain": "/userRpm/AccessCtrlRpm.htm（admin, 保存 URL/域名过滤规则, url=…含 ;） → httpd → ucm 回环 IPC(127.0.0.1:51237) → uclited ucFilterSave(0x4c2a0c) → refreshAccessCtrlTbl(0x42f5f0) → fopen(\\\"/tmp/wr841n/accessCtrl.sh\\\",\\\"wt\\\") → sub_42E490(0x42e490) → sprintf(\\\"-m multiurl --urls %s\\\", URL…) / sprintf(\\\"-m string --string %s\\\", 域名…) 原样 fprintf 进脚本 → system(\\\"sh /tmp/wr841n/accessCtrl.sh\\\")（root）",
+  "function_addr": "0x42e490",
+  "id": "F-mt4uxlus-6633",
+  "status": "draft",
+  "owner": "token-admin",
+  "recorded_at": "2026-08-22T20:55:19Z",
+  "history": []
+}

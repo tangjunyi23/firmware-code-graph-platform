@@ -1,0 +1,19 @@
+{
+  "session_id": "s-mt5k23tt-aaed",
+  "agent_id": "vuln-miner-fwgraph (dsh-web)",
+  "environment_id": "fwgraph-dsh-web",
+  "task": "\u53ea\u505a\u80fd\u529b\u9a8c\u6536\uff0c\u4e0d\u8981\u5f00\u65b0\u6f0f\u6d1e\u76d8\u70b9\uff0c\u4e0d\u8981 record_finding\uff08\u9664\u975e stdin \u5dee\u5206\u771f\u6253\u5230\u5371\u9669\u51fd\u6570\uff09\u3002\u4efb\u52a1 job \u5df2\u662f 3a1f3c822c22\u30021) fw_list_binaries \u6216 identification \u627e\u4e00\u4e2a\u4f1a\u8bfb stdin/\u6587\u4ef6\u7684 ELF\uff08\u4e0d\u8981\u518d\u6253 :80/:445 \u7f51\u7edc\u53e3\uff09\u30022) \u7acb\u523b fw_request_trace\uff1avia=stdin\uff0cbinary_md5 \u586b\u8be5 ELF\uff0cpayload \u6216 payload_hex \u7ed9\u4e00\u622a\u8f93\u5165\uff08\u53ef\u77ed\uff09\u30023) fw_get_trace \u8f6e\u8be2\u5230\u4e0d\u662f running\u3002\u8bb0\u4e0b trace_id\u3001status\u3001request.via\u3001trigger_result.kind\u3001diff.function_count\u30024) \u518d\u505a\u4e00\u6b21 input_path=/tmp/poc.bin + payload_hex \u7684 trace\uff0c\u540c\u6837\u8f6e\u8be2\u5e76\u8bb0\u5f55\u3002\u7a7a\u5dee\u5206\u4e5f\u8981\u5982\u5b9e\u5199\u3002\u7981\u6b62\u8bf4\u7f3a\u5c11\u5e73\u53f0\u80fd\u529b\u3002",
+  "status": "done",
+  "turns": 3,
+  "usage": {},
+  "findings": [],
+  "created_at": "2026-08-23T08:38:39Z",
+  "updated_at": "2026-08-23T09:13:38Z",
+  "engine": "dsh-web",
+  "mode": "dynamic",
+  "job_id": "3a1f3c822c22",
+  "max_turns": 10,
+  "owner": "token-admin",
+  "approval_policy": "auto",
+  "dsh_session_id": "session-81da7fea-b5db-454a-8ef5-374bb5d956e7"
+}

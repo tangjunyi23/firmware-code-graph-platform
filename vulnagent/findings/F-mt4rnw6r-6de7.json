@@ -1,0 +1,30 @@
+{
+  "job_id": "3a1f3c822c22",
+  "title": "uclited execWlanCmd 无线密钥引号包装循环 v21[132] 栈缓冲区溢出（无长度上限）",
+  "severity": "medium",
+  "confidence": 0.5,
+  "vuln_class": "stack-overflow",
+  "cwe": "CWE-121",
+  "binary_md5": "d61e67ed20163b7fee8bd3c606fb0331",
+  "binary_path": "firmware/binwalk_extracted/firmware.extracted/100000/squashfs-root/usr/bin/uclited",
+  "reachability": "static-only",
+  "summary": "uclited 的 execWlanCmd（0x49c84c）在 case 15/21（无线密钥设置）中，对传入密钥串 a3 做单引号包裹时逐字符写入局部缓冲 v21[132]（sp+0x11C，每字符写 3 字节：引号+字符+引号），循环边界仅取决于 strlen(a3) 而无长度上限。WPA-PSK 合法口令最长为 63 字符，3×63=189 > 132，溢出 v21 达 57+ 字节，可覆盖同帧后续保存寄存器区，存在栈溢出/控制流劫持风险。case 7（SSID）有 v12<33 检查，但 case 15/21 缺失同样检查。对比同函数其他分支使用 sprintf(v19[128], ...) 均受 %s 展开影响，唯 case15/21 的 v21 包装循环不受控。输入经 uclited 回环 IPC（127.0.0.1:51237，ucm 协议，accept 强制校验回环地址）由 httpd 转发管理员认证的 WLAN 安全配置。",
+  "evidence": [
+    "uclited execWlanCmd 0x49c84c: case15/21 循环 while(v11<v8){ v21[v10++]=39; v21[v10++]=v9[v11]; v21[v10]=39; } 无长度上限，v21 声明为 char v21[132]（sp+0x11C），输入 63 字符 → 189 字节写入",
+    "case 7 有 if(v12<33) 检查，case 15/21 无同等检查",
+    "uclited main 0x5009f0 → ucm_msgTaskCreate 0x41f3fc: socket/bind(127.0.0.1:51237)/listen/accept，accept 后 (sa_data[2]&0xFF000000)!=0x7F000000 则关闭连接，厂商内网 IPC",
+    "配置文件 etc/dhcp6sctlkey 等表明该固件 uclited/httpd 双进程架构与回环 IPC 为常态"
+  ],
+  "session_id": "s-mt4rda4n-55d3",
+  "function_name": "execWlanCmd",
+  "preconditions": "需管理员认证访问 Web 管理界面（默认 admin/admin 常见保持）；无线密钥参数经 httpd→uclited 回环 IPC 传递并触发无线配置应用流程；uclited 无栈保护（MIPS 传统构建，checksec 未见 canary；httpd/dhcp6s 同族 binary checksec 均 canary=false）",
+  "exploit_sketch": "1) 管理员登录 http://192.168.1.1 并进入无线安全页；2) 设置 WPA-PSK 口令为 63 个 'A'；3) 保存触发 uclited execWlanCmd(case 15)，strlen=63 的密钥经 3 字节/字符包装写入 132 字节 v21，越界 57 字节覆盖栈上部保存的 s 寄存器/返回地址；4) 结合 MIPS 无 NX（同族 httpd checksec nx=false）可尝试 ROP/ret2shellcode 提权 root（uclited 以 root 权限运行）。静态-only，未动态复现。",
+  "poc": "管理员经 Web 设置 WPA-PSK 口令≥45 字符（合法上限 63 字符，任意非引号字符即可，如 63×'A'）：POST /userRpm/WlanSecurityRpm.htm?doType=config&...&wpaPsk=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA（63 个 A）→ httpd 保存配置并经回环 IPC 下发 uclited → 无线配置应用 execWlanCmd(case15/21) 逐字符包装 63 字符密钥写入 v21[132]，溢出 57 字节。验证：gdb/uclited 下断 0x49c84c case15 分支，观察 v21 之后栈区域被覆盖。",
+  "call_chain": "httpd /userRpm/WlanSecurityRpm.htm（管理员认证） → httpd 无线配置处理 → ucm 协议 IPC（127.0.0.1:51237 TCP，accept 校验回环） → uclited ucm_msgTaskCreate(0x41f3fc) recv/分帧 → ucm 配置分发(ucm_cfg_handler) → 无线安全配置处理(ucWlanSecurityConfigSet 0x4ccf64 等) → execWlanCmd(0x49c84c) case15/21 → v21[132] 逐字符引号包装溢出",
+  "function_addr": "0x49c84c",
+  "id": "F-mt4rnw6r-6de7",
+  "status": "draft",
+  "owner": "token-admin",
+  "recorded_at": "2026-08-22T19:23:46Z",
+  "history": []
+}

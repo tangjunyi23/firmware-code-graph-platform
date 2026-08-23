@@ -1,0 +1,31 @@
+{
+  "job_id": "3a1f3c822c22",
+  "title": "httpd popupSiteSurvey ssid 参数无界 strncpy 栈溢出（CWE-121，68B 即可触发）",
+  "severity": "high",
+  "confidence": 0.45,
+  "vuln_class": "stack-overflow",
+  "cwe": "CWE-121",
+  "binary_md5": "9582aa23b0bc2de099b9997b09457d01",
+  "binary_path": "firmware/binwalk_extracted/firmware.extracted/100000/squashfs-root/usr/bin/httpd",
+  "reachability": "static-only",
+  "summary": "httpd /userRpm/popupSiteSurveyRpm.htm 处理器 sub_469310（0x469310）在无线站点扫描结果渲染段读取 POST/GET 参数 ssid：v23=strlen(Env); strncpy(v51, v22, v23) —— 栈上局部 v51 声明为 char[68]（sp+0xB0），拷贝长度原样取输入长度且无任何校验（对比同族保存路径 sub_46794C 对 ssid 有 strlen>=0x21 拒绝、WlanNetworkRpm 渲染路径（已入库 F-mt4umrtg-9528）为 BSS 全局；本处为 STACK 局部）。直接 POST ssid≥68 字符即溢出 v51，覆盖紧随的 v52[22]（pagePara 描述数组）与更上层局部直至保存寄存器/返回地址；httpd 无栈保护（canary=false,nx=false,pie=false），可 ROP/代码执行。触发阈值低（68B），无需绕过 JS（直接 curl POST）。",
+  "evidence": [
+    "httpd sub_469310 0x469310: if(Env=httpGetEnv(a1,\"ssid\")){ v23=strlen(Env); strncpy(v51, v22, v23); } —— 无长度上限",
+    "v51 声明 char v51[68] [sp+B0h]；紧随 char v52[...] 为 pagePara 数组（v52[0..17]），再上层为 s[2948] 扫描缓冲与保存寄存器区",
+    "对比：保存路径 sub_46794C 对 ssid0..N 均有 strlen>=0x21 拒绝 + strncpy 0x20；本函数为扫描渲染路径，缺失该检查",
+    "httpd checksec: canary=false nx=false pie=false relro=none（trace 70f79dca3ee7 官方输出）",
+    "同函数其余字段（curRegion/channel/chanWidth/mode）均 atoi 后范围校验，仅 ssid 字符串无界"
+  ],
+  "session_id": "s-mt4rda4n-55d3",
+  "function_name": "sub_469310",
+  "preconditions": "管理员认证会话；直接 POST/GET 命中扫描页（swWlanActivateScan 先行，无硬前置）；ssid 参数长度任意",
+  "exploit_sketch": "68 字节即可溢出栈局部；逐步加长至覆盖 $ra。MIPS be、无 NX/canary：经典 ret2shellcode 或 ROP；httpd 进程 root 权限。攻击者仅需认证后的一个带超长 ssid 的 GET。",
+  "poc": "curl -b cookies 'http://192.168.1.1/userRpm/popupSiteSurveyRpm.htm?ssid=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA（≥68 个 A）' —— httpd 在站点扫描页渲染时 strncpy 按 strlen 整段拷入 68B 栈缓冲，覆盖 v52 数组与保存 $ra，崩溃或 ROP（MIPS 无 NX）。静态分析，未动态复核。",
+  "call_chain": "POST/GET /userRpm/popupSiteSurveyRpm.htm（admin 会话, ssid=AAAA...(≥68B)） → httpDispatcher(0x425d08) → sub_469310(0x469310) → httpGetEnv(\\\"ssid\\\") → strncpy(v51[68], ssid, strlen(ssid))（无界） → 栈溢出（无 canary）",
+  "function_addr": "0x469310",
+  "id": "F-mt4uoy71-f5d5",
+  "status": "draft",
+  "owner": "token-admin",
+  "recorded_at": "2026-08-22T20:48:35Z",
+  "history": []
+}

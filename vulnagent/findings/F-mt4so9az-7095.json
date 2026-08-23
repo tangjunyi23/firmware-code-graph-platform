@@ -1,0 +1,31 @@
+{
+  "job_id": "3a1f3c822c22",
+  "title": "dhcp6s/dhcp6c 控制通道使用固件内置静态 HMAC-MD5 密钥（硬编码凭据，CWE-798）",
+  "severity": "medium",
+  "confidence": 0.55,
+  "vuln_class": "hardcoded-credentials",
+  "cwe": "CWE-798",
+  "binary_md5": "23e3796091277a8be1e69dc8f5093dbd",
+  "binary_path": "firmware/binwalk_extracted/firmware.extracted/100000/squashfs-root/usr/sbin/dhcp6s",
+  "reachability": "static-only",
+  "summary": "dhcp6s（md5 23e37960）与 dhcp6c（md5 ae35a53c）的控制通道（TCP，默认 5470；main 中 dhcp6_ctl_init(0,NULL,ctlport,5) 经 getaddrinfo(0,\"5470\",AI_PASSIVE) bind 任意地址 + listen，随后 dhcp6_ctl_acceptcommand/dhcp6_ctl_readcommand 处理）启用控制消息认证，其 128-bit HMAC-MD5 密钥来自固件内置静态文件 /etc/dhcp6sctlkey（base64：Sw5jBn8OG8N5qn5vCMicmw==）与 /etc/dhcp6cctlkey（mHg8J6R+u5/YEHxjw21FKg==）。密钥对所有同型号设备完全相同且刻在固件里，任何提取固件（含镜像公开分发）的攻击者都能对暴露的 5470/tcp 控制通道构造合法 HMAC 控制报文（reconfigure/info 类命令），绕过 dhcp6_verify_mac 认证实现重配置/探测/DoS；密钥无 per-device 随机化、无轮换。",
+  "evidence": [
+    "/etc/dhcp6sctlkey 内容=Sw5jBn8OG8N5qn5vCMicmw==（25 字节，base64 16 字节密钥）",
+    "/etc/dhcp6cctlkey 内容=mHg8J6R+u5/YEHxjw21FKg==",
+    "dhcp6s main 0x407ff8: dhcp6_ctl_authinit(off_43C07C[0]=-k 密钥文件, &dword_43C608, &dword_43DE94)；if(dword_43C608) dhcp6_ctl_init(off_43C070=NULL, off_43C074=ctlport, 5, &dword_43C060)；dhcp6_ctl_init 0x418a80 getaddrinfo(name,service) 后 socket/bind/listen",
+    "dhcp6s main 循环: dhcp6_ctl_acceptcommand(dword_43C060, sub_404BE0) + dhcp6_ctl_readcommand，sub_404BE0 内 dhcp6_verify_mac",
+    "固件集中分发：密钥内嵌 squashfs，非出厂随机，所有 C7v2 设备相同"
+  ],
+  "session_id": "s-mt4rda4n-55d3",
+  "function_name": "main",
+  "preconditions": "dhcp6s/dhcp6c 以 -k /etc/dhcp6{X}ctlkey 启动（固件默认脚本存在该文件）；控制端口 5470 对攻击者网络可达（默认绑定任意地址）",
+  "exploit_sketch": "控制协议为 KAME dhcp6ctl 风格（type/authenticate 标志 + HMAC-MD5），密钥唯一缺口是静态内嵌；攻击者=任何下载同一固件的人。影响：向服务端下达受认证配置类指令（reconfigure 触发 cfparse/重载、信息查询），可实现配置篡改/DoS；未发现可达命令注入/内存破坏 sink，故 severity 定 medium（凭据硬编码），不拔高为 RCE。",
+  "poc": "1) 从固件提取 /etc/dhcp6sctlkey（Sw5jBn8OG8N5qn5vCMicmw==，base64 解码得 16 字节密钥 K）；2) 向目标 5470/tcp 发送 dhcp6ctl 控制报文，载荷按 KAME dhcp6ctl 协议：type=cmd, id, authenticate 标志，HMAC-MD5(K, 报文) 计算并附加；3) 发送 reconfigure 命令触发服务端 cfparse 重新加载配置（或 info 查询状态）。若路由器以 WAN 侧暴露 5470（默认 bind 任意地址）或 LAN 同网段可达，持任意固件副本即可通过认证。",
+  "call_chain": "网络攻击者(持固件静态密钥) → dhcp6s/dhcp6c 控制通道 listen(TCP 0.0.0.0:5470, dhcp6_ctl_init 0x418a80/0x418580, AI_PASSIVE) → dhcp6_ctl_acceptcommand(0x418504/0x418004) + dhcp6_ctl_readcommand(0x4182b8/0x417db8) → dhcp6_verify_mac（密钥= /etc/dhcp6sctlkey / /etc/dhcp6cctlkey 静态 base64） → 命令处理(sub_404BE0/cfparse 等)",
+  "function_addr": "0x407ff8",
+  "id": "F-mt4so9az-7095",
+  "status": "draft",
+  "owner": "token-admin",
+  "recorded_at": "2026-08-22T19:52:03Z",
+  "history": []
+}

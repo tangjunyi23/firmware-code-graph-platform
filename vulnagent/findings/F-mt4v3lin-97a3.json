@@ -1,0 +1,30 @@
+{
+  "job_id": "3a1f3c822c22",
+  "title": "athadhoc 十六进制密钥解析超长参数越界写全局（边界检查失效，CWE-787）",
+  "severity": "low",
+  "confidence": 0.3,
+  "vuln_class": "out-of-bounds-write",
+  "cwe": "CWE-787",
+  "binary_md5": "53a5015af68ecf517285cb18d3aeab27",
+  "binary_path": "firmware/binwalk_extracted/firmware.extracted/100000/squashfs-root/sbin/athadhoc",
+  "reachability": "static-only",
+  "summary": "athadhoc（IN-001 UDP 无线 adhoc 配置工具）main 以 argv[3]/argv[4] 十六进制密钥串调用 sub_400C00(0x400c00) 解析入 16 字节全局缓冲 ath_group_key/ath_ucast_key（参数 a3=0x10）。sub_400C00 的越界分支：if (a3 < v6) { printf(\"too much data in %s, max %u bytes\"...); } 之后无任何返回/截断，直接 goto LABEL_13 继续执行 *(_BYTE *)(a2 + v6++) = ... —— 边界检查仅打印，不阻止写入，超长密钥（>2*0x10 个 hex 字符）持续越界写全局。qemu-user 实测（512 hex 字符 argv 触发，qe-95cc085a）进程进入主循环未 SIGSEGV（越界写落在相邻全局区，破坏状态但不致敏），动态确认写面存在且不崩溃。触发面为启动 argv（本地/厂商脚本），非网络。",
+  "evidence": [
+    "athadhoc sub_400C00 0x400c00: LABEL_21: printf(\"too much data in %s, max %u bytes\\n\", a1, a3); goto LABEL_13; LABEL_13: *(_BYTE *)(a2 + v6++) = v12|v11; —— 越界分支只打印不截断",
+    "main 0x4010c0: v7=sub_400C00(v6 /*argv[3]*/, &ath_group_key, 0x10u); ath_group_key_len=v7; …… sub_400C00(v8 /*argv[4]*/, &ath_ucast_key, 0x10u)",
+    "qemu-exec qe-95cc085a：512 hex 字符 argv 下进程进入 recvmsg 主循环持续打印（signal 9=8s 超时外部 kill，非 SIGSEGV）——动态确认越界写不崩但写面存在",
+    "checksec 同族无 canary/nx（mips be）"
+  ],
+  "session_id": "s-mt4rda4n-55d3",
+  "function_name": "sub_400C00",
+  "preconditions": "athadhoc 由本地脚本以超长密钥参数启动（WAN/LAN 不可达的本地 argv 面）；需 >32 个十六进制字符",
+  "exploit_sketch": "argv 面本地可利用性低；真实风险在相邻全局（ath_group_key_len/ath_ucast_key_len/dword_413C 系列）被污染导致运行状态错乱。因非网络可达且实测不崩溃，定级 low。",
+  "poc": "athadhoc ath0 0 4141...(>32 个 hex 字符，例如 512 个) 4242...(同长) —— sub_400C00 越过 16B 上限后继续把后续 hex 解码字节写入 ath_group_key/ath_ucast_key 及其后全局（ath_group_key_len 等）。qemu 实测（qe-95cc085a）未 SIGSEGV；仅本地启动参数可触发，影响限于全局状态区。",
+  "call_chain": "athadhoc 启动（argv[3]/argv[4]=超长 hex 密钥, 厂商脚本/本地面） → main(0x4010c0) → sub_400C00(0x400c00)(buf=ath_group_key/ath_ucast_key, 0x10) → hex 解析循环越界: LABEL_21 打印后 goto LABEL_13 继续写 *(a2+v6++) → 全局越界写（a3 检查失效）",
+  "function_addr": "0x400c00",
+  "id": "F-mt4v3lin-97a3",
+  "status": "draft",
+  "owner": "token-admin",
+  "recorded_at": "2026-08-22T20:59:58Z",
+  "history": []
+}

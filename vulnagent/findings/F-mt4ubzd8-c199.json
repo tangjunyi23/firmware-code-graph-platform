@@ -1,0 +1,31 @@
+{
+  "job_id": "3a1f3c822c22",
+  "title": "uclited PPPoE AC/Service 名未转义拼入 pppd 拨号命令 system() 执行（CWE-78 命令注入）",
+  "severity": "high",
+  "confidence": 0.5,
+  "vuln_class": "command-injection",
+  "cwe": "CWE-78",
+  "binary_md5": "d61e67ed20163b7fee8bd3c606fb0331",
+  "binary_path": "firmware/binwalk_extracted/firmware.extracted/100000/squashfs-root/usr/bin/uclited",
+  "reachability": "static-only",
+  "summary": "uclited PPPoE 拨号命令构造器 pppoeFormatCmd（0x448d14）将 PPPoE 配置中的 AC 名（a1+544，对应 Web 端 rp_pppoe_ac/PPPoE 服务商名）与服务名（a1+512，rp_pppoe_service）以 sprintf 原样拼入全局命令缓冲 a2（byte_5448E4，\"pppd pppoe rp_pppoe_ac %s rp_pppoe_service %s ...\"），随后由 pppoeCmdReqIPv4（0x4488f4）执行 system(a2)。两个字符串字段来自 /userRpm/PPPoECfgAdvRpm.htm（认证后 WAN PPPoE 高级设置），无 shell 元字符过滤（仅首字节状态标记控制是否输出）；AC/服务名含 ; 或 $() 即 root 命令注入。PPPoE 用户名/密码本身写入 /tmp/pppoe_auth_info_ipv4 供 pppd 读取（不经 shell），故注入点在 AC/Service 名。",
+  "evidence": [
+    "uclited pppoeFormatCmd 0x448d14: if(*(a1+544)){ v2=strlen(a2); sprintf(&a2[v2],\" rp_pppoe_ac %s \",(char*)(a1+544));} —— AC 名无过滤直接入命令",
+    "同函数: if(*(a1+512)){ sprintf(&a2[strlen(a2)],\" rp_pppoe_service %s \",(char*)(a1+512));}",
+    "pppoeCmdReqIPv4 0x4488f4: pppoeFormatCmd((int)v5, byte_5448E4); system(byte_5448E4);（v5=swGetPppoeCfg 配置结构）",
+    "用户名/密码写入 /tmp/pppoe_auth_info_ipv4（fwrite v20/v21），命令里只有 user_len/passwd_len —— 注入面确为 AC/Service 字符串",
+    "pppoeCmdReq 0x4484d0 拨号触发链（gPppoeStartDial=1 后进入拨号）"
+  ],
+  "session_id": "s-mt4rda4n-55d3",
+  "function_name": "pppoeFormatCmd",
+  "preconditions": "管理员认证可配置 WAN PPPoE（PPPoECfgAdvRpm.htm 高级设置）；路由器处于 PPPoE WAN 模式且触发拨号（重连/重启/手动 dial）；AC/服务名字段在 Web 端无 shell 字符过滤",
+  "exploit_sketch": "AC 名注入：x;telnetd -l /bin/sh;  在 system()（/bin/sh -c）下分号直接执行后段命令，无需溢出。若 Web 限制长度（常见 ≤128），16 字节 payload 足够。ucm 配置经回环 IPC 下发，输入等价于 NAS 注入链。",
+  "poc": "1) 管理员登录 → WAN 连接类型 PPPoE；2) 高级设置中 AC 名称（rp_pppoe_ac）填：x;telnetd -l /bin/sh;（或服务名 rp_pppoe_service 填 $(id>/tmp/pwn).x）；3) 保存并触发重新拨号（手动连接/重拨）：uclited 执行 system(\"pppd pppoe rp_pppoe_ac x;telnetd -l /bin/sh; ...\") → 23 端口 root shell。静态分析，未动态复核。",
+  "call_chain": "/userRpm/PPPoECfgAdvRpm.htm（管理员认证，设置 PPPoE AC/Service 名） → httpd PPPoE 配置 → ucm 回环 IPC(127.0.0.1:51237) → uclited 配置存储(swSetPppoeCfg/swGetPppoeCfg) → pppoeCmdReq(0x4484d0)/pppoeCmdReqIPv4(0x4488f4)（拨号触发，gPppoeStartDial） → pppoeFormatCmd(0x448d14)（sprintf \"rp_pppoe_ac %s\"/\"rp_pppoe_service %s\" 未转义拼入 byte_5448E4） → system(byte_5448E4)（root）",
+  "function_addr": "0x448d14",
+  "id": "F-mt4ubzd8-c199",
+  "status": "draft",
+  "owner": "token-admin",
+  "recorded_at": "2026-08-22T20:38:30Z",
+  "history": []
+}

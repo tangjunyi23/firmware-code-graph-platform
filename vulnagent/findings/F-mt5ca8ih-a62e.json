@@ -1,0 +1,32 @@
+{
+  "job_id": "3a1f3c822c22",
+  "title": "uclited 家长控制 URL/域名字段无转义注入 parent.sh 脚本命令执行（CWE-78）",
+  "severity": "high",
+  "confidence": 0.55,
+  "vuln_class": "command-injection",
+  "cwe": "CWE-78",
+  "binary_md5": "d61e67ed20163b7fee8bd3c606fb0331",
+  "binary_path": "firmware/binwalk_extracted/firmware.extracted/100000/squashfs-root/usr/bin/uclited",
+  "reachability": "static-only",
+  "summary": "uclited 家长控制应用链（与访问控制 F-mt4uxlus-6633 双二进制同族之姊妹链）：refreshParentCtrlTbl(0x4304d4) fopen(\"/tmp/wr841n/parent.sh\",\"wt\") 写 iptables 脚本后 system(\"sh /tmp/wr841n/parent.sh\")；sub_42FB70(0x42fb70) 生成每条家长控制规则的 iptables 行 fprintf 进脚本。规则条目（a2+4+280i，280B/条）包含 8×31B 的 URL/关键字字段（a1+31+31i）与域名字段。URL 汇聚至 v22 后经 sprintf(\"-m multiurl --urls %s -j RETURN\", v22) 原样写入；域名经 v24/v23 处理（仅 . 与大写转小写，; 与 $( 反引号 原样保留）后经 sprintf(\"-m string --string %s ...\", v23) 写入——均无 shell 元字符过滤，随后 fprintf(parentCtrlScript)。家长控制条目中的 URL/域名含 ; / $(...) / 反引号 即注入 parent.sh，由 system 以 root 执行（sh 解析）。触发面：家长控制（ParentCtrl）页面保存规则（认证后）→ ucm 回环 IPC → ucFilterSave/refreshParentCtrlTbl。httpd 侧同构（0x4a9998 refreshParentCtrlTbl + sub_4A9410）双二进制并存。",
+  "evidence": [
+    "uclited refreshParentCtrlTbl 0x4304d4: parentCtrlScript=fopen(\"/tmp/wr841n/parent.sh\",\"wt\"); ... fclose 后 system(\"sh /tmp/wr841n/parent.sh\")",
+    "uclited sub_42FB70 0x42fb70: 对 8×31B URL 字段(a1+31+31i): for(i<8){if(*...31i) sprintf(&v22[strlen],\"%s,\",a1+31+31i);} → sprintf(v18, \"-i %s -m multiurl --urls %s -j RETURN\", …, v22) 原样入脚本，无转义",
+    "同函数域名: v24 仅 .→计数、大写转小写（; $ 反引号不被触碰）→ sprintf(\"-i %s -p udp --dport 53 -m string --string %s ...\", …, v23) → fprintf(parentCtrlScript)",
+    "条目来源 httpd 家长控制页保存（认证后）→ ucm → 与 ACL ucFilterSave 同族触发路径",
+    "httpd 侧同构: refreshParentCtrlTbl(0x4a9998) + sub_4A9410（双二进制）",
+    "libipt_multiurl/libxt_string（fw_list_binaries）内核匹配器可用，命令形态真实"
+  ],
+  "session_id": "s-mt4rda4n-55d3",
+  "function_name": "refreshParentCtrlTbl",
+  "preconditions": "管理员认证；家长控制功能启用（*(_DWORD*)a1 非零）；存在 >=1 条启用条目；URL/关键字段可含任意字符（页面 JS 限制可绕过）",
+  "exploit_sketch": "URL 字段注入 ; 截断 iptables 命令行追加 telnetd/sh 载荷；parent.sh 由 sh 执行（fprintf 原始内容+system(\"sh file\")）。与 ACL（F-mt4uxlus-6633）同族：家长控制链独立入口（ParentCtrl 页面），双二进制实测通道（ucm 包格式+51237）已备，rodata 符号化后即可命令级差分复现。",
+  "poc": "1) 管理员登录 → 家长控制/网站关键字规则页；2) 新增规则，网站/关键字字段填：x;telnetd -l /bin/sh;#；3) 保存并启用：uclited 生成 /tmp/wr841n/parent.sh 含 \"iptables ... -m multiurl --urls x;telnetd -l /bin/sh;#,...\" → system(\"sh /tmp/wr841n/parent.sh\") 解析 ; 后段 → root shell。静态分析，未动态复核。",
+  "call_chain": "家长控制页（admin, 保存 URL/域名规则, url=…含 ;） → httpd → ucm 回环 IPC(127.0.0.1:51237) → uclited refreshParentCtrlTbl(0x4304d4) → fopen(\\\"/tmp/wr841n/parent.sh\\\",\\\"wt\\\") → sub_42FB70(0x42fb70) → sprintf(\\\"-m multiurl --urls %s\\\", URL…) / sprintf(\\\"-m string --string %s\\\", 域名…) 原样 fprintf 进脚本 → system(\\\"sh /tmp/wr841n/parent.sh\\\")（root）",
+  "function_addr": "0x4304d4",
+  "id": "F-mt5ca8ih-a62e",
+  "status": "draft",
+  "owner": "token-admin",
+  "recorded_at": "2026-08-23T05:01:01Z",
+  "history": []
+}

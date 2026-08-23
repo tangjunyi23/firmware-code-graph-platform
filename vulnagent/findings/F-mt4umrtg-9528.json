@@ -1,0 +1,31 @@
+{
+  "job_id": "3a1f3c822c22",
+  "title": "httpd WlanNetworkRpm ssid 参数无界 strncpy 全局缓冲越界写（CWE-120）",
+  "severity": "medium",
+  "confidence": 0.35,
+  "vuln_class": "buffer-overflow",
+  "cwe": "CWE-120",
+  "binary_md5": "9582aa23b0bc2de099b9997b09457d01",
+  "binary_path": "firmware/binwalk_extracted/firmware.extracted/100000/squashfs-root/usr/bin/httpd",
+  "reachability": "static-only",
+  "summary": "httpd /userRpm/WlanNetworkRpm.htm 处理器 sub_468380（0x468380）在非 Save 渲染分支读取 POST/GET 参数 ssid 后执行 v29=strlen(v27); strncpy(byte_5EF530, v28, v29); *((_BYTE *)&httpWlanBasicCfg[6] + strlen(v28)) = 0; —— 拷贝长度原样取攻击者字符串长度且无上限，越过全局缓冲 byte_5EF530（其相邻全局区 dword_5EF5CC/dword_5EF5D0/httpWlanBasicCfg 等紧随）执行 BSS 越界写；同时 NUL 终止符按 strlen 写入 httpWlanBasicCfg 偏移 6+strlen 处（httpWlanBasicCfg 为 0x168 字节全局，超长即越过其边界）。同理 newBridgessid 参数 strncpy(&byte_5EF5F4, v18, strlen(v18)) 同型。Web 端 JS 限 SSID≤32 可直接绕过（以任意长度 POST）。",
+  "evidence": [
+    "httpd sub_468380 0x468380: if(v27=httpGetEnv(a1,\"ssid\")){ v29=strlen(v27); strncpy(byte_5EF530, v28, v29); *((_BYTE*)&httpWlanBasicCfg[6]+strlen(v28))=0; } —— 拷贝长度=输入长度，无上限",
+    "同函数 newBridgessid: v19=strlen(v17); strncpy(&byte_5EF5F4, v18, v19); *((_BYTE*)&httpWlanBasicCfg[55]+strlen(v18))=0;",
+    "byte_5EF530 邻接全局：dword_5EF5CC/dword_5EF5D0/dword_5EF5D8/dword_5EF5E8/dword_5EF5F0/byte_5EF5F4/byte_5EF615 等（同函数 pageParaSet 引用）",
+    "应用侧 execWlanCmd case7 才有 len<33 检查 —— 渲染分支无此检查，直接 POST 即可越界",
+    "httpd checksec canary=false nx=false"
+  ],
+  "session_id": "s-mt4rda4n-55d3",
+  "function_name": "sub_468380",
+  "preconditions": "管理员认证会话；直接 POST/GET 绕过前端 JS 的 SSID≤32 校验；命中无 Save 参数的渲染分支（保存路径走 sub_46794C 才有执行前校验）",
+  "exploit_sketch": "以低权面越界写全局无线配置缓冲，破坏 SSID/信道/区域状态供后续 uclited 无线应用链消费（间接）；不直接控制流，故 medium。缓解：按缓冲长度 clamp strncpy。",
+  "poc": "curl -b cookies 'http://192.168.1.1/userRpm/WlanNetworkRpm.htm?ssid=AAAAAAAA...（≥0x168+8 个 A）' —— httpd 渲染分支对全局 byte_5EF530/httpWlanBasicCfg 区执行无界写，破坏相邻全局状态（无线配置缓存/标志），可致后续无线配置错乱或崩溃；配合后续 uclited 应用可污染无线状态。静态分析，未动态复核；影响受限于 BSS 区（无直接控制流），评级 medium。",
+  "call_chain": "POST/GET /userRpm/WlanNetworkRpm.htm（admin 会话，ssid=超长字符串，无 Save 参数） → httpDispatcher(0x425d08) → sub_468380(0x468380) → httpGetEnv(\\\"ssid\\\") → strncpy(byte_5EF530, ssid, strlen(ssid)) + *(httpWlanBasicCfg+6+strlen)=0 → BSS 越界写",
+  "function_addr": "0x468380",
+  "id": "F-mt4umrtg-9528",
+  "status": "draft",
+  "owner": "token-admin",
+  "recorded_at": "2026-08-22T20:46:53Z",
+  "history": []
+}

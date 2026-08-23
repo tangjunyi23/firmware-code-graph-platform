@@ -1,0 +1,30 @@
+{
+  "job_id": "3a1f3c822c22",
+  "title": "httpd NAS 共享文件夹 displayName 参数无界 strcpy 栈缓冲区溢出（CWE-121）",
+  "severity": "high",
+  "confidence": 0.45,
+  "vuln_class": "stack-overflow",
+  "cwe": "CWE-121",
+  "binary_md5": "9582aa23b0bc2de099b9997b09457d01",
+  "binary_path": "firmware/binwalk_extracted/firmware.extracted/100000/squashfs-root/usr/bin/httpd",
+  "reachability": "static-only",
+  "summary": "httpd /userRpm/NasFolderSharingRpm.htm 处理器 sub_49D184 在处理 POST 参数 subpage 分支时，把 displayName 参数用 strcpy(v75, v18) 拷入仅 4 字节的栈变量 v75（sp+0x2C，其后紧跟 v76..v79、src[36] 等局部），随后再次 strcpy(&s[77*v1+262], v75) 拷入 7796 字节的栈数组 s（s[1949] dword），两次均无长度检查。displayName 长度无任何校验（重复检查仅 strncmp 前 16 字节），正常 UI 输入（如 20 字符的显示名）即越界；攻击者可提交数千字节 displayName 覆盖栈上 s[] 直到底部保存寄存器/返回地址。httpd 编译无栈保护（canary=false, nx=false, pie=false），溢出可致 DoS 或 ROP/代码执行。",
+  "evidence": [
+    "httpd sub_49D184 0x49d184: v18=httpGetEnv(a1,\"displayName\"); strcpy(v75, v18); 声明 char v75[4] [sp+2Ch]",
+    "同函数: strcpy((char *)&s[77*v1+262], v75); s 为 _DWORD s[1949] 栈数组（7796 字节, [sp+232Ch]），偏移 77*v1+262 处为共享显示名字段，后随 256 字节文件夹名字段(+270)，无界 strcpy 可跨条目溢出",
+    "重复检查仅 strncmp(&s[v21+262], v19, 0x10u) 与 strncmp(&s[v21+270], v19, 0x100u)，无长度限制",
+    "httpd checksec: canary=false nx=false pie=false relro=none（trace 70f79dca3ee7 官方输出）"
+  ],
+  "session_id": "s-mt4rda4n-55d3",
+  "function_name": "sub_49D184",
+  "preconditions": "管理员认证会话（默认 admin/admin）；POST 带 subpage 参数进入共享管理分支；页面 handler 未对 displayName 做长度校验（仅 strncmp 比较）",
+  "exploit_sketch": "displayName 直接以无界 strcpy 先后命中 v75(4B) 与栈数组 s 固定偏移，攻击者完全可控长度与内容；由于无 canary，溢出到 sp+0x4188 帧底部保存的 $ra 即可劫持控制流；MIPS 32 位 big-endian，NX 关闭时可注入 shellcode 或 ROP。纯 POST + cookie，无需特殊条件。",
+  "poc": "1) 浏览器/curl 登录（默认 admin/admin）：curl -b cookies 'http://192.168.1.1/userRpm/NasFolderSharingRpm.htm?Save=Save' 先建会话；2) POST：curl -b cookies -d 'subpage=add&displayName=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA（>500 个 A）&shareFolderName=/tmp/usbdisk/volume1' 'http://192.168.1.1/userRpm/NasFolderSharingRpm.htm'；3) httpd 崩溃（RST/watchdog 重启）或 ROP（配合无 NX 执行 shellcode）。静态分析，未动态复核。",
+  "call_chain": "POST /userRpm/NasFolderSharingRpm.htm（admin 会话, subpage=xxx&displayName=<超长>） → httpDispatcher(0x425d08) 匹配 RPM → sub_425CB8 鉴权通过 → sub_49D184(0x49d184) → 分支 httpGetEnv(\"subpage\") 非空 → httpGetEnv(\"displayName\") → strcpy(v75[4], displayName)（sp+0x2C 起无界覆盖 v76/v77/v78/v79/src）→ strcpy(&s[77*shareIndex+262], v75)（栈数组 s[1949]dword 的固定偏移无界覆盖）→ 栈溢出（无 canary）",
+  "function_addr": "0x49d184",
+  "id": "F-mt4s9d9c-dcd3",
+  "status": "draft",
+  "owner": "token-admin",
+  "recorded_at": "2026-08-22T19:40:28Z",
+  "history": []
+}

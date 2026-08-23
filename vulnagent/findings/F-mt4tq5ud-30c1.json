@@ -1,0 +1,30 @@
+{
+  "job_id": "3a1f3c822c22",
+  "title": "libavformat ff_rtsp_connect OPTIONS 应答 Public 字段无界 strcpy 栈溢出（CWE-121）",
+  "severity": "medium",
+  "confidence": 0.45,
+  "vuln_class": "stack-overflow",
+  "cwe": "CWE-121",
+  "binary_md5": "013126995a8c8228fc47c9d7a6ca9699",
+  "binary_path": "lib/libavformat.so.54.6.100",
+  "reachability": "static-only",
+  "summary": "minidlna 所链接的 libavformat.so.54 中 ff_rtsp_connect（0x6d968）在 RTSP OPTIONS 交互后，若服务器应答解析字段（s[1601] 起，来自应答头 Public/Server 段，经 ff_rtsp_parse_reply 存入应答结构，字节偏移 6404）与 \"WMServer/\" 前缀不匹配且第二轮 OPTIONS 标志置位时，执行 strcpy(dest[64], &s[1601])，把攻击者 RTSP 服务器应答中的该字段无界拷入 64 字节栈缓冲 dest（sp+0x4C），超过 63 字节即覆盖相邻 format[128]/addr/host 等局部直至保存寄存器；无长度限制。触发前提：minidlna 以 avformat 打开攻击者可控的 RTSP URL（NAS 卷上放置名为 rtsp://<attacker>/xx 的媒体文件被扫描探测，或 RTSP 流媒体 URL 配置），由攻击者服务器返回超长应答。MIPS 无栈保护环境（相关二进制 checksec 均无 canary）可致 RCE/DoS。",
+  "evidence": [
+    "libavformat md5 01312699 ff_rtsp_connect 0x6d968: if(av_strncasecmp(&s[1617],\"WMServer/\",9)){ if(s[568]==1) strcpy(dest, (char*)&s[1601]); } — dest 声明 char dest[64] [sp+4Ch]，无条件限",
+    "后续 av_strlcpy(v2+572, dest, 64) 亦以 dest 为源，印证 dest 为 64B 的会话/传输名缓冲",
+    "应答结构 s = _DWORD s[1716]（6864B）由 ff_rtsp_parse_reply 填充，s[1601] 为应答头解析字段（偏移 6404B）",
+    "checksec（同固件 httpd/dhcp6s/vsftpd/dnsproxy 系列）：canary=false nx=false pie=false"
+  ],
+  "session_id": "s-mt4rda4n-55d3",
+  "function_name": "ff_rtsp_connect",
+  "preconditions": "minidlna 媒体库扫描作用于 NAS 卷/共享（攻击者可放置文件或控制 RTSP URL）；攻击者主机可达路由器的出站连接（RTSP 客户端行为）；路由器/媒体路径使用 minidlna（默认 DLNA 服务开启）",
+  "exploit_sketch": "nginx/自写 RTSP 伪服务监听 554；当 minidlna 因 rtsp:// 前缀文件名或配置发起 OPTIONS 时返回超长 Public 头；strcpy 无界拷贝触发栈溢出；dest 后为 format[128]（可被改写后作为 av_url_split 输入，提供栈内容精确控制），最终覆盖 $ra → 控制流劫持。缓解建议：改用 av_strlcpy/长度限制。",
+  "poc": "1) 在 NAS 可写共享（USB/SMB）放置文件，名称形如 rtsp://192.168.x.x:554/trigger（触发 minidlna 以 RTSP 协议尝试探测）；2) 同网段主机 192.168.x.x:554 起 RTSP 服务，收到 OPTIONS 后应答：RTSP/1.0 200 OK\\r\\nCSeq: 1\\r\\nServer: WMServer2/x\\r\\nPublic: AAAAAAAAA...（>63 个 A，字段长≥200）\\r\\n\\r\\n；3) minidlna 解析出超长 Public/应答字段后 strcpy(dest[64]) 溢出 → 崩溃或（无 canary/NX）ROP。静态分析，未动态复核；reachability 依赖攻击者能向 NAS 放置媒体文件名或控制 RTSP URL。",
+  "call_chain": "NAS 卷媒体文件名(rtsp://attacker/x, 攻击者可放置) → minidlna 扫描/probe → avformat_open_input → rtsp 协议分发 → ff_rtsp_connect(0x6d968) → av_url_split/ffurl_connect 连接攻击者 RTSP 服务器 → ff_rtsp_parse_reply 解析 OPTIONS 应答(s[1601] 字段) → strcpy(dest[64], &s[1601]) → 栈溢出",
+  "function_addr": "0x6d968",
+  "id": "F-mt4tq5ud-30c1",
+  "status": "draft",
+  "owner": "token-admin",
+  "recorded_at": "2026-08-22T20:21:32Z",
+  "history": []
+}

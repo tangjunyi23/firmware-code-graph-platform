@@ -1,0 +1,31 @@
+{
+  "job_id": "3a1f3c822c22",
+  "title": "httpd b64_decode 无 dst 边界 + ChangeLoginPwdRpm 超长口令 base64 驱动栈溢出（CWE-121）",
+  "severity": "high",
+  "confidence": 0.45,
+  "vuln_class": "stack-overflow",
+  "cwe": "CWE-121",
+  "binary_md5": "9582aa23b0bc2de099b9997b09457d01",
+  "binary_path": "firmware/binwalk_extracted/firmware.extracted/100000/squashfs-root/usr/bin/httpd",
+  "reachability": "static-only",
+  "summary": "httpd 的 base64 解码器 b64_decode（0x52f4bc）对 a2(dstlen) 仅在入口 _assert(\"dst != NULL && dstlen > 0\") 检查，主解码循环（每 4 输入字节写 3 输出字节）仅以输入长度 v11 为界、完全不做 dst 空间上限判断。调用方 sub_47DBF0（/userRpm/ChangeLoginPwdRpm.htm 修改管理员密码页）将 POST 参数 oldpassword/newpassword/newpassword3 的原始长度分别喂给 b64_decode(&v32[16],32,oldpwd)、b64_decode(&v32[65],32,newpwd)、b64_decode(src,32,newpwd3)，输入无长度限制：v32 为 100 字节栈缓冲（sp+0xDC，16=offset16 起 84B 可用；65 起仅 35B 可用），src 为 36 字节栈缓冲。newpassword base64 输入 ≥60 字符（约 45B 明文）即解码输出 ≥45B 越过 v32[65] 的 35B 可用区，无需登录即可在已认证会话下（任何持管理员凭据者）触发 v32/src 栈溢出，覆盖栈上更高局部与保存寄存器区；httpd 无 canary/nx。同页面后续还把新用户名/密码写入 NAS 用户配置（进 smbpasswd execFormatCmd 注入链 F-mt4rye54-c344 的又一条入口）。",
+  "evidence": [
+    "httpd b64_decode 0x52f4bc: 入口 _assert(\"dst != ((void *)0) && dstlen > 0\", \"base64.c\", 65) 后主循环 while(v11>0){ *v16=...; v16[1]=...; v16[2]=...; v11-=4; v13+=4; v16+=3; } —— 无 a2/dst 空间检查",
+    "调用方 sub_47DBF0 0x47dbf0: b64_decode(&v32[16], 32, oldpassword, strlen) / b64_decode(&v32[65], 32, newpassword, strlen) / b64_decode(src, 32, newpassword3, strlen)——v32 声明 char v32[100] [sp+DCh]，src char[36] [sp+54h]",
+    "v32[65] 偏移 65 起可用仅 35B；输入 newpassword 无长度限制（httpGetEnv 全量）",
+    "httpd checksec: canary=false nx=false pie=false relro=none（trace 70f79dca3ee7 官方输出）",
+    "页面后续 swNasSetSrvUserList(s)：strncpy(&s[20], 新用户名,0x10); strncpy(&s[24], src,0x10); strncpy(&s[28], &v32[65],0x21) → NAS smbpasswd 注入链的又一入口"
+  ],
+  "session_id": "s-mt4rda4n-55d3",
+  "function_name": "b64_decode",
+  "preconditions": "管理员认证会话；直接 POST 修改密码页（Save 分支）；newpassword/oldpassword/newpassword3 无前端硬限制（可 POST 任意长度）",
+  "exploit_sketch": "45B 明文密码（60B base64）即可给 v32[65] 造成 10B 越界；进一步加长直至覆盖 $ra，MIPS 无 NX/canary 下 ret2shellcode/ROP。即使不求 RCE，超长参数也造成 httpd 崩溃（DoS）。附带：修改后的用户名/密码直接进入 smbpasswd execFormatCmd（命令注入家族入口）。",
+  "poc": "登录后：curl -b cookies -d 'Save=1&newpassword=QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQQ=='（60 个 base64 字符，解码 45B）' http://192.168.1.1/userRpm/ChangeLoginPwdRpm.htm —— b64_decode 向 v32[65] 写入 45B（可用 35B）越过 100B 栈缓冲上溢至返回地址/保存寄存器区；配合无 NX/canary（MIPS be）可 ROP 提权。静态分析，未动态复核。",
+  "call_chain": "POST /userRpm/ChangeLoginPwdRpm.htm（admin 会话, Save=1&newpassword=<≥60 字符 base64>） → httpDispatcher(0x425d08) → sub_47DBF0(0x47dbf0) → b64_decode(&v32[65], 32, newpassword, strlen)（0x52f4bc，dstlen 仅 _assert、循环无界） → 解码写越 v32[100] 栈缓冲 → 栈溢出（无 canary）→ 可 ROP；且新用户名/密码 → swNasSetSrvUserList → nasSetSrvUserList → nasSambaSetUserList → execFormatCmd(smbpasswd)（既有注入家族入口）",
+  "function_addr": "0x52f4bc",
+  "id": "F-mt4vcmal-c55a",
+  "status": "draft",
+  "owner": "token-admin",
+  "recorded_at": "2026-08-22T21:06:59Z",
+  "history": []
+}

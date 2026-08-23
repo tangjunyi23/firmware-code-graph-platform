@@ -54,9 +54,8 @@ fwgraph/libc-sigs/out/
 Thumbs.db
 desktop.ini
 
-# vulnagent runtime data (sessions, findings live on the analysis VM)
-vulnagent/sessions/
-vulnagent/findings/
+# vulnagent host pids only; sessions/ and findings/ are hunt artifacts in git
+vulnagent/sessions/**/runner.pid
 
 # Third-party firmware extractor (3.8G, clone at deploy time)
 emba/
