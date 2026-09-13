@@ -27,8 +27,9 @@ artifacts live in data/idb/<job_id>/ and data/pseudocode/<job_id>/.
 Graph artifacts live in data/cbm/<job_id>/ (CBM-friendly tree + git repo +
 graph_done.json); the CBM index DB is ~/.cache/codebase-memory-mcp/.
 
-Status machine: pending -> extracting -> parsing -> done -> decompiling ->
-decompiled -> graphing -> graphed (decompiling starts automatically after
+Status machine: pending -> decrypting -> extracting -> parsing -> done ->
+decompiling -> decompiled -> graphing -> graphed (upload always fingerprints
+and unwraps vendor containers first; decompiling starts automatically after
 extraction unless AUTO_DECOMPILE=0; auto jobs continue decompiled -> graph
 which chains attack/routes/surfaces; any failure ends in "failed").
 """
@@ -50,7 +51,7 @@ from fastapi.responses import PlainTextResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 import httpx
 
-from . import accounts, admin_api, config, decompiler, extractor, protofuzz_api, vulnagent_api, webui
+from . import accounts, admin_api, config, decompiler, extractor, protofuzz_api, vulnagent_api, vulnlib_api, webui
 from pipeline import evidence as ev
 from pipeline import profiles as analysis_profiles
 from pipeline import report
@@ -63,6 +64,7 @@ from pipeline.inputs import runner as inputs_runner
 from pipeline.frida import runner as frida_runner
 from pipeline.surfaces import runner as surfaces_runner
 from pipeline.routes import runner as route_runner
+from pipeline import fwdecrypt, protocol_reverse
 from pipeline.extract import px4 as px4_extractor
 from pipeline.trace import qemu_exec, tracer
 
@@ -84,8 +86,9 @@ EXEC_DIR = DATA_DIR / "qemu_exec"
 FRIDA_DIR = DATA_DIR / "frida"
 GRAPHEXT_DIR = DATA_DIR / "graphext"
 SURFACES_DIR = DATA_DIR / "surfaces"
+DECRYPT_DIR = DATA_DIR / "decrypt"
 
-STATUS_RUNNING = {"pending", "extracting", "parsing", "decompiling",
+STATUS_RUNNING = {"pending", "decrypting", "extracting", "parsing", "decompiling",
                   "ailifting", "graphing", "attacking", "routing",
                   "identifying", "surfacing"}
 LOG_TAIL_LINES = 30
@@ -218,6 +221,9 @@ def _save_job(job: dict):
 
 def _set_status(job: dict, status: str, error: str | None = None):
     with _jobs_lock:
+        if status == "failed":
+            # 记录失败时正在运行的阶段，供前端定位失败步骤与重试
+            job["failed_from"] = job.get("status")
         job["status"] = status
         job["error"] = error
         _save_job(job)
@@ -258,6 +264,38 @@ def _log_tail(job_id: str) -> list:
         fh.seek(max(0, size - 65536))
         lines = fh.read().decode("utf-8", errors="replace").splitlines()
     return lines[-LOG_TAIL_LINES:]
+
+
+def _resolve_job_md5(job_id: str, raw: str) -> str:
+    """Accept a full md5 or a unique prefix from the job manifest."""
+    md5 = str(raw or "").strip().lower()
+    manifest_file = EXTRACTED_DIR / job_id / "manifest.json"
+    if not manifest_file.is_file():
+        raise HTTPException(status_code=409,
+                            detail="extraction not complete (no manifest.json)")
+    try:
+        manifest = json.loads(manifest_file.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise HTTPException(status_code=409, detail="manifest unreadable") from exc
+    bins = [str(b.get("md5") or "").lower()
+            for b in (manifest.get("binaries") or []) if b.get("md5")]
+    if re.fullmatch(r"[0-9a-f]{32}", md5):
+        if md5 not in bins:
+            raise HTTPException(status_code=404,
+                                detail=f"binary {md5} not in manifest")
+        return md5
+    if re.fullmatch(r"[0-9a-f]{8,31}", md5):
+        hits = [item for item in bins if item.startswith(md5)]
+        if len(hits) == 1:
+            return hits[0]
+        if not hits:
+            raise HTTPException(status_code=404,
+                                detail=f"binary {md5} not in manifest")
+        raise HTTPException(
+            status_code=400,
+            detail=f"ambiguous md5 prefix {md5}: {', '.join(hits[:6])}")
+    raise HTTPException(status_code=400,
+                        detail="binary_md5 must be a 32-char lowercase md5")
 
 
 def _manifest_summary(job_id: str):
@@ -409,6 +447,16 @@ def _extract_worker(job_id: str):
     log_dir = EXTRACTED_DIR / job_id
     emba_log = EXTRACTED_DIR / f"{job_id}.emba.log"
     try:
+        _set_status(job, "decrypting")
+        decrypt_dir = DATA_DIR / "decrypt" / job_id
+        try:
+            report = fwdecrypt.run_job(
+                job_id, job.get("firmware") or "", fw_path, decrypt_dir)
+            out = report.get("output")
+            if out and Path(out).is_file():
+                fw_path = Path(out)
+        except Exception:  # noqa: BLE001 - decrypt must not abort extract
+            pass
         _set_status(job, "extracting")
         if px4_extractor.looks_like_px4(fw_path, job["firmware"]):
             _set_status(job, "parsing")
@@ -1071,10 +1119,7 @@ def trigger_qemu_exec(job_id: str, payload: dict = Body(...),
     job = _jobs.get(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="job not found")
-    md5 = str(payload.get("binary_md5") or "")
-    if not re.fullmatch(r"[0-9a-f]{32}", md5):
-        raise HTTPException(status_code=400,
-                            detail="binary_md5 must be 32 lowercase hex")
+    md5 = _resolve_job_md5(job_id, payload.get("binary_md5") or "")
     argv = payload.get("argv") or []
     if not isinstance(argv, list) or len(argv) > 16:
         raise HTTPException(status_code=400, detail="argv must be a list <= 16")
@@ -1087,13 +1132,6 @@ def trigger_qemu_exec(job_id: str, payload: dict = Body(...),
     if input_path is not None and not isinstance(input_path, str):
         raise HTTPException(status_code=400, detail="input_path must be a string")
     seconds = int(payload.get("seconds") or 8)
-    manifest_file = EXTRACTED_DIR / job_id / "manifest.json"
-    if not manifest_file.is_file():
-        raise HTTPException(status_code=409, detail="no manifest.json")
-    if not any(b.get("md5") == md5 for b in
-               json.loads(manifest_file.read_text(encoding="utf-8"))
-               .get("binaries") or []):
-        raise HTTPException(status_code=404, detail=f"binary {md5} not in manifest")
     _check_quota(job_id, "exec")
     accounts.audit(principal["username"], "qemu_exec", job_id)
     run_id = f"qe-{uuid.uuid4().hex[:8]}"
@@ -1353,10 +1391,7 @@ def trigger_trace(job_id: str, payload: dict = Body(...),
     job = _jobs.get(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="job not found")
-    md5 = str(payload.get("binary_md5") or "")
-    if not _MD5_RE.match(md5):
-        raise HTTPException(status_code=400, detail="binary_md5 must be "
-                            "a 32-char lowercase md5")
+    md5 = _resolve_job_md5(job_id, payload.get("binary_md5") or "")
     argv = payload.get("argv")
     if argv is None:
         argv = []
@@ -1369,14 +1404,6 @@ def trigger_trace(job_id: str, payload: dict = Body(...),
     if port is not None and not (isinstance(port, int)
                                  and 1 <= port <= 65535):
         raise HTTPException(status_code=400, detail="port must be 1..65535")
-    manifest_file = EXTRACTED_DIR / job_id / "manifest.json"
-    if not manifest_file.is_file():
-        raise HTTPException(status_code=409,
-                            detail="extraction not complete (no manifest.json)")
-    manifest = json.loads(manifest_file.read_text(encoding="utf-8"))
-    if not any(b.get("md5") == md5 for b in manifest.get("binaries", [])):
-        raise HTTPException(status_code=404,
-                            detail=f"binary {md5} not in manifest")
     if not (PSEUDOCODE_DIR / job_id / "symbols.json").is_file():
         raise HTTPException(status_code=409,
                             detail="job not decompiled yet (no symbols.json)")
@@ -1805,6 +1832,7 @@ def list_jobs(principal: dict = Depends(require_token)):
             "firmware": j["firmware"],
             "status": j["status"],
             "error": j["error"],
+            "failed_from": j.get("failed_from"),
             "created_at": j["created_at"],
             "updated_at": j["updated_at"],
             "auto": bool(j.get("auto")),
@@ -1823,6 +1851,7 @@ def get_job(job_id: str):
     return {
         **{k: job[k] for k in ("job_id", "firmware", "status", "error",
                                "created_at", "updated_at", "size_bytes")},
+        "failed_from": job.get("failed_from"),
         "auto": bool(job.get("auto")),
         "profile": job.get("profile") or analysis_profiles.DEFAULT,
         "owner": job.get("owner"),
@@ -1833,6 +1862,55 @@ def get_job(job_id: str):
     }
 
 
+# CSI / OSC / 2-byte ESC；EMBA 日志带颜色时浏览器会显示成乱码。
+_ANSI_RE = re.compile(
+    r"\x1b(?:[@-Z\\-_a-z]|\][^\x07\x1b]*(?:\x07|\x1b\\)?|\[[0-?]*[ -/]*[@-~])"
+)
+_CTRL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+_DOCKER_ID_RE = re.compile(r"\b[0-9a-f]{64}\b")
+_TODO_HEAD_RE = re.compile(r"personal todo list", re.I)
+_DASH_LINE_RE = re.compile(r"^[\s\-─═—_]+$")
+
+
+def _clean_log_lines(text: str) -> list[str]:
+    """Strip ANSI/control chars, keep the latest \\r progress frame, drop EMBA todo spam."""
+    out: list[str] = []
+    skip_todo = False
+    skipped_modules = 0
+    for raw in str(text or "").split("\n"):
+        if "\r" in raw:
+            raw = raw.split("\r")[-1]
+        line = _ANSI_RE.sub("", raw)
+        line = _CTRL_RE.sub("", line)
+        line = _DOCKER_ID_RE.sub(lambda m: m.group(0)[:12] + "…", line)
+        line = line.replace("\ufffd", "").rstrip()
+        if _TODO_HEAD_RE.search(line):
+            skip_todo = True
+            continue
+        if skip_todo:
+            if _DASH_LINE_RE.match(line.strip()):
+                skip_todo = False
+            continue
+        if line.strip().startswith("Blacklisted module:"):
+            skipped_modules += 1
+            continue
+        if skipped_modules:
+            out.append(f"[*] 已按策略跳过 {skipped_modules} 个模块")
+            skipped_modules = 0
+        if not line.strip():
+            if out and out[-1] != "":
+                out.append("")
+            continue
+        if out and out[-1] == line:
+            continue
+        out.append(line)
+    if skipped_modules:
+        out.append(f"[*] 已按策略跳过 {skipped_modules} 个模块")
+    while out and out[-1] == "":
+        out.pop()
+    return out
+
+
 def _tail_text(path: Path, max_bytes: int = 65536) -> list[str]:
     if not path.is_file():
         return []
@@ -1840,7 +1918,8 @@ def _tail_text(path: Path, max_bytes: int = 65536) -> list[str]:
         fh.seek(0, 2)
         size = fh.tell()
         fh.seek(max(0, size - max_bytes))
-        return fh.read().decode("utf-8", errors="replace").splitlines()
+        blob = fh.read().decode("utf-8", errors="replace")
+    return _clean_log_lines(blob)
 
 
 @app.get("/jobs/{job_id}/logs", dependencies=[Depends(require_token), Depends(job_guard)])
@@ -1872,12 +1951,17 @@ def get_job_logs(job_id: str, lines: int = 300):
         except (OSError, json.JSONDecodeError):
             pass
     job = _jobs.get(job_id) or {}
+    merged: list[str] = []
+    for line in out:
+        if merged and merged[-1] == line:
+            continue
+        merged.append(line)
     return {
         "job_id": job_id,
         "status": job.get("status"),
         "error": job.get("error"),
         "hunt_session_id": job.get("hunt_session_id"),
-        "lines": out[-cap:],
+        "lines": merged[-cap:],
     }
 
 
@@ -1892,7 +1976,7 @@ def _job_artifact_dirs(job_id: str) -> list:
         CBM_DIR / job_id, TRACES_DIR / job_id, ATTACK_DIR / job_id,
         ROUTES_DIR / job_id, INPUTS_DIR / job_id, FUZZ_DIR / job_id,
         EXEC_DIR / job_id, FRIDA_DIR / job_id, GRAPHEXT_DIR / job_id,
-        SURFACES_DIR / job_id,
+        SURFACES_DIR / job_id, DATA_DIR / "decrypt" / job_id,
         *[DATA_DIR / name / job_id for name in _JOB_DATA_DIR_NAMES],
     ]
 
@@ -1951,7 +2035,8 @@ _FUNCTION_FIELDS = ("addr", "name", "size", "lines", "tags", "is_exported",
 
 
 @app.get("/jobs/{job_id}/functions", dependencies=[Depends(require_token), Depends(job_guard)])
-def list_functions(job_id: str):
+def list_functions(job_id: str, q: str | None = None,
+                   limit: int | None = Query(default=None, ge=1, le=800)):
     """Flattened symbols.json for the web UI functions page (M5)."""
     job = _jobs.get(job_id)
     if job is None:
@@ -1963,16 +2048,31 @@ def list_functions(job_id: str):
     symbols = json.loads(symbols_file.read_text(encoding="utf-8"))
     binaries = {}
     functions = []
+    needle = (q or "").strip().lower()
     for md5, info in symbols.get("binaries", {}).items():
         binaries[md5] = {k: info.get(k) for k in
                          ("path", "arch", "bits", "endianness")}
         for fn in info.get("functions", []):
+            if needle:
+                blob = " ".join([
+                    str(fn.get("name") or ""),
+                    str(fn.get("ai_name") or ""),
+                    " ".join(str(s) for s in (fn.get("strings") or [])[:24]),
+                    " ".join(str(t) for t in (fn.get("tags") or [])),
+                ]).lower()
+                if needle not in blob:
+                    continue
             row = {k: fn.get(k) for k in _FUNCTION_FIELDS}
             row["binary"] = md5
             row["arch"] = info.get("arch")
+            if needle:
+                row["strings"] = list(fn.get("strings") or [])[:8]
             functions.append(row)
+    total = len(functions)
+    if limit is not None:
+        functions = functions[:limit]
     return {"job_id": job_id, "binaries": binaries,
-            "total": len(functions), "functions": functions}
+            "total": total, "functions": functions}
 
 
 @app.get("/jobs/{job_id}/functions/{md5}/{addr}/source",
@@ -2093,6 +2193,103 @@ def get_function_brief(job_id: str, md5: str, addr: str):
     }
 
 
+def _decrypt_view(job: dict, peek: bool = False) -> dict:
+    job_id = job["job_id"]
+    stored = fwdecrypt.load_report(DATA_DIR / "decrypt" / job_id)
+    if stored:
+        stored["job_status"] = job.get("status")
+        stored["firmware"] = stored.get("firmware") or job.get("firmware") or ""
+        return stored
+    if job.get("status") == "decrypting":
+        stub = fwdecrypt.empty_report(job_id, job.get("firmware") or "")
+        stub["status"] = "running"
+        stub["progress"] = 12
+        stub["stage"] = "read"
+        stub["stage_label"] = "正在解密"
+        stub["job_status"] = "decrypting"
+        return stub
+    if peek:
+        fw_path = FIRMWARE_DIR / job_id / "firmware.bin"
+        peeked = fwdecrypt.peek(job_id, job.get("firmware") or "", fw_path)
+        peeked["job_status"] = job.get("status")
+        return peeked
+    stub = fwdecrypt.empty_report(job_id, job.get("firmware") or "")
+    stub["job_status"] = job.get("status")
+    return stub
+
+
+@app.get("/decrypt", dependencies=[Depends(require_token)])
+def list_decrypt(principal: dict = Depends(require_token)):
+    """Decrypt progress for every firmware the caller can see."""
+    items = []
+    with _jobs_lock:
+        jobs = sorted(_jobs.values(),
+                      key=lambda j: j.get("updated_at") or "", reverse=True)
+    for job in jobs:
+        if not _can_access(principal, job.get("owner")):
+            continue
+        items.append(_decrypt_view(job, peek=False))
+    running = [i for i in items if i.get("status") == "running"
+               or i.get("job_status") == "decrypting"]
+    summary = {
+        "total": len(items),
+        "running": len(running),
+        "decrypted": sum(1 for i in items if i.get("status") == "decrypted"),
+        "plain": sum(1 for i in items if i.get("status") == "plain"),
+        "identified": sum(1 for i in items if i.get("status") == "identified"),
+        "failed": sum(1 for i in items if i.get("status") == "failed"),
+    }
+    return {"summary": summary, "running": running, "items": items}
+
+
+@app.get("/jobs/{job_id}/decrypt",
+         dependencies=[Depends(require_token), Depends(job_guard)])
+def get_job_decrypt(job_id: str):
+    job = _jobs.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="job not found")
+    return _decrypt_view(job, peek=True)
+
+
+# ---------------------------------------------------------------------------
+# Protocol reverse (firmware artifacts + user-pasted traffic only)
+# ---------------------------------------------------------------------------
+
+
+@app.post("/protocol/decode", dependencies=[Depends(require_token)])
+def protocol_decode(payload: dict = Body(...)):
+    """Decode a user-pasted hex/Base64 slice. No live capture, no decrypt."""
+    text = str(payload.get("text") or payload.get("hex") or "")
+    try:
+        data = protocol_reverse.parse_payload(text)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return protocol_reverse.decode_traffic(data)
+
+
+@app.get("/jobs/{job_id}/protocol-reverse",
+         dependencies=[Depends(require_token), Depends(job_guard)])
+def get_protocol_reverse(job_id: str):
+    job = _jobs.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="job not found")
+    return protocol_reverse.build_report_from_disk(
+        job_id, DATA_DIR, firmware=str(job.get("firmware") or ""))
+
+
+@app.get("/jobs/{job_id}/protocol-reverse/functions/{md5}/{addr}",
+         dependencies=[Depends(require_token), Depends(job_guard)])
+def get_protocol_reverse_function(job_id: str, md5: str, addr: str):
+    if job_id not in _jobs:
+        raise HTTPException(status_code=404, detail="job not found")
+    if not _MD5_RE.match(md5) or not _ADDR_RE.match(addr):
+        raise HTTPException(status_code=400, detail="bad md5/addr format")
+    out = protocol_reverse.reverse_from_disk(job_id, DATA_DIR, md5, addr)
+    if out is None:
+        raise HTTPException(status_code=404, detail="function not found")
+    return out
+
+
 # Upstream vuln-mining agent API (Managed Agents harness in <repo>/vulnagent/).
 # Registered after the job/graph APIs, before the SPA catch-all.
 vulnagent_api.setup(app, require_token)
@@ -2101,9 +2298,11 @@ vulnagent_api.setup(app, require_token)
 # Also registered before the SPA catch-all.
 admin_api.setup(app, require_token, require_admin)
 
+# Local CVE/CNVD knowledge base + N-day lookup against firmware jobs.
+vulnlib_api.setup(app, require_token, require_admin)
+
 # M-ICS: protocol fuzzing (live-device / emulated target). Before webui too.
 protofuzz_api.setup(app, require_token)
-
 # M5: CBM UI reverse proxy (/cbmui, /api, /rpc) + SPA static hosting at "/".
 # Registered last so every API route above wins over the catch-alls.
 webui.setup(app)

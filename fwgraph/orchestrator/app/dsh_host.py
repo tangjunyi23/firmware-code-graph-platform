@@ -54,6 +54,55 @@ class DshHostError(Exception):
         self.code = code
 
 
+def _session_gone(exc: DshHostError) -> bool:
+    return exc.code in ("session-not-found", "bad-request")
+
+
+def _session_corrupt(exc: DshHostError) -> bool:
+    """磁盘日志校验失败：空 callId 的 tool/result 会让 history/resume 永久 502。"""
+    text = f"{exc.code}: {exc}"
+    return any(needle in text for needle in (
+        "SessionPersistenceCorruptionError",
+        "failed validation",
+        "history unavailable",
+        "must have tool source",
+    ))
+
+
+def _quarantine_dsh_session(dsh_sid: str) -> None:
+    """Move a corrupt harness session out of ~/.dsh/sessions.
+
+    Leaving a `.corrupt` sibling inside `sessions/` still breaks host boot:
+    workspace listArtifacts scans every artifact and rejects renamed dirs
+    whose header id no longer matches the path.
+    """
+    sid = str(dsh_sid or "").strip()
+    if not sid or "/" in sid or sid in {".", ".."}:
+        return
+    home = Path(os.environ.get("DSH_HOME") or Path.home() / ".dsh")
+    root = home / "sessions"
+    if not root.is_dir():
+        return
+    try:
+        matches = [
+            p for p in root.rglob("*")
+            if p.is_dir() and (p.name == sid or p.name.startswith(sid + ".corrupt"))
+        ]
+    except OSError:
+        return
+    dest_root = home / "quarantine"
+    try:
+        dest_root.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        return
+    for path in matches:
+        dest = dest_root / f"{path.name}-{uuid.uuid4().hex[:8]}"
+        try:
+            path.rename(dest)
+        except OSError:
+            pass
+
+
 def _alloc_port() -> int:
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
@@ -113,6 +162,23 @@ class DshHostManager:
         if self._persist is not None:
             self._persist(sid, sdir, state)
 
+    def _mint_session(self, host: _Host, sid: str, sdir: Path, state: dict) -> str:
+        """Abandon a dead/corrupt harness session and create a fresh one."""
+        old = host.dsh_session_id or str(state.get("dsh_session_id") or "")
+        if old:
+            _quarantine_dsh_session(old)
+        value = self._rpc(host, "session.create", {
+            "cwd": _session_cwd(sdir, state),
+            "agentPreset": DSH_AGENT_PRESET,
+        })
+        new_id = str(value.get("sessionId") or "")
+        if not new_id:
+            raise DshHostError("session.create returned no sessionId")
+        host.dsh_session_id = new_id
+        state["dsh_session_id"] = new_id
+        self._persist_state(sid, sdir, state)
+        return new_id
+
     # ---------------- 进程生命周期 ----------------
 
     def _kill_stale_pid(self, sdir: Path) -> bool:
@@ -149,7 +215,7 @@ class DshHostManager:
         env = self._env_factory(sid, sdir, state)
         env["DSH_TOOLS_MODE"] = env.get("DSH_TOOLS_MODE") or "native"
         cmd = [self._node, "--import", "tsx/esm", "apps/cli/src/bin.ts",
-               "--profile", DSH_WEB_PROFILE, "--port", str(port)]
+               "--profile", DSH_WEB_PROFILE, "--port", str(port), "--no-open"]
         log_file = open(sdir / "runner.log", "ab")
         try:
             proc = self._spawn(cmd, cwd=str(self._repo), env=env,
@@ -266,15 +332,8 @@ class DshHostManager:
                     "sessionId": host.dsh_session_id,
                 })
             except DshHostError as exc:
-                if exc.code in ("session-not-found", "bad-request"):
-                    value = self._rpc(host, "session.create", {
-                        "cwd": _session_cwd(sdir, state),
-                        "agentPreset": DSH_AGENT_PRESET,
-                    })
-                    host.dsh_session_id = str(value.get("sessionId") or "")
-                    if host.dsh_session_id:
-                        state["dsh_session_id"] = host.dsh_session_id
-                        self._persist_state(sid, sdir, state)
+                if _session_gone(exc) or _session_corrupt(exc):
+                    self._mint_session(host, sid, sdir, state)
                 else:
                     raise
         return host
@@ -322,6 +381,11 @@ class DshHostManager:
             if finalize and killed:
                 self._finalize(sid, sdir, state, reason)
             return killed
+
+    def is_live(self, sid: str) -> bool:
+        with self._lock:
+            host = self._hosts.get(sid)
+            return host is not None and host.proc.poll() is None
 
     def live_sids(self) -> list[str]:
         with self._lock:
@@ -408,11 +472,21 @@ class DshHostManager:
         )
         if method.startswith("session.") and method != "session.list":
             if not dsh_sid:
-                raise DshHostError(
-                    "missing sessionId for " + method, code="bad-request")
+                dsh_sid = self._mint_session(host, sid, sdir, state)
             payload["sessionId"] = dsh_sid
             host.dsh_session_id = dsh_sid
-        value = self._rpc(host, method, payload)
+        try:
+            value = self._rpc(host, method, payload)
+        except DshHostError as exc:
+            retryable = method.startswith("session.") and method != "session.list"
+            if retryable and (_session_corrupt(exc) or exc.code == "session-not-found"):
+                new_id = self._mint_session(host, sid, sdir, state)
+                if method == "session.history":
+                    return {"events": [], "hasMore": False}
+                payload["sessionId"] = new_id
+                value = self._rpc(host, method, payload)
+            else:
+                raise
         # fork 改换当前会话分支：跟随新 dsh session
         if method == "session.fork" and value.get("sessionId"):
             host.dsh_session_id = str(value["sessionId"])

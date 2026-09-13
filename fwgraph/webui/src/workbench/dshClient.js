@@ -15,8 +15,15 @@
  * session.history 回填（seq 水位线去重）。
  */
 
-import { reactive, computed } from 'vue'
+import { reactive, computed, markRaw } from 'vue'
 import { api, streamSse } from '../api.js'
+import { highlightText } from '../highlight.js'
+
+export function lastLine (s) {
+  const t = String(s || '')
+  const i = t.lastIndexOf('\n')
+  return i < 0 ? t : t.slice(i + 1)
+}
 
 /** 工具名 → 卡片 variant（对齐 harness ui-tool 的映射习惯） */
 const TOOL_VARIANT = [
@@ -27,8 +34,8 @@ const TOOL_VARIANT = [
   [/^record_finding$/, 'write'],
 ]
 const TOOL_TITLE = {
-  search: 'Search', read: 'Read', bash: 'Bash', write: 'Write',
-  edit: 'Edit', code: 'Code', others: 'Tool call',
+  search: '检索', read: '读取', bash: '执行', write: '写入',
+  edit: '编辑', code: '代码', others: '工具',
 }
 
 export function toolVariant(name) {
@@ -93,6 +100,8 @@ export function isInjectedHuntHint (text) {
   if (/禁止再说缺少平台能力/.test(s)) return true
   if (/记下 trace_id/.test(s) && /request\.via/.test(s)) return true
   if (/不要挖新洞/.test(s) && /fw_request_trace/.test(s)) return true
+  if (/动态闭环完成/.test(s)) return true
+  if (/crash_kind=startup/.test(s) && /属环境/.test(s)) return true
   return false
 }
 
@@ -125,6 +134,8 @@ export function createDshSession() {
   const _byKey = new Map() // block-/callId-/kind-keyed upsert index
   let _bumpRaf = 0
   const _typeJobs = new Map()
+  const _els = new Map()
+  let _pump = 0
 
   function bump () {
     if (state.loadingHistory) return
@@ -135,49 +146,113 @@ export function createDshSession() {
     })
   }
 
+  function paintJob (job) {
+    const el = job.el || _els.get(job.node.id)
+    if (!el) return
+    const raw = job.node.kind === 'reasoning'
+      ? lastLine(job.node.text)
+      : job.node.text
+    el.innerHTML = highlightText(raw)
+  }
+
   function flushType (node) {
     if (!node) return
     const job = _typeJobs.get(node.id)
     if (!job) return
-    if (job.timer) clearTimeout(job.timer)
     if (job.rest) node.text += job.rest
+    job.rest = ''
+    paintJob(job)
     _typeJobs.delete(node.id)
+  }
+
+  function markTypedEnd (node) {
+    flushType(node)
+    if (node.streaming) {
+      node.streaming = false
+      bump()
+    }
+  }
+
+  function typeCaughtUp () {
+    return !state.running || state.loadingHistory
+      || (typeof document !== 'undefined' && document.hidden)
+  }
+
+  // 节点 markRaw：改 text 不进 Vue。到达的增量下一帧全部画出，
+  // 回合结束/历史回填/页签隐藏立刻刷完，不再按字节流。
+  function schedulePump () {
+    if (_pump) return
+    _pump = requestAnimationFrame(pump)
+  }
+
+  function pump () {
+    _pump = 0
+    const catchUp = typeCaughtUp()
+    let ended = false
+    for (const job of _typeJobs.values()) {
+      if (job.rest) {
+        job.node.text += job.rest
+        job.rest = ''
+        paintJob(job)
+      }
+      if (catchUp || job.end) {
+        if (job.node.streaming) {
+          job.node.streaming = false
+          ended = true
+        }
+        _typeJobs.delete(job.node.id)
+      }
+    }
+    if (ended) bump()
   }
 
   function feedText (node, piece, live) {
     if (!piece) return
-    if (!live || state.loadingHistory) {
+    if (!live || state.loadingHistory || !state.running) {
+      const job = _typeJobs.get(node.id)
+      if (job?.rest) {
+        node.text += job.rest
+        job.rest = ''
+        _typeJobs.delete(node.id)
+      }
       node.text += piece
+      if (job) paintJob(job)
       return
     }
     let job = _typeJobs.get(node.id)
     if (!job) {
-      job = { rest: '', timer: 0 }
+      job = { rest: '', end: false, node, el: _els.get(node.id) || null }
       _typeJobs.set(node.id, job)
     }
     job.rest += piece
-    if (job.timer) return
-    const tick = () => {
-      if (!job.rest) {
-        job.timer = 0
-        bump()
-        return
-      }
-      const n = job.rest.length > 40 ? Math.min(6, job.rest.length) : 1
-      node.text += job.rest.slice(0, n)
-      job.rest = job.rest.slice(n)
-      bump()
-      job.timer = setTimeout(tick, 16)
+    schedulePump()
+  }
+
+  function bindStreamEl (id, el) {
+    if (el) _els.set(id, el)
+    else _els.delete(id)
+    const job = _typeJobs.get(id)
+    if (job) {
+      job.el = el || null
+      if (el) paintJob(job)
+      return
     }
-    job.timer = setTimeout(tick, 16)
+    if (!el) return
+    const node = state.nodes.find((n) => n.id === id)
+    if (node) {
+      const raw = node.kind === 'reasoning' ? lastLine(node.text) : (node.text || '')
+      el.innerHTML = highlightText(raw)
+    }
   }
 
   function _push(key, node) {
     let existing = key ? _byKey.get(key) : null
     if (existing) return existing
-    state.nodes.push(node)
-    if (key) _byKey.set(key, node)
-    return node
+    const raw = markRaw(node)
+    state.nodes.push(raw)
+    if (key) _byKey.set(key, raw)
+    bump()
+    return raw
   }
 
   // ---------------- 事件折叠 ----------------
@@ -191,7 +266,6 @@ export function createDshSession() {
       if (seq > _maxSeq) _maxSeq = seq
     }
     const data = event.data || {}
-    bump()
 
     switch (event.type) {
       case 'user/message': {
@@ -226,6 +300,7 @@ export function createDshSession() {
           if (node.status !== 'ok' && node.status !== 'error' && node.status !== 'stopped') {
             node.status = 'running'
           }
+          bump()
         } else if (key) {
           _push(key, { id: nid('t'), kind: 'tool', status: 'running', ...patch })
         }
@@ -253,6 +328,7 @@ export function createDshSession() {
           Object.assign(node, { status, resultText: text, error: data.error, meta: data.meta, streaming: false })
           if (view) node.view = view
           if (callId) _byKey.set(`tool-${callId}`, node)
+          bump()
         } else {
           _push(key, {
             id: nid('t'), kind: 'tool', callId, name: data.name || '',
@@ -268,7 +344,9 @@ export function createDshSession() {
         break
       case 'step/start':
         for (const node of state.nodes) {
-          if (node.streaming && node.kind !== 'reasoning') {
+          if (node.streaming && node.kind === 'text') {
+            markTypedEnd(node)
+          } else if (node.streaming && node.kind !== 'reasoning') {
             flushType(node)
             node.streaming = false
           }
@@ -282,8 +360,12 @@ export function createDshSession() {
             node.status = reason === 'interrupted' ? 'stopped' : 'ok'
           }
           if (node.streaming) {
-            flushType(node)
-            node.streaming = false
+            if (node.kind === 'text' || node.kind === 'reasoning') {
+              markTypedEnd(node)
+            } else {
+              flushType(node)
+              node.streaming = false
+            }
           }
         }
         _push(null, { id: nid('te'), kind: 'turn-end', reason, seq })
@@ -346,9 +428,11 @@ export function createDshSession() {
           _byKey.delete(blkKey)
           _byKey.set(`tool-${chunk.id}`, target)
         }
+        const prevName = target.name
         Object.assign(target, patch)
         target.argumentsText = (target.argumentsText || '') + (chunk.argumentsDelta || '')
         target.streaming = true
+        if (node && prevName !== target.name) bump()
         break
       }
       case 'block-end': {
@@ -356,7 +440,10 @@ export function createDshSession() {
           || _byKey.get(`think-${turn}`)
           || state.nodes.find((n) => n.turn === turn && n.step === step && n.block === idx)
         if (node) {
-          if (node.kind === 'reasoning') break
+          if (node.kind === 'reasoning' || node.kind === 'text') {
+            markTypedEnd(node)
+            break
+          }
           flushType(node)
           node.streaming = false
           if (chunk.block?.text !== undefined && !node.text) node.text = chunk.block.text
@@ -485,7 +572,17 @@ export function createDshSession() {
   }
 
   async function backfill(maxMessages = 200) {
-    const value = await rpc('session.history', { maxMessages })
+    let value
+    try {
+      value = await rpc('session.history', { maxMessages })
+    } catch (err) {
+      const msg = String(err?.detail || err?.message || '')
+      if (/history unavailable|failed validation|SessionPersistenceCorruption|must have tool source/.test(msg)) {
+        state.hasMoreHistory = false
+        return 0
+      }
+      throw err
+    }
     const entries = value.events || []
     state.hasMoreHistory = !!value.hasMore
     for (const entry of entries) {
@@ -627,68 +724,60 @@ export function createDshSession() {
     _maxSeq = 0
     _seenSeq.clear()
     state.rev = 0
+    _els.clear()
+    _typeJobs.clear()
+    if (_pump) { cancelAnimationFrame(_pump); _pump = 0 }
     state.loadingHistory = true
     if (expectRunning) state.running = true
     let lastErr = null
     let summary = null
-    const deadline = Date.now() + 60000
-    while (Date.now() < deadline) {
-      try {
-        summary = await api(`/vulnagent/sessions/${sid}`)
-        applyHuntSummary(summary)
-        if (summary?.status === 'error') {
-          lastErr = new Error(summary.error || '会话启动失败')
-          state.running = false
-          break
-        }
-        if (summary?.dsh_session_id || !expectRunning
-            || summary?.status === 'done' || summary?.status === 'interrupted'
-            || summary?.status === 'awaiting_continue') {
-          if (summary && summary.status !== 'running') state.running = false
-          lastErr = null
-          break
-        }
-      } catch (err) {
-        lastErr = err
-      }
-      await new Promise((resolve) => setTimeout(resolve, 250))
-    }
-    if (state.sid !== sid) return
-    openMux()
-    for (let i = 0; i < 10; i++) {
-      try {
-        await backfill()
-        lastErr = null
-        state.lastError = null
-        break
-      } catch (err) {
-        lastErr = err
-        await new Promise((resolve) => setTimeout(resolve, 300 * (i + 1)))
-      }
-    }
-    state.loadingHistory = false
-    bump()
-    if (lastErr) {
-      state.lastError = lastErr.detail || lastErr.message || '历史加载失败'
-      if (state.status !== 'live') state.running = false
-    }
     try {
       summary = await api(`/vulnagent/sessions/${sid}`)
       applyHuntSummary(summary)
-      if (summary && summary.status !== 'running') {
+      if (summary?.status === 'error') {
+        lastErr = new Error(summary.error || '会话启动失败')
         state.running = false
-        for (const node of state.nodes) {
-          if (node.kind === 'tool' && node.status === 'running') {
-            node.status = 'stopped'
-          }
-          if (node.streaming) {
-            flushType(node)
-            node.streaming = false
-          }
+      } else if (summary && summary.status !== 'running') {
+        state.running = false
+      }
+    } catch (err) {
+      lastErr = err
+    }
+    if (state.sid !== sid) return
+    try {
+      await backfill()
+      lastErr = null
+      state.lastError = null
+    } catch (err) {
+      lastErr = err
+    }
+    if (state.sid !== sid) return
+    state.loadingHistory = false
+    if (summary && summary.status === 'running') state.running = true
+    bump()
+    if (lastErr) {
+      const msg = String(lastErr.detail || lastErr.message || '')
+      if (/history unavailable|failed validation|SessionPersistenceCorruption|must have tool source/.test(msg)) {
+        state.lastError = null
+      } else {
+        state.lastError = lastErr.detail || lastErr.message || '历史加载失败'
+        if (state.status !== 'live') state.running = false
+      }
+    }
+    if (state.sid !== sid) return
+    if (state.huntStatus === 'running' || expectRunning) {
+      openMux()
+    }
+    for (const node of state.nodes) {
+      if (state.huntStatus !== 'running') {
+        if (node.kind === 'tool' && node.status === 'running') {
+          node.status = 'stopped'
+        }
+        if (node.streaming) {
+          flushType(node)
+          node.streaming = false
         }
       }
-    } catch {
-      /* 摘要失败不挡住已回填的对话 */
     }
   }
 
@@ -696,6 +785,8 @@ export function createDshSession() {
     closeMux()
     for (const node of state.nodes) flushType(node)
     _typeJobs.clear()
+    _els.clear()
+    if (_pump) { cancelAnimationFrame(_pump); _pump = 0 }
     state.sid = null
     state.status = 'idle'
     state.loadingHistory = false
@@ -707,6 +798,6 @@ export function createDshSession() {
   return {
     state, busy,
     attach, detach, rpc, prompt, resumeHunt, continueHunt, steerAll, cancel, fork, updateQueue,
-    respond, approve, setApprovalPolicy, backfill, openMux, closeMux, foldEvent,
+    respond, approve, setApprovalPolicy, backfill, openMux, closeMux, foldEvent, bindStreamEl,
   }
 }

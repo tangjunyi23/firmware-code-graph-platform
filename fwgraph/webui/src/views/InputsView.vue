@@ -1,30 +1,30 @@
 <template>
   <div>
-    <!-- toolbar + summary -->
-    <el-card shadow="never" class="block">
-      <div class="toolbar">
-        <el-select v-model="jobId" placeholder="选择任务" class="job-select" @change="loadAll">
-          <el-option v-for="job in jobs" :key="job.job_id" :value="job.job_id"
-                     :label="`${job.job_id}  ${job.firmware}  (${job.status})`" />
-        </el-select>
-        <el-button :icon="RefreshCw" :loading="loading" @click="loadAll">刷新</el-button>
-        <el-button :icon="Radar" :loading="rerunningInputs" :disabled="!jobId" @click="rerunInputs">重新识别</el-button>
-        <el-button :icon="Route" :loading="rerunningSurfaces" :disabled="!jobId" @click="rerunSurfaces">重新导出攻击面</el-button>
+    <header class="ins-head">
+      <div class="ins-head-row">
+        <h1 class="ins-title">
+          <span class="ins-ico"><component :is="NAV_ICONS.Download" :size="18" /></span>
+          输入面
+        </h1>
+        <div class="ins-actions">
+          <JobPicker v-model="jobId" :prefer="['surfaced', 'identified', 'routed', 'attacked', 'graphed', 'done']" @change="loadAll" />
+          <el-button :icon="RefreshCw" :loading="loading" @click="loadAll">刷新</el-button>
+          <el-button :icon="Radar" :loading="rerunningInputs" :disabled="!jobId" @click="rerunInputs">重新识别</el-button>
+          <el-button :icon="Route" :loading="rerunningSurfaces" :disabled="!jobId" @click="rerunSurfaces">重新导出攻击面</el-button>
+        </div>
       </div>
-      <el-descriptions v-if="meta || surfSummary" :column="isNarrow ? 2 : 4" border size="small" class="summary">
-        <el-descriptions-item v-if="meta" label="目标">{{ meta.target }}</el-descriptions-item>
-        <el-descriptions-item v-if="meta" label="输入数">{{ meta.total_inputs }}</el-descriptions-item>
-        <el-descriptions-item v-if="surfSummary" label="攻击面">{{ surfSummary.surfaces }}</el-descriptions-item>
-        <el-descriptions-item v-if="surfSummary" label="授权链">{{ surfSummary.auth_chains }}</el-descriptions-item>
-        <el-descriptions-item v-if="surfSummary" label="仅静态">{{ surfSummary.static_only }}</el-descriptions-item>
-        <el-descriptions-item v-if="meta" label="门禁 1">{{ meta.gate_1 }}</el-descriptions-item>
-        <el-descriptions-item v-if="meta" label="门禁 2">{{ meta.gate_2 }}</el-descriptions-item>
-      </el-descriptions>
+      <p class="ins-sub">公网可达的外部输入识别：处理链、分发链与逐输入攻击面文档。</p>
+      <div v-if="meta || surfSummary" class="ins-stats">
+        <span v-if="meta" class="stat-chip accent">外部输入 <b>{{ meta.total_inputs }}</b></span>
+        <span v-if="surfSummary" class="stat-chip">攻击面 <b>{{ surfSummary.surfaces }}</b></span>
+        <span v-if="surfSummary" class="stat-chip">授权链 <b>{{ surfSummary.auth_chains }}</b></span>
+        <span v-if="surfSummary" class="stat-chip">仅静态 <b>{{ surfSummary.static_only }}</b></span>
+      </div>
       <el-alert v-for="(g, i) in surfSummary?.gate_errors || []" :key="`ge-${i}`"
                 type="error" :closable="false" :title="g" class="gate-alert" />
       <el-alert v-for="(g, i) in surfSummary?.gate_warnings || []" :key="`gw-${i}`"
                 type="warning" :closable="false" :title="g" class="gate-alert" />
-    </el-card>
+    </header>
 
     <div class="inputs-layout">
       <!-- left: input list -->
@@ -238,11 +238,12 @@ import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Radar, RefreshCw, Route } from '@lucide/vue'
 import { api } from '../api'
+import JobPicker from '../components/JobPicker.vue'
+import { NAV_ICONS } from '../workbench/icons.js'
 import { useNarrowViewport } from '../useNarrowViewport'
 
 const isNarrow = useNarrowViewport()
 
-const jobs = ref([])
 const jobId = ref('')
 const loading = ref(false)
 const rerunningInputs = ref(false)
@@ -263,12 +264,12 @@ const authLoading = ref(false)
 const expandedAuth = ref('')
 
 const STAGE_COLORS = {
-  listen: '#2b6ce5', accept: '#2b6ce5', parse: '#b45309',
+  listen: 'var(--fw-brand)', accept: 'var(--fw-brand)', parse: '#b45309',
   normalize: '#16a34a', dispatch: '#7c3aed', handler: '#dc2626',
   'permission-check': '#ea580c'
 }
 
-function stageColor (stage) { return STAGE_COLORS[stage] || '#64748f' }
+function stageColor (stage) { return STAGE_COLORS[stage] || 'var(--fw-text-3)' }
 function baseName (p) { return p ? String(p).split('/').filter(Boolean).pop() : '' }
 
 const surfaceByInput = computed(() => {
@@ -397,46 +398,35 @@ async function rerunSurfaces () {
   }
 }
 
-onMounted(async () => {
-  try {
-    jobs.value = await api('/jobs')
-    const ready = jobs.value.find(job =>
-      ['surfaced', 'identified', 'routed', 'attacked', 'graphed', 'done'].includes(job.status))
-    jobId.value = (ready || jobs.value[0] || {}).job_id || ''
-    if (jobId.value) await loadAll()
-  } catch (e) {
-    ElMessage.error('加载任务失败: ' + e.message)
-  }
-})
+// 任务选择与自动选中由 JobPicker 完成
 </script>
 
 <style scoped>
 .block { margin-bottom: 14px; }
 .toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-.job-select { width: min(440px, 100%); }
 .summary { margin-top: 12px; }
 .gate-alert { margin-top: 10px; }
 .row-between { display: flex; justify-content: space-between; align-items: center; }
 .mono { font-family: 'JetBrains Mono', ui-monospace, Consolas, 'Courier New', monospace; }
-.muted { color: #64748f; font-size: 12px; }
+.muted { color: var(--fw-text-3); font-size: 12px; }
 .tag-gap { margin: 2px 6px 2px 0; }
 
 .inputs-layout { display: flex; gap: 12px; align-items: flex-start; }
 .side-card { width: 520px; flex-shrink: 0; }
 .main-card { flex: 1; min-width: 0; }
 .meta-collapse { margin-top: 10px; }
-.meta-line { font-size: 11.5px; color: #64748f; word-break: break-all; line-height: 1.6; }
+.meta-line { font-size: 11.5px; color: var(--fw-text-3); word-break: break-all; line-height: 1.6; }
 
-.detail h4 { margin: 16px 0 8px; letter-spacing: 1px; color: #2b6ce5; }
+.detail h4 { margin: 16px 0 8px; letter-spacing: 1px; color: var(--fw-brand); }
 .detail h4:first-child { margin-top: 0; }
 .sub-block { margin: 10px 0; }
 .sub-title { margin-bottom: 6px; letter-spacing: .5px; }
-.file-line { font-size: 12.5px; color: #3d5470; word-break: break-all; }
+.file-line { font-size: 12.5px; color: var(--fw-text-2); word-break: break-all; }
 .evidence { font-size: 12px; line-height: 1.6; word-break: break-word; }
 
 .dispatch-item {
   padding: 6px 8px; margin-bottom: 6px; border-radius: 6px;
-  border: 1px solid rgba(43, 108, 229, .18); background: rgba(43, 108, 229, .05);
+  border: 1px solid color-mix(in srgb, var(--fw-brand) 18%, transparent); background: color-mix(in srgb, var(--fw-brand) 05%, transparent);
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
 }
 
@@ -445,12 +435,12 @@ onMounted(async () => {
 .step { display: flex; align-items: stretch; }
 .rail { display: flex; flex-direction: column; align-items: center; width: 20px; flex: none; }
 .dot { width: 10px; height: 10px; border-radius: 50%; margin-top: 10px; flex: none; border: 2px solid rgba(28, 43, 58, .8); }
-.line { width: 2px; flex: 1 1 auto; background: rgba(43, 108, 229, .25); margin: 2px 0; }
-.node-card { flex: 1 1 auto; min-width: 0; margin: 0 0 10px 10px; padding: 8px 10px; border: 1px solid rgba(43, 108, 229, .25); border-radius: 8px; background: #ffffff; }
+.line { width: 2px; flex: 1 1 auto; background: color-mix(in srgb, var(--fw-brand) 25%, transparent); margin: 2px 0; }
+.node-card { flex: 1 1 auto; min-width: 0; margin: 0 0 10px 10px; padding: 8px 10px; border: 1px solid color-mix(in srgb, var(--fw-brand) 25%, transparent); border-radius: 8px; background: var(--fw-surface); }
 .node-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .node-name { font-weight: 600; font-size: 13px; }
 .node-sub { margin-top: 6px; font-size: 12px; word-break: break-word; }
-.stage-tag { border: none; color: #ffffff; font-weight: 600; }
+.stage-tag { border: none; color: var(--fw-surface); font-weight: 600; }
 .file-ref { font-size: 11.5px; word-break: break-all; }
 
 .handler-card {

@@ -1,6 +1,6 @@
 <template>
   <div class="rail">
-    <button type="button" class="new-chat" @click="$emit('new-session')">
+    <button type="button" class="new-chat" data-tour="wb-new" @click="$emit('new-session')">
       <IconNewChatOutline16 :size="16" />
       {{ t('session.new') }}
     </button>
@@ -33,7 +33,7 @@
             :class="{ open: isOpen(folder.job.job_id) }"
             :size="12"
           />
-          <span class="title" :title="folder.job.firmware">{{ folder.job.firmware }}</span>
+          <span class="title" :title="folder.job.firmware">{{ firmwareLabel(folder.job) }}</span>
         </button>
         <template v-if="isOpen(folder.job.job_id)">
           <div
@@ -48,7 +48,8 @@
               @click="$emit('select', { sid: sess.session_id, jobId: folder.job.job_id })"
             >
               <span class="dot" :data-on="sess.status === 'running' || sess.status === 'awaiting_continue' || undefined" />
-              <span class="title">{{ sessTitle(sess) }}</span>
+              <span class="title" :title="sess.task || sess.session_id">{{ sessTitle(sess) }}</span>
+              <span class="sess-time">{{ relTime(sess) }}</span>
             </button>
             <button
               type="button"
@@ -84,7 +85,8 @@
           @click="$emit('select', { sid: sess.session_id, jobId: sess.job_id || '' })"
         >
           <span class="dot" :data-on="sess.status === 'running' || sess.status === 'awaiting_continue' || undefined" />
-          <span class="title">{{ sessTitle(sess) }}</span>
+          <span class="title" :title="sess.task || sess.session_id">{{ sessTitle(sess) }}</span>
+              <span class="sess-time">{{ relTime(sess) }}</span>
         </button>
         <button
           type="button"
@@ -118,7 +120,7 @@
             @click="$emit('select', { sid: sess.session_id, jobId: sess.job_id || '' })"
           >
             <span class="dot" />
-            <span class="title">{{ sessTitle(sess) }}</span>
+            <span class="title" :title="sess.task || sess.session_id">{{ sessTitle(sess) }}</span>
           </button>
           <button
             type="button"
@@ -189,6 +191,7 @@ const query = ref('')
 const openFolders = ref(new Set())
 const menu = ref(null)
 
+
 function isOpen (id) {
   if (query.value) return true
   if (openFolders.value.size === 0 && catalog.groups.value.folders.length) {
@@ -236,9 +239,36 @@ const archived = computed(() =>
   (catalog.state.sessions || []).filter((s) => s.archived)
 )
 
+function firmwareLabel (job) {
+  const name = String(job?.firmware || job?.job_id || '').trim()
+  return name.replace(/\.(bin|img|chk|trx|tar|gz|zip)$/i, '') || job?.job_id || '未命名固件'
+}
+
 function sessTitle (sess) {
-  const task = (sess.task || '').replace(/\s+/g, ' ').trim()
-  return task.slice(0, 36) || sess.session_id
+  let task = (sess.task || '').replace(/\s+/g, ' ').trim()
+  const wish = task.match(/^用户希望挖到[:：]\s*(.+?)(?:。|$)/)
+  if (wish) task = wish[1].trim()
+  if (!task) return sess.session_id || '未命名对话'
+  return task
+}
+
+// 相对时间：同名会话靠它区分（"3 小时前"）
+function relTime (sess) {
+  const iso = sess.updated_at || sess.created_at || ''
+  if (!iso) return ''
+  const then = new Date(iso).getTime()
+  if (isNaN(then)) return ''
+  const diff = Date.now() - then
+  if (diff < 0) return ''
+  const m = Math.floor(diff / 60000)
+  if (m < 1) return '刚刚'
+  if (m < 60) return `${m} 分钟前`
+  const h = Math.floor(m / 60)
+  if (h < 24) return `${h} 小时前`
+  const d = Math.floor(h / 24)
+  if (d < 30) return `${d} 天前`
+  const mo = Math.floor(d / 30)
+  return mo < 12 ? `${mo} 个月前` : `${Math.floor(mo / 12)} 年前`
 }
 
 function openMenu (ev, sess, jobId) {
@@ -287,6 +317,28 @@ onUnmounted(() => document.removeEventListener('click', onDocClick))
   box-sizing: border-box;
   color: var(--dsw-alias-label-primary);
   font-size: 14px;
+  /* 与主站侧栏同族的底色 + 右侧分隔线，消除中性灰断层 */
+  background:
+    radial-gradient(120% 120px at 50% 0%, rgba(91, 140, 255, .06), transparent 70%),
+    #0d1322;
+  border-right: 1px solid #1a2233;
+}
+html[data-fw-theme='light'] .rail {
+  background:
+    radial-gradient(120% 120px at 50% 0%, rgba(59, 130, 246, .04), transparent 70%),
+    var(--fw-surface);
+  border-right-color: var(--fw-line);
+}
+/* 主题统一：rail 子树内的 harness 别名重绑到 fw 令牌
+   （不动 tokens.css 的 1:1 移植契约，只在 rail 作用域覆盖） */
+.rail {
+  --dsw-alias-label-primary: var(--fw-text, #e7ebf3);
+  --dsw-alias-label-secondary: var(--fw-text-2, #a8b2c6);
+  --dsw-alias-label-tertiary: var(--fw-text-3, #66708a);
+  --dsw-alias-interactive-bg-hover: var(--fw-surface-2, #1a2233);
+  --dsw-alias-interactive-bg-hover-solid: var(--fw-bg-2, #10141d);
+  --dsw-alias-border-l2: var(--fw-line-strong, #2e3a52);
+  --dsw-alias-state-error-primary: var(--fw-danger, #f26076);
 }
 .new-chat {
   display: flex;
@@ -297,17 +349,31 @@ onUnmounted(() => document.removeEventListener('click', onDocClick))
   margin: 0 2px 8px;
   padding: 8px 16px;
   box-sizing: border-box;
-  border: 1px solid var(--dsw-alias-border-l2);
+  border: none;
   border-radius: 12px;
-  background: var(--dsw-alias-button-elevated-fill);
-  color: var(--dsw-alias-label-primary);
+  /* 主站主按钮质感：品牌蓝渐变 + 白字 */
+  background: linear-gradient(180deg, #5b8cff 0%, #2f6bff 100%);
+  color: #fff;
   font-size: 14px;
-  font-weight: 500;
+  font-weight: 600;
   line-height: 22px;
   cursor: pointer;
   font-family: inherit;
+  box-shadow:
+    0 1px 2px rgba(13, 27, 62, .18),
+    0 4px 14px -4px rgba(47, 107, 255, .45),
+    inset 0 1px 0 rgba(255, 255, 255, .18);
+  transition: box-shadow .16s ease, filter .16s ease;
 }
-.new-chat:hover { background: var(--dsw-alias-button-floating-hover); }
+.new-chat:hover {
+  background: linear-gradient(180deg, #6e9bff 0%, #3f6fe0 100%);
+  box-shadow:
+    0 2px 4px rgba(13, 27, 62, .2),
+    0 8px 20px -6px rgba(47, 107, 255, .55),
+    inset 0 1px 0 rgba(255, 255, 255, .2);
+}
+.new-chat:active { filter: saturate(1.1); }
+
 
 .section-head {
   display: flex;
@@ -346,8 +412,14 @@ onUnmounted(() => document.removeEventListener('click', onDocClick))
   margin: 0 2px 8px;
   padding: 0 10px;
   height: 32px;
-  border-radius: 8px;
-  background: var(--dsw-alias-interactive-bg-hover);
+  border: 1px solid var(--fw-line-strong, #2e3a52);
+  border-radius: 10px;
+  background: transparent;
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+.search-row:focus-within {
+  border-color: rgba(91, 140, 255, .45);
+  box-shadow: 0 0 0 3px rgba(91, 140, 255, .12);
 }
 .search-icon { color: var(--dsw-alias-label-tertiary); flex: none; }
 .search-input {
@@ -378,6 +450,8 @@ onUnmounted(() => document.removeEventListener('click', onDocClick))
   align-items: center;
   gap: 4px;
   width: 100%;
+  min-width: 0;
+  overflow: hidden;
   border: none;
   border-radius: 8px;
   padding: 0 4px 0 8px;
@@ -388,6 +462,7 @@ onUnmounted(() => document.removeEventListener('click', onDocClick))
 }
 .project-row { height: 34px; cursor: pointer; }
 .session-row { height: 32px; padding-left: 20px; }
+.folder { min-width: 0; }
 .session-main {
   display: flex;
   align-items: center;
@@ -395,6 +470,7 @@ onUnmounted(() => document.removeEventListener('click', onDocClick))
   min-width: 0;
   flex: 1;
   height: 100%;
+  overflow: hidden;
   border: none;
   background: transparent;
   color: inherit;
@@ -403,10 +479,49 @@ onUnmounted(() => document.removeEventListener('click', onDocClick))
   font-family: inherit;
   padding: 0;
 }
+.title {
+  display: block;
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  line-height: 20px;
+}
+.sess-time {
+  flex: none;
+  margin-left: 6px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+  line-height: 20px;
+  opacity: .85;
+}
+.dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--dsw-alias-label-tertiary);
+}
+.dot[data-on] { background: var(--fw-ok, #16a34a); }
 .project-row:hover,
-.session-row:hover,
-.session-row.selected,
-.project-row.selected { background: var(--dsw-alias-interactive-bg-hover); }
+.session-row:hover { background: var(--dsw-alias-interactive-bg-hover); }
+/* 选中态与主导航激活样式同族：品牌色文字 + 浅底 + 左侧指示条 */
+.project-row.selected,
+.session-row.selected {
+  background: rgba(91, 140, 255, .13);
+  color: #a9c3ff;
+  box-shadow: inset 2px 0 0 #5b8cff;
+}
+html[data-fw-theme='light'] .project-row.selected,
+html[data-fw-theme='light'] .session-row.selected {
+  background: var(--fw-fill);
+  color: var(--fw-brand);
+  box-shadow: inset 2px 0 0 var(--fw-brand);
+}
+.session-row.selected .title,
+.project-row.selected .title { font-weight: 600; }
 .session-row.ghost { color: var(--dsw-alias-label-tertiary); }
 .sess-act {
   flex: none;
@@ -431,24 +546,6 @@ onUnmounted(() => document.removeEventListener('click', onDocClick))
   transition: transform 150ms var(--ds-ease-in-out, ease);
 }
 .arrow.open { transform: rotate(0deg); }
-.title {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 13.5px;
-  line-height: 20px;
-  letter-spacing: -0.01em;
-}
-.dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--dsw-alias-label-caption);
-  flex: none;
-}
-.dot[data-on] { background: var(--dsw-alias-state-success-primary); }
-
 .settings-btn {
   display: flex;
   align-items: center;
@@ -468,6 +565,31 @@ onUnmounted(() => document.removeEventListener('click', onDocClick))
   background: var(--dsw-alias-interactive-bg-hover);
   color: var(--dsw-alias-label-primary);
 }
+.acct {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  padding: 6px 8px;
+}
+.acct-av {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--fw-fill, rgba(19,76,255,.08));
+  color: var(--fw-brand, #134cff);
+  font-size: 12px;
+  font-weight: 650;
+  text-transform: uppercase;
+  flex: none;
+}
+.acct-meta { display: flex; flex-direction: column; min-width: 0; }
+.acct-name { font-size: 13px; font-weight: 600; color: var(--dsw-alias-label-primary); }
+.acct-role { font-size: 11px; color: var(--dsw-alias-label-tertiary); }
+
 
 .sess-menu-root {
   position: fixed;

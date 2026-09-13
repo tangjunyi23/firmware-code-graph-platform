@@ -93,11 +93,15 @@ def _run_cli(args, timeout: int, extra_env=None):
         raise CBMError(f"cbm cli timed out after {timeout}s: {args[0]}") from exc
     except OSError as exc:
         raise CBMError(f"cbm cli not runnable ({_cbm_bin()}): {exc}") from exc
+    parsed = _parse_stdout(proc.stdout)
     if proc.returncode != 0:
+        # CBM 常把 mem.allocator.not_owned 打到 stderr 并以 rc=1 退出，
+        # 但 stdout 已经是可用 JSON（ambiguous / callers）。优先救回。
+        if isinstance(parsed, dict) and not parsed.get("error"):
+            return parsed
         raise CBMError(
             f"cbm cli {args[0]} exited rc={proc.returncode}: "
             f"{(proc.stderr or proc.stdout or '')[-500:]}")
-    parsed = _parse_stdout(proc.stdout)
     if parsed is None:
         raise CBMError(
             f"cbm cli {args[0]} produced no JSON on stdout "
@@ -161,8 +165,29 @@ def cypher(project: str, query: str, timeout: int | None = None):
                     timeout=timeout or query_timeout())
 
 
+_TRACE_DIR = {
+    "in": "inbound",
+    "inbound": "inbound",
+    "out": "outbound",
+    "outbound": "outbound",
+    "both": "both",
+}
+
+
+def _normalize_trace_direction(direction: str | None) -> str:
+    """CBM 0.9+ 只接受 inbound|outbound|both；agent/插件常传 in|out。"""
+    key = str(direction or "both").strip().lower()
+    mapped = _TRACE_DIR.get(key)
+    if mapped is None:
+        raise CBMError(
+            f"invalid trace direction {direction!r}; "
+            "use inbound, outbound, or both")
+    return mapped
+
+
 def trace(project: str, name: str, direction: str = "both",
           timeout: int | None = None):
+    direction = _normalize_trace_direction(direction)
     return _run_cli(["trace_path", "--project", project,
                      "--function-name", name, "--direction", direction,
                      "--format", "json"],

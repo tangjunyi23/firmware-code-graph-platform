@@ -1,0 +1,30 @@
+{
+  "job_id": "6df0ba4135c9",
+  "title": "MiniDLNA HTTP 请求行 URL 解析越界写（栈缓冲区 7 字节却写入最多 511 字节）",
+  "severity": "medium",
+  "confidence": 0.5,
+  "vuln_class": "stack-overflow",
+  "cwe": "CWE-121",
+  "binary_md5": "3e3258c907b4b461c90472e1fcd6cddb",
+  "binary_path": "firmware/binwalk_extracted/firmware.extracted/100000/squashfs-root/bin/minidlnad",
+  "reachability": "static-only",
+  "summary": "minidlnad(1.1.0) 的 HTTP 请求解析函数 sub_40D1FC 中，请求行 URL 被以「for(i=0; i<511 且 未到空格/回车间) v8[i]=*v5++」的方式逐字节拷贝，而目标 v8 仅为栈上 7 字节缓冲（紧随其后的 v9[2]、v10、v11[2]、v12[500] 均由该越界写覆盖）。攻击者可向 8200 端口的 UPnP/HTTP 服务发送含超长 URL 的 GET/POST 请求，触发最多 511 字节的栈越界写，破坏相邻局部变量与后续传给 SendResp_dlnafile/SendResp_thumbnail 等文件服务处理器的数据（这些处理器随后按不可信内容解析对象 ID）。函数入口为网络可达：main 的 accept 循环 → Process_upnphttp(0x40e15c) 读取请求 → sub_40D1FC。",
+  "evidence": [
+    "Hex-Rays(0x40d1fc): char v8[7]; ... for ( i = 0; i < 511 && *v5 != 32 && *v5 != 13; ++i ) v8[i] = *v5++; v8[i] = 0; —— 511 字节循环写入 7 字节栈缓冲，无目的地容量校验",
+    "Hex-Rays(0x40d1fc): v8 溢出相邻 v9[2]/v10/v11[2]/v12[500]，v12 随后传入 SendResp_dlnafile((int)a1, v12) 与 SendResp_thumbnail((int)a1, v12)",
+    "process chain: main(0x408d08) accept → Process_upnphttp(0x40e15c) recv(0x800) → sub_40C538(找头终止) → sub_40D1FC(0x40d1fc) 请求行解析"
+  ],
+  "session_id": "s-mt6lgkly-2e7f",
+  "function_name": "sub_40D1FC",
+  "preconditions": "攻击者需能访问设备 8200 TCP 端口（LAN 内无需认证）；URL 含 8 字节以上即开始越界，511 字节封顶，可完整控制 v12[500]。",
+  "exploit_sketch": "栈布局 v8@sp+0x50(7B)→v9/v10/v11/v12[500]@sp+0x5C，写入上限 sp+0x24E 未触及已保存寄存器/返回地址（0x25C 起），故直接控制流不可达；但 500 字节可完全改写 v12 并控制 SendResp_dlnafile/thumbnail 的输入，配合这些处理器对不可信字符串的进一步解析（strtoll/snprintf）可能形成二次破坏或崩溃。",
+  "remediation": "与上游 MiniDLNA 对齐：URL 拷贝目标改为 512 字节缓冲并保留 i<511 边界，或改用 strnlen/显式长度校验；为 sub_40D1FC 增加栈保护（canary）/编译选项 -fstack-protector。",
+  "poc": "python3 - <<'EOF'\nimport socket\np=\"GET /\"+\"A\"*520+\" HTTP/1.1\\r\\nHost: 127.0.0.1\\r\\n\\r\\n\"\ns=socket.create_connection((\"192.168.1.1\",8200)); s.sendall(p.encode()); s.close()\nEOF\n（向 minidlnad HTTP/UPnP 端口发送超长 URL 的 GET 请求，触发 0x40d1fc 中 ≤511 字节的栈越界写）",
+  "call_chain": "main(0x408d08) → Process_upnphttp(0x40e15c) → sub_40D1FC(0x40d1fc) → 栈越界写 v8[7] (i<511)",
+  "function_addr": "0x40d1fc",
+  "id": "F-mt6sopqo-d693",
+  "status": "draft",
+  "owner": "token-admin",
+  "recorded_at": "2026-08-24T05:27:57Z",
+  "history": []
+}

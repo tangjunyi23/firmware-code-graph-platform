@@ -34,9 +34,9 @@ def test_adapt_writes_functions_and_symbols_raw(tmp_path):
     out = tmp_path / "export"
     out.mkdir()
     _write_index(out, [
-        {"name": "main", "address": "0x401000",
+        {"name": "main", "address": "0x401000", "size": 0x100,
          "callees": ["0x401100"], "is_entry_candidate": True},
-        {"name": "strcpy", "address": "0x401100",
+        {"name": "strcpy", "address": "0x401100", "size": 0x20,
          "callees": [], "is_entry_candidate": False},
     ])
     _write_decompile(out, 0x401000, "main",
@@ -53,7 +53,7 @@ def test_adapt_writes_functions_and_symbols_raw(tmp_path):
     assert done["decompiled"] == 2
 
     src = (out / "functions" / "0x401000.c").read_text(encoding="utf-8")
-    assert src.startswith("// addr=0x401000 name=main arch=mips32be size=0\n")
+    assert src.startswith("// addr=0x401000 name=main arch=mips32be size=256\n")
     assert "int main()" in src
     assert "func-address" not in src
 
@@ -63,7 +63,7 @@ def test_adapt_writes_functions_and_symbols_raw(tmp_path):
     assert main["calls"] == ["strcpy"]
     assert "admin_password" in main["strings"]
     assert main["decompile_ok"] is True
-
+    assert main["size"] == 256
 
 def test_adapt_without_decompile_file_keeps_symbol(tmp_path):
     out = tmp_path / "export"
@@ -78,6 +78,69 @@ def test_adapt_without_decompile_file_keeps_symbol(tmp_path):
     assert raw["functions"][0]["decompile_ok"] is False
     assert not (out / "functions" / "0x400.c").exists()
 
+
+
+def test_adapt_rewrites_worker_asm_header(tmp_path):
+    out = tmp_path / "export"
+    out.mkdir()
+    _write_index(out, [
+        {"name": "main", "address": "0x401000", "size": 8, "callees": []},
+    ])
+    _write_decompile(out, 0x401000, "main", "int main() { return 0; }")
+    funcs = out / "functions"
+    funcs.mkdir()
+    (funcs / "0x401000.asm").write_text(
+        "// addr=0x401000 name=main arch= size=8\n"
+        "00401000: lui $gp,0x2\n",
+        encoding="utf-8")
+    done = adapt_rootfs_elf_outdir(out, {"arch": "mips", "bits": 32,
+                                         "endianness": "be"})
+    assert done["asm_functions"] == 1
+    text = (funcs / "0x401000.asm").read_text(encoding="utf-8")
+    assert text.startswith("// addr=0x401000 name=main arch=mips32be size=8\n")
+    assert "00401000: lui $gp,0x2" in text
+
+
+def test_adapt_objdump_fills_missing_asm(tmp_path, monkeypatch):
+    elf = tmp_path / "busybox"
+    elf.write_bytes(b"\x7fELF")
+    out = tmp_path / "export"
+    out.mkdir()
+    _write_index(out, [
+        {"name": ".init_proc", "address": "0x400a04", "size": 8,
+         "callees": []},
+    ])
+
+    def fake_run(cmd, capture_output=True, text=True, timeout=30):
+        class Proc:
+            returncode = 0
+            stdout = (
+                "\nDisassembly of section .init:\n"
+                "00400a04 <_init>:\n"
+                "  400a04:\tlui\tgp,0x2\n"
+                "  400a08:\taddiu\tgp,gp,-17604\n"
+            )
+            stderr = ""
+        return Proc()
+
+    monkeypatch.setattr(
+        "pipeline.decompile.rootfs_elf_adapt.subprocess.run", fake_run)
+    monkeypatch.setattr(
+        "pipeline.decompile.rootfs_elf_adapt.shutil.which",
+        lambda name: "/usr/bin/objdump")
+    done = adapt_rootfs_elf_outdir(
+        out,
+        {"arch": "mips", "bits": 32, "endianness": "be"},
+        elf_path=elf)
+    assert done["status"] == "ok"
+    assert done["asm_functions"] == 1
+    text = (out / "functions" / "0x400a04.asm").read_text(encoding="utf-8")
+    assert text.startswith(
+        "// addr=0x400a04 name=.init_proc arch=mips32be size=8\n")
+    assert "400a04: lui\tgp,0x2" in text
+    raw = json.loads((out / "symbols_raw.json").read_text(encoding="utf-8"))
+    init = next(f for f in raw["functions"] if f["addr"] == "0x400a04")
+    assert init["size"] == 8
 
 def test_adapt_empty_export_is_error(tmp_path):
     out = tmp_path / "export"

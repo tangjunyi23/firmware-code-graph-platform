@@ -26,6 +26,8 @@ def _clean_env(monkeypatch):
                  "SANDBOX_HOST_PREFIX", "FWGRAPH_DATA"):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setattr(docker_backend, "_DOCKER_OK", None)
+    monkeypatch.setattr(docker_backend, "_HOST_DATA_PREFIX", None)
+    monkeypatch.setattr(fuzz_runner, "_afl_fuzz_bin", lambda: "afl-fuzz")
     yield
 
 
@@ -176,8 +178,43 @@ class TestRunSandboxedCmd:
 class TestHostMountPath:
     def test_empty_prefix_no_rewrite(self, monkeypatch):
         monkeypatch.setenv("FWGRAPH_DATA", "/data")
+        monkeypatch.setattr(docker_backend, "_prefix_from_docker_inspect",
+                            lambda dest: "")
+        monkeypatch.setattr(docker_backend, "_prefix_from_mountinfo",
+                            lambda dest: "")
         assert docker_backend.host_mount_path("/data/extracted/j1") == \
             "/data/extracted/j1"
+
+    def test_placeholder_prefix_is_ignored(self, monkeypatch):
+        monkeypatch.setenv("FWGRAPH_DATA", "/data")
+        monkeypatch.setenv("SANDBOX_HOST_PREFIX",
+                           "/CHANGE_ME/deploy/docker/data")
+        monkeypatch.setattr(docker_backend, "_prefix_from_docker_inspect",
+                            lambda dest: "")
+        monkeypatch.setattr(docker_backend, "_prefix_from_mountinfo",
+                            lambda dest: "")
+        assert docker_backend.host_mount_path("/data/x") == "/data/x"
+
+    def test_relative_prefix_is_ignored(self, monkeypatch):
+        monkeypatch.setenv("FWGRAPH_DATA", "/data")
+        monkeypatch.setenv("SANDBOX_HOST_PREFIX", "./data")
+        monkeypatch.setattr(docker_backend, "_prefix_from_docker_inspect",
+                            lambda dest: "")
+        monkeypatch.setattr(docker_backend, "_prefix_from_mountinfo",
+                            lambda dest: "")
+        assert docker_backend.host_mount_path("/data/x") == "/data/x"
+
+    def test_auto_detect_from_inspect(self, monkeypatch):
+        monkeypatch.setenv("FWGRAPH_DATA", "/data")
+        monkeypatch.setattr(
+            docker_backend, "_prefix_from_docker_inspect",
+            lambda dest: "/var/lib/docker/volumes/fwgraph-data/_data")
+        monkeypatch.setattr(docker_backend, "_prefix_from_mountinfo",
+                            lambda dest: "")
+        assert docker_backend.host_mount_path("/data/jobs/x") == (
+            "/var/lib/docker/volumes/fwgraph-data/_data/jobs/x")
+        assert docker_backend.host_mount_path("/data") == (
+            "/var/lib/docker/volumes/fwgraph-data/_data")
 
     def test_rewrite_under_data(self, monkeypatch):
         monkeypatch.setenv("FWGRAPH_DATA", "/data")
@@ -485,6 +522,7 @@ class TestTraceDocker:
         assert "-L" not in cmd
         assert cmd[cmd.index("-D") + 1].startswith("/tmp/")
         assert kw["user"] == "0"
+        assert kw["ipc"] == "host"
         assert "SYS_CHROOT" in kw["cap_add"]
         assert "NET_BIND_SERVICE" in kw["cap_add"]
         assert seen["tmp_seed"] is True

@@ -36,7 +36,7 @@ export const inject = ['tools']
 const MAX_RESULT = 16000
 const MAX_TRACES_PER_SESSION = 192
 const MAX_FUZZ_PER_SESSION = 12
-const MAX_EXEC_PER_SESSION = 8
+const MAX_EXEC_PER_SESSION = 24
 const BROWSE_MAX_BYTES = 64 * 1024
 
 // S1: tool classes that must never execute in this profile, regardless of
@@ -70,6 +70,14 @@ function isRetryableFwError(err) {
   return /fetch failed|aborted|timeout|ECONNRESET|ECONNREFUSED|UND_ERR|network/i.test(msg)
 }
 
+/** CBM trace_path 只要 inbound|outbound|both；插件旧 enum 是 in|out。 */
+export function cbmTraceDirection(raw) {
+  const key = String(raw || 'both').trim().toLowerCase()
+  if (key === 'in' || key === 'inbound') return 'inbound'
+  if (key === 'out' || key === 'outbound') return 'outbound'
+  return 'both'
+}
+
 async function fw(config, method, urlPath, body) {
   let last
   for (let attempt = 0; attempt < 4; attempt++) {
@@ -96,10 +104,59 @@ async function fw(config, method, urlPath, body) {
   throw last
 }
 
+const _guestRootCache = new Map()
+
+async function findGuestRoot(rootReal) {
+  if (_guestRootCache.has(rootReal)) return _guestRootCache.get(rootReal)
+  async function walk(dir, depth) {
+    if (depth > 7) return null
+    let names
+    try { names = await fsp.readdir(dir, { withFileTypes: true }) } catch { return null }
+    const hit = names.find((e) => e.isDirectory() && e.name === 'squashfs-root')
+    if (hit) return path.join(dir, hit.name)
+    const kids = names.filter((e) => e.isDirectory() && !e.name.startsWith('.'))
+    const looksRoot = ['bin', 'etc', 'usr', 'sbin'].filter((n) => kids.some((e) => e.name === n))
+    if (looksRoot.length >= 3) return dir
+    for (const e of kids) {
+      const nested = await walk(path.join(dir, e.name), depth + 1)
+      if (nested) return nested
+    }
+    return null
+  }
+  const found = (await walk(rootReal, 0)) || rootReal
+  _guestRootCache.set(rootReal, found)
+  return found
+}
+
 function jobOf(config, input) {
   const jobId = input.job_id ?? config.jobId
   if (!jobId) throw new Error('job_id is required (no default job configured)')
   return jobId
+}
+
+/** Normalize addr to 0x<lower-hex>. Accepts 0x401000, 401000, 7590c. */
+export function normalizeAddr(addr) {
+  const raw = String(addr || '').trim()
+  const hex = raw.startsWith('0x') || raw.startsWith('0X') ? raw.slice(2) : raw
+  if (!/^[0-9a-fA-F]+$/.test(hex) || hex.length === 0) {
+    throw new Error(`addr must be hex (got ${JSON.stringify(addr)})`)
+  }
+  return `0x${hex.toLowerCase()}`
+}
+
+/** Prefer md5; accept binary_md5. Expand a unique hex prefix via the job manifest. */
+export async function resolveMd5(config, args) {
+  let md5 = String(args.md5 || args.binary_md5 || '').trim().toLowerCase()
+  if (/^[0-9a-f]{32}$/.test(md5)) return md5
+  if (!/^[0-9a-f]{4,31}$/.test(md5)) {
+    throw new Error('md5/binary_md5 must be a 32-char hex (or unique prefix)')
+  }
+  const man = await fw(config, 'GET', `/jobs/${jobOf(config, args)}/manifest`)
+  const hits = (man.binaries ?? []).map((b) => String(b.md5 || '').toLowerCase())
+    .filter((m) => m.startsWith(md5))
+  if (hits.length === 1) return hits[0]
+  if (hits.length === 0) throw new Error(`no manifest md5 starts with ${md5}`)
+  throw new Error(`ambiguous md5 prefix ${md5}: ${hits.slice(0, 6).join(', ')}`)
 }
 
 function graphQuery(config, jobId, op, extra) {
@@ -137,17 +194,23 @@ function fnName(f) {
   return String((f && (f.ai_name || f.name || f.libc_equiv)) || '')
 }
 
+/** Strip undefined so DeepSeek Harness snapshotJsonValue accepts the result. */
+export function asJson(value) {
+  if (value === undefined) return null
+  return JSON.parse(JSON.stringify(value))
+}
+
 export function compactDiffFns(fns, limit = 24) {
   const out = []
   for (const f of fns || []) {
     const name = fnName(f)
     const libc = f && f.libc_equiv ? String(f.libc_equiv) : ''
-    out.push({
-      name: name || undefined,
-      addr: (f && (f.addr || f.address)) || undefined,
-      libc_equiv: libc || undefined,
-      sink: SINK_RE.test(name) || SINK_RE.test(libc),
-    })
+    const addr = (f && (f.addr || f.address)) || ''
+    const row = { sink: SINK_RE.test(name) || SINK_RE.test(libc) }
+    if (name) row.name = name
+    if (addr) row.addr = String(addr)
+    if (libc) row.libc_equiv = libc
+    out.push(row)
     if (out.length >= limit) break
   }
   return out
@@ -177,49 +240,51 @@ export function huntNextFromTrace(t) {
     return `差分命中 ${fns.length} 个函数（优先 sink）：${list}。立刻 fw_get_function_source(kind=brief, md5=${md5 || '本 binary'}, addr=这些地址)。能到危险操作就 record_finding（reachability=observed, trace_id=${tid}，必须 call_chain+poc）。不要把差分表贴给用户。`
   }
   if (via === 'net' || port) {
-    return '网络空差分：请求没进处理函数。立刻对同一 binary_md5 再 fw_request_trace，改 via=stdin 或 payloads_hex 或换 request_path。禁止向用户汇报能力/空差分表。'
+    return '网络空差分：请求没进处理函数，不是漏洞。禁止 record_finding，禁止向用户写终态/能力验收。同一 port+payload 不要再打。via=net 不要带 input_path。启动未通则只允许空 fw_qemu_exec 后再 fw_request_trace via=net；否则换入口或等新目标。'
   }
-  return 'stdin/文件空差分：payload 没打到解析分支。换更像真实输入的字节（协议头、超长、格式错）或换会解析该输入的 ELF，再 fw_request_trace。空差分不是漏洞，不要写给用户。'
+  return 'stdin/文件空差分：payload 没打到解析分支，不是漏洞。禁止 record_finding 和终态汇报。换真实协议字节或换 ELF 最多再跑一次；不要重复同一条空差分。'
 }
 
 export function compactTrace(t) {
-  if (!t || typeof t !== 'object') return t
+  if (!t || typeof t !== 'object') return asJson(t ?? null)
   if (t.status === 'running') {
-    return {
-      trace_id: t.trace_id, status: 'running',
+    return asJson({
+      trace_id: t.trace_id || '',
+      status: 'running',
       hunt_next: huntNextFromTrace(t),
-    }
+    })
   }
   const fns = compactDiffFns((t.diff && t.diff.functions) || [])
   const trig = (t.trigger && t.trigger.trigger_result) || t.trigger_result
-  return {
-    trace_id: t.trace_id,
-    status: t.status,
-    error: t.error || undefined,
-    binary_md5: (t.binary && t.binary.md5) || t.binary_md5,
-    argv: t.argv,
-    argv0: t.argv0,
-    request: t.request,
-    trigger_result: trig,
+  const out = {
+    trace_id: t.trace_id || '',
+    status: t.status || '',
+    binary_md5: (t.binary && t.binary.md5) || t.binary_md5 || '',
+    request: t.request || {},
     diff: {
       function_count: (t.diff && t.diff.function_count) ?? fns.length,
       functions: fns,
     },
     hunt_next: huntNextFromTrace(t),
   }
+  if (t.error) out.error = t.error
+  if (t.argv != null) out.argv = t.argv
+  if (t.argv0) out.argv0 = t.argv0
+  if (trig != null) out.trigger_result = trig
+  return asJson(out)
 }
 
 export function summarizeTraceList(out) {
   const traces = (out && Array.isArray(out.traces)) ? out.traces : []
   if (!traces.length) {
     const hunt_next = '还没有 qemu 差分 trace。立刻 fw_request_trace，再用 fw_get_trace 轮询。空列表不是缺能力。禁止向用户写验收报告。'
-    return {
-      job_id: out && out.job_id,
+    return asJson({
+      job_id: (out && out.job_id) || '',
       traces: [],
       total: 0,
       hint: hunt_next,
       hunt_next,
-    }
+    })
   }
   const by = {}
   for (const t of traces) {
@@ -237,20 +302,20 @@ export function summarizeTraceList(out) {
   }))
   const hunt_next = withDiff.length
     ? `已有 ${withDiff.length} 条非空差分。立刻 fw_get_trace：${withDiff.slice(0, 8).map((t) => t.trace_id).join(', ')}，按返回的 hunt_next 读函数并 record_finding。不要向用户列能力表。`
-    : '现有 trace 都是空差分或失败。网络口改 via=stdin 或 payloads_hex 再 fw_request_trace；有差分再读函数。禁止向用户汇报验收。'
-  return {
-    job_id: out.job_id,
+    : '现有 trace 都是空差分或失败。不要重复同一条，不要 record_finding，不要向用户写终态。via=net 不要带 input_path。换入口或等新目标。'
+  return asJson({
+    job_id: out.job_id || '',
     total: out.total ?? traces.length,
     by_status: by,
     with_diff: withDiff.slice(0, 8).map((t) => ({
       trace_id: t.trace_id,
-      diff_functions: t.diff_functions,
-      binary_md5: t.binary_md5,
-      via: (t.request || {}).via,
+      diff_functions: t.diff_functions ?? 0,
+      binary_md5: t.binary_md5 || '',
+      via: (t.request || {}).via || '',
     })),
     recent,
     hunt_next,
-  }
+  })
 }
 
 export function huntNextFromExec(r) {
@@ -337,12 +402,16 @@ export async function browseFirmware(config, args) {
     .catch(() => null)
   if (!rootReal) throw new Error(`firmware extraction root not found for job ${jobId}（${extractedRoot}/<job_id> 不存在）`)
   const rel = String(args.path ?? '').replace(/^[/\\]+/, '')
-  const target = path.resolve(rootReal, rel)
+  const guest = await findGuestRoot(rootReal)
+  const target = path.resolve(guest || rootReal, rel)
   if (target !== rootReal && !target.startsWith(rootReal + path.sep)) {
     throw new Error(`path escapes the job extraction root: ${JSON.stringify(args.path)}`)
   }
   // realpath 再查一次：固件解包里常见 symlink（含绝对 symlink），必须防逃逸
-  const targetReal = await fsp.realpath(target).catch(() => null)
+  let targetReal = await fsp.realpath(target).catch(() => null)
+  if (!targetReal && guest && guest !== rootReal) {
+    targetReal = await fsp.realpath(path.resolve(rootReal, rel)).catch(() => null)
+  }
   if (!targetReal) throw new Error(`path not found: ${JSON.stringify(args.path ?? '.')}`)
   if (targetReal !== rootReal && !targetReal.startsWith(rootReal + path.sep)) {
     throw new Error(`path escapes the job extraction root via symlink: ${JSON.stringify(args.path)}`)
@@ -507,18 +576,21 @@ export function apply(ctx, config) {
     description: 'Hex-Rays pseudo-C source of one function; its names/addresses are the canonical identifiers and the ONLY citable evidence. kind=brief returns a ~1KB triage card (signature head, dangerous calls with line numbers, callees, attack-surface flags) — ALWAYS screen with kind=brief first when scanning many functions, fetch full source only for suspicious ones. kind=asm returns function-level assembly for call-site argument recovery.',
     parameters: params({
       ...JOB_ID_PROP,
-      md5: { type: 'string' },
-      addr: { type: 'string', description: 'Function address, e.g. 0x401000' },
+      md5: { type: 'string', description: '32-char binary md5 (or unique prefix)' },
+      binary_md5: { type: 'string', description: 'Alias of md5' },
+      addr: { type: 'string', description: 'Function address, 0x401000 or 401000' },
       kind: { type: 'string', enum: ['hexrays', 'asm', 'brief'], description: 'default hexrays (canonical); brief = compact triage card (use first); asm = function-level assembly' },
-    }, ['md5', 'addr']),
+    }, ['addr']),
     async execute(args) {
+      const md5 = await resolveMd5(config, args)
+      const addr = normalizeAddr(args.addr)
       if (args.kind === 'brief') {
         return fw(config, 'GET',
-          `/jobs/${jobOf(config, args)}/functions/${args.md5}/${args.addr}/brief`)
+          `/jobs/${jobOf(config, args)}/functions/${md5}/${addr}/brief`)
       }
       const suffix = args.kind === 'asm' ? '?asm=1' : ''
       const src = await fw(config, 'GET',
-        `/jobs/${jobOf(config, args)}/functions/${args.md5}/${args.addr}/source${suffix}`)
+        `/jobs/${jobOf(config, args)}/functions/${md5}/${addr}/source${suffix}`)
       return { source: src }
     },
   })
@@ -587,16 +659,25 @@ export function apply(ctx, config) {
 
   register({
     name: 'fw_call_trace',
-    description: 'Callers/callees of a function (direction both|in|out).',
+    description: 'Callers/callees of a function (direction both|inbound|outbound; in/out also accepted).',
     parameters: params({
       ...JOB_ID_PROP,
       name: { type: 'string' },
-      direction: { type: 'string', enum: ['both', 'in', 'out'] },
+      direction: { type: 'string', enum: ['both', 'in', 'out', 'inbound', 'outbound'] },
     }, ['name']),
     async execute(args) {
-      return graphQuery(config, jobOf(config, args), 'trace', {
-        name: args.name, direction: args.direction ?? 'both',
-      })
+      try {
+        return asJson(await graphQuery(config, jobOf(config, args), 'trace', {
+          name: args.name, direction: cbmTraceDirection(args.direction),
+        }))
+      } catch (err) {
+        const msg = String(err?.message || err)
+        return asJson({
+          status: 'unavailable',
+          error: msg.slice(0, 240),
+          hunt_next: '图谱 call_trace 不可用。改 fw_get_function_source / fw_search 看调用，动态验证走 fw_request_trace。不要对用户解释平台。',
+        })
+      }
     },
   })
 
@@ -660,7 +741,7 @@ export function apply(ctx, config) {
         sawDynamic = true
         pendingHuntNext = compact.hunt_next || pendingHuntNext
       }
-      return compact
+      return asJson(compact)
     },
   })
 
@@ -678,7 +759,8 @@ export function apply(ctx, config) {
 
   register({
     name: 'fw_request_trace',
-    description: `Start a qemu-user differential coverage trace (baseline vs one trigger). via=stdin (or payload without port) feeds bytes on qemu stdin so parsers/CLI get a real diff — prefer this when network traces stay empty. via=net (default when port is set) sends HTTP GET or payload/payloads_hex on the port. input_path=/tmp/<name> drops the bytes as a guest file. Do not pass request_path="/" on non-HTTP ports. Poll fw_get_trace. Budget max ${MAX_TRACES_PER_SESSION}. HTTP 409 = retry later.`,
+    timeoutMs: 180_000,
+    description: `Start a qemu-user differential coverage trace (baseline vs one trigger). Only one trace at a time — status=busy means poll fw_get_trace, do not fire another. via=net (port set, no input_path) sends HTTP/payload on the port. Do not pass input_path with via=net — that used to silently become via=file. via=stdin feeds qemu stdin. input_path=/tmp/<name> alone is the file parser path. Empty diff is not a vuln — do not repeat the same probe, do not record_finding. Poll fw_get_trace. Budget max ${MAX_TRACES_PER_SESSION}.`,
     parameters: params({
       ...JOB_ID_PROP,
       binary_md5: { type: 'string' },
@@ -697,8 +779,9 @@ export function apply(ctx, config) {
         throw new Error(`trace budget exhausted (${MAX_TRACES_PER_SESSION} per session); mine existing traces instead`)
       }
       const extra = Array.isArray(args.argv) ? args.argv : []
+      const md5 = await resolveMd5(config, { binary_md5: args.binary_md5, job_id: args.job_id })
       const body = {
-        binary_md5: args.binary_md5,
+        binary_md5: md5,
         argv: extra,
         ...(args.port ? { port: Number(args.port) } : {}),
         ...(args.request_path ? { request_path: args.request_path } : {}),
@@ -710,22 +793,32 @@ export function apply(ctx, config) {
         ...(args.input_path ? { input_path: String(args.input_path) } : {}),
       }
       let resp
-      for (let attempt = 0; attempt < 8; attempt++) {
-        try {
-          resp = await fw(config, 'POST', `/jobs/${jobOf(config, args)}/trace`, body)
-          break
-        } catch (err) {
-          const msg = String(err?.message || err)
-          if (!/HTTP 409/.test(msg) || attempt === 7) throw err
-          await new Promise((r) => setTimeout(r, 4000 * (attempt + 1)))
+      try {
+        resp = await fw(config, 'POST', `/jobs/${jobOf(config, args)}/trace`, body)
+      } catch (err) {
+        const msg = String(err?.message || err)
+        if (/HTTP 409/.test(msg)) {
+          return asJson({
+            status: 'busy',
+            error: 'another trace is running',
+            hunt_next: '先 fw_list_traces / fw_get_trace 等到没有 running，再发下一条 fw_request_trace。禁止并行连打。',
+          })
         }
+        if (/HTTP 429/.test(msg)) {
+          return asJson({
+            status: 'quota',
+            error: msg.slice(0, 300),
+            hunt_next: '当日 trace 配额用尽（以本条 used/limit 为准，不是固定 24）。不要再打 fw_request_trace。消化已有 fw_list_traces / fw_get_trace，或 fw_qemu_exec。禁止向用户写终态。',
+          })
+        }
+        throw err
       }
       traceCount += 1
       sawDynamic = true
-      return {
+      return asJson({
         ...resp,
-        next: 'poll fw_get_trace until status is not running, then execute hunt_next (read diff functions or retry via=stdin). Do not write a capability report for the user.',
-      }
+        next: 'poll fw_get_trace until status is not running, then execute hunt_next. Do not write a capability report for the user.',
+      })
     },
   })
 
@@ -745,6 +838,7 @@ export function apply(ctx, config) {
 
   register({
     name: 'fw_qemu_exec',
+    timeoutMs: 120_000,
     description: `Run a firmware binary once under qemu-user (no AFL, no coverage). Use to crash-check a PoC: pass stdin or stdin_hex, or write bytes to input_path=/tmp/foo and mention that path in argv. Returns after the process exits (or ~8s). crash_kind=startup (no payload) is an environment failure — retry fw_request_trace, do not abandon the ELF. crash_kind=payload is dynamic evidence. status=timeout with no input often means a daemon is still up. Budget max ${MAX_EXEC_PER_SESSION}.`,
     parameters: params({
       ...JOB_ID_PROP,
@@ -760,8 +854,9 @@ export function apply(ctx, config) {
       if (execCount >= MAX_EXEC_PER_SESSION) {
         throw new Error(`qemu-exec budget exhausted (${MAX_EXEC_PER_SESSION} per session)`)
       }
+      const md5 = await resolveMd5(config, { binary_md5: args.binary_md5, job_id: args.job_id })
       const body = {
-        binary_md5: args.binary_md5,
+        binary_md5: md5,
         argv: Array.isArray(args.argv) ? args.argv : [],
         seconds: Math.min(Number(args.seconds ?? 8), 20),
         ...(args.argv0 ? { argv0: String(args.argv0) } : {}),
@@ -769,7 +864,20 @@ export function apply(ctx, config) {
         ...(args.stdin_hex ? { stdin_hex: String(args.stdin_hex) } : {}),
         ...(args.input_path ? { input_path: String(args.input_path) } : {}),
       }
-      const started = await fw(config, 'POST', `/jobs/${jobOf(config, args)}/qemu-exec`, body)
+      let started
+      try {
+        started = await fw(config, 'POST', `/jobs/${jobOf(config, args)}/qemu-exec`, body)
+      } catch (err) {
+        const msg = String(err?.message || err)
+        if (/HTTP 429/.test(msg)) {
+          return asJson({
+            status: 'quota',
+            error: msg.slice(0, 300),
+            hunt_next: '当日 qemu-exec 配额用尽。改 fw_request_trace / fw_get_trace。不要对用户写终态。',
+          })
+        }
+        throw err
+      }
       execCount += 1
       sawDynamic = true
       const runId = started.run_id
@@ -778,11 +886,11 @@ export function apply(ctx, config) {
         if (got && got.status && got.status !== 'running') {
           const hunt_next = huntNextFromExec(got)
           pendingHuntNext = hunt_next
-          return { ...got, hunt_next }
+          return asJson({ ...got, hunt_next })
         }
         await new Promise((r) => setTimeout(r, 1000))
       }
-      return { ...started, status: 'running', hunt_next: huntNextFromExec({ status: 'running' }) }
+      return asJson({ ...started, status: 'running', hunt_next: huntNextFromExec({ status: 'running' }) })
     },
   })
 
@@ -797,12 +905,13 @@ export function apply(ctx, config) {
       const got = await fw(config, 'GET', `/jobs/${jobOf(config, args)}/qemu-exec/${args.run_id}`)
       const hunt_next = huntNextFromExec(got)
       if (got && got.status && got.status !== 'running') pendingHuntNext = hunt_next
-      return (got && typeof got === 'object') ? { ...got, hunt_next } : got
+      return asJson((got && typeof got === 'object') ? { ...got, hunt_next } : got)
     },
   })
 
   register({
     name: 'fw_request_fuzz',
+    timeoutMs: 180_000,
     description: `Request an AFL++ qemu fuzz run. Omit function for whole-binary mode (preferred on MIPS: qemu persistent handshake often fails). Pass function=0x… only for arm/x86 with a concrete hypothesis. Budgeted — max ${MAX_FUZZ_PER_SESSION} per session. Poll via fw_get_fuzz_run until status is ok/error (running is not wedged).`,
     parameters: params({
       ...JOB_ID_PROP,
@@ -894,7 +1003,9 @@ export function apply(ctx, config) {
     parameters: params({ ...JOB_ID_PROP, md5: { type: 'string' }, addr: { type: 'string' },
       max_nodes: { type: 'integer', description: 'keep at most N basic blocks (0/absent = full)' } }, ['md5', 'addr']),
     async execute(args) {
-      return graphQuery(config, jobOf(config, args), 'cfg', { md5: args.md5, addr: args.addr,
+      const md5 = await resolveMd5(config, args)
+      const addr = normalizeAddr(args.addr)
+      return graphQuery(config, jobOf(config, args), 'cfg', { md5, addr,
         ...(args.max_nodes ? { max_nodes: Number(args.max_nodes) } : {}) })
     },
   })
@@ -905,9 +1016,79 @@ export function apply(ctx, config) {
     parameters: params({ ...JOB_ID_PROP, md5: { type: 'string' }, addr: { type: 'string' },
       max_depth: { type: 'integer' }, max_nodes: { type: 'integer' } }, ['md5', 'addr']),
     async execute(args) {
-      return graphQuery(config, jobOf(config, args), 'ast', { md5: args.md5, addr: args.addr,
+      const md5 = await resolveMd5(config, args)
+      const addr = normalizeAddr(args.addr)
+      return graphQuery(config, jobOf(config, args), 'ast', { md5, addr,
         ...(args.max_nodes ? { max_nodes: Number(args.max_nodes) } : {}),
         ...(args.max_depth ? { max_depth: Number(args.max_depth) } : {}) })
+    },
+  })
+  register({
+    name: 'fw_vulnlib_search',
+    description: 'Search the local CVE/CNVD/CNNVD knowledge base (not live NVD). Filter by q (id/title/product), source=cve|cnvd|cnnvd|manual, vendor, product, cwe, severity. Use before claiming an N-day; empty total means the library has no matching advisory.',
+    parameters: params({
+      q: { type: 'string', description: 'CVE-2017-13772 / Archer / 摘要关键词' },
+      source: { type: 'string', enum: ['cve', 'cnvd', 'cnnvd', 'manual'] },
+      vendor: { type: 'string' },
+      product: { type: 'string' },
+      cwe: { type: 'string', description: 'CWE-78' },
+      severity: { type: 'string', enum: ['critical', 'high', 'medium', 'low', 'info'] },
+      limit: { type: 'integer' },
+    }),
+    async execute(args) {
+      const sp = new URLSearchParams()
+      for (const k of ['q', 'source', 'vendor', 'product', 'cwe', 'severity']) {
+        if (args[k]) sp.set(k, String(args[k]))
+      }
+      sp.set('limit', String(Math.min(Number(args.limit ?? 20), 80)))
+      const out = await fw(config, 'GET', `/vulnlib?${sp}`)
+      return asJson({
+        total: out.total ?? 0,
+        items: (out.items ?? []).map((r) => ({
+          id: r.id, source: r.source, title: r.title, severity: r.severity,
+          cwes: r.cwes, vendors: r.vendors, products: r.products,
+          summary: r.summary, vuln_point: r.vuln_point, aliases: r.aliases,
+        })),
+      })
+    },
+  })
+
+  register({
+    name: 'fw_vulnlib_nday',
+    description: 'Score local CVE/CNVD advisories against firmware jobs this session can see. Hits are N-day *candidates* (vendor/product overlap), not confirmed vulns. Pass job_id to restrict to the current firmware. Then fw_get_function_source / fw_request_trace to confirm; do not record_finding from a library hit alone.',
+    parameters: params({
+      ...JOB_ID_PROP,
+      q: { type: 'string' },
+      vendor: { type: 'string' },
+      product: { type: 'string' },
+      source: { type: 'string', enum: ['cve', 'cnvd', 'cnnvd', 'manual'] },
+      limit: { type: 'integer' },
+    }),
+    async execute(args) {
+      const sp = new URLSearchParams()
+      const jobId = args.job_id || config.jobId
+      if (jobId) sp.set('job_id', String(jobId))
+      for (const k of ['q', 'vendor', 'product', 'source']) {
+        if (args[k]) sp.set(k, String(args[k]))
+      }
+      sp.set('limit', String(Math.min(Number(args.limit ?? 20), 80)))
+      const out = await fw(config, 'GET', `/vulnlib/nday?${sp}`)
+      return asJson({
+        total: out.total ?? 0,
+        jobs_considered: out.jobs_considered ?? 0,
+        items: (out.items ?? []).map((r) => ({
+          id: r.id, source: r.source, title: r.title, severity: r.severity,
+          cwes: r.cwes, vendors: r.vendors, products: r.products,
+          summary: r.summary, vuln_point: r.vuln_point,
+          match_score: r.match_score,
+          matches: (r.matches ?? []).map((m) => ({
+            job_id: m.job_id, firmware: m.firmware, score: m.score, reasons: m.reasons,
+          })),
+        })),
+        hunt_next: (out.total
+          ? '库命中只是 N-day 候选。对每个 id 用 fw_search / fw_get_function_source 核函数，动态验证后再 record_finding，并在 evidence 写上 CVE/CNVD 编号。'
+          : '本库没有与当前固件厂商/产品重叠的条目。不要编造 CVE；改走攻击面/trace 挖 0-day，或请用户导入该型号的 CVE/CNVD JSON。'),
+      })
     },
   })
 

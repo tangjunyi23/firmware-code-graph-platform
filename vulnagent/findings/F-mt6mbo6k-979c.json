@@ -1,0 +1,30 @@
+{
+  "job_id": "6df0ba4135c9",
+  "title": "uclited execWlanCmd 无线密钥/SSID strcpy 栈溢出（128/64/132 字节栈缓冲，无界拷贝）",
+  "severity": "medium",
+  "confidence": 0.35,
+  "vuln_class": "stack_buffer_overflow",
+  "cwe": "CWE-121",
+  "binary_md5": "d61e67ed20163b7fee8bd3c606fb0331",
+  "binary_path": "firmware/binwalk_extracted/firmware.extracted/100000/squashfs-root/usr/bin/uclited",
+  "reachability": "static-only",
+  "summary": "uclited(usr/bin/uclited, md5 d61e67ed) 的 execWlanCmd(0x49c84c) 将上层无线配置字符串（密钥/SSID，来自 HTTP cgi 参数）直接 strcpy 进多个固定长度栈缓冲 v19[128]、v20[64]、v21[132]，无长度检查，构成栈溢出（CWE-121）；其后沿用与 httpd 相同的 execFormatCmd(0x411658)（vsprintf 无界 + tp_systemEx）模式，超长且含 shell 元字符的输入可同时升级为命令注入。27 个 wlanSet* 调用方（wlanSetPsk2 0x49c6e0、wlanSetWepHexKey 0x49c4c4、wlanSetStaWepAscii 0x49c794 等）接收 web 配置值。动态：qemu trace 9ecff5fde521 空差分，未观察到崩溃，静态验证。",
+  "evidence": [
+    "fw_get_ast md5=d61e67ed addr=0x49c84c (execWlanCmd): 栈上 char v19[128] / v20[64] / v21[132]；对 a2/a3 字符串执行 strcpy 写入（switch(a1) 各分支），无长度限制",
+    "fw_call_trace inbound execWlanCmd 27 调用方：wlanSetWepHexKey 0x49c4c4、wlanSetWpa2 0x49c684、wlanSetPsk2 0x49c6e0、wlanSetWepAsciiKey 0x49c520、wlanSetStaWepAscii 0x49c794 等 —— 参数为无线密钥/SSID（web 可配置字符串）",
+    "fw_search: uclited 亦含同一 execFormatCmd(0x411658) 模式（vsprintf 无界 + tp_systemEx）；execWlanCmd 列于 exec 相关文件 0x49c84c_execWlanCmd.c",
+    "动态：9ecff5fde521(uclited via=stdin) ok_empty_diff —— 守护进程在 qemu-user 下未进入解析分支"
+  ],
+  "session_id": "s-mt6lgkly-2e7f",
+  "function_name": "execWlanCmd",
+  "preconditions": "uclited 的无线配置入口可到达（默认 password 登录）；wlanSet* 读取的密钥/SSID 字符串超过栈缓冲 128/64/132 字节",
+  "remediation": "execWlanCmd 内 strcpy 全部替换为 strncpy/已限制长度；对 web 参数先做长度校验；execFormatCmd(0x411658) 改用 snprintf",
+  "poc": "登录态 web 无线设置页（userRpm/WlanSecurityRpm.htm 等）提交超长密钥/SSID 参数，经 uclited cgi 到达 execWlanCmd：wlanKey=AAAA...(>128 字节) 触发 strcpy 栈溢出；如值含 \\\";cmd;# 则同时进入 execFormatCmd(0x411658)→tp_systemEx 命令执行。请求形如：POST /cgi/cgi_set?wlanKey=<130*'A'>%22;%20id;%23 HTTP/1.1",
+  "call_chain": "StartMiniServer(0x46acf8) → parser_request_init/parser_parse(0x4692f4) → swSetWireless*/ucSet* 配置分支 → wlanSetPsk2(0x49c6e0)/wlanSetWepHexKey(0x49c4c4)/wlanSetStaWepAscii(0x49c794) → execWlanCmd(0x49c84c) → strcpy(栈缓冲 v19[128]/v20[64]/v21[132]) → execFormatCmd(0x411658) → tp_systemEx",
+  "function_addr": "0x49c84c",
+  "id": "F-mt6mbo6k-979c",
+  "status": "draft",
+  "owner": "token-admin",
+  "recorded_at": "2026-08-24T02:29:51Z",
+  "history": []
+}

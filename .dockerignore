@@ -13,3 +13,6 @@ fwgraph/webui/dist
 deploy/docker/data
 deploy/docker/ida
 deploy/docker/cbmbin
+# rootfs_elf 样本输出不进镜像
+tools/ida-no-mcp/**/output
+tools/ida-no-mcp/**/__pycache__

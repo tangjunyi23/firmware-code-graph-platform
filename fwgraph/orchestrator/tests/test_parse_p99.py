@@ -141,6 +141,7 @@ def test_run_emba_keeps_sudo_password_out_of_command(tmp_path, monkeypatch):
     # the EMBA command line itself.
     monkeypatch.setattr(extractor, "_chown_output", lambda log_dir: None)
     monkeypatch.setenv("EMBA_DIR", str(tmp_path))
+    monkeypatch.setenv("EMBA_BACKEND", "script")
     monkeypatch.setenv("EMBA_SUDO_PASSWORD", "unit-test-value")
 
     rc, timed_out = extractor.run_emba(
@@ -166,6 +167,7 @@ def test_run_emba_uses_noninteractive_sudo_without_password(tmp_path, monkeypatc
     monkeypatch.setattr(extractor.subprocess, "Popen", fake_popen)
     monkeypatch.setattr(extractor, "_chown_output", lambda log_dir: None)
     monkeypatch.setenv("EMBA_DIR", str(tmp_path))
+    monkeypatch.setenv("EMBA_BACKEND", "script")
     monkeypatch.delenv("EMBA_SUDO_PASSWORD", raising=False)
 
     rc, timed_out = extractor.run_emba(
@@ -175,3 +177,62 @@ def test_run_emba_uses_noninteractive_sudo_without_password(tmp_path, monkeypatc
     assert (rc, timed_out) == (0, False)
     assert captured["command"][:2] == ["sudo", "-n"]
     assert captured["options"]["stdin"] is extractor.subprocess.DEVNULL
+
+
+def test_run_emba_docker_backend_uses_official_image(tmp_path, monkeypatch):
+    captured = {}
+
+    def fake_popen(command, **options):
+        captured["command"] = command
+        captured["options"] = options
+        return _FinishedProcess()
+
+    monkeypatch.setattr(extractor.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(extractor, "_chown_output", lambda log_dir: None)
+    monkeypatch.setattr(extractor, "emba_image_present", lambda image=None: True)
+    monkeypatch.setenv("EMBA_BACKEND", "docker")
+    monkeypatch.setenv("FWGRAPH_DATA", str(tmp_path))
+    monkeypatch.setenv("SANDBOX_HOST_PREFIX", "/host/data")
+    fw = tmp_path / "job" / "firmware.bin"
+    fw.parent.mkdir()
+    fw.write_bytes(b"x")
+    logs = tmp_path / "extracted" / "job"
+    logs.mkdir(parents=True)
+    rc, timed_out = extractor.run_emba(fw, logs, tmp_path / "emba.log")
+    assert (rc, timed_out) == (0, False)
+    cmd = captured["command"]
+    assert cmd[:3] == ["docker", "run", "--rm"]
+    assert "--privileged" in cmd
+    assert "embeddedanalyzer/emba:2.0.3a" in cmd
+    assert "/host/data/job:/firmware:ro" in cmd
+    assert "/host/data/extracted/job:/logs" in cmd
+    assert "-f" in cmd and "/firmware/firmware.bin" in cmd
+    assert "sudo" not in cmd
+
+
+def test_run_emba_docker_missing_image(tmp_path, monkeypatch):
+    monkeypatch.setenv("EMBA_BACKEND", "docker")
+    monkeypatch.setenv("FWGRAPH_DATA", str(tmp_path))
+    monkeypatch.setattr(extractor, "emba_image_present", lambda image=None: False)
+    called = []
+    monkeypatch.setattr(
+        extractor.subprocess, "Popen",
+        lambda *a, **k: called.append(1) or _FinishedProcess())
+    fw = tmp_path / "firmware.bin"
+    fw.write_bytes(b"x")
+    rc, timed_out = extractor.run_emba(fw, tmp_path / "logs", tmp_path / "e.log")
+    assert rc == 127 and timed_out is False
+    assert called == []
+
+
+def test_use_docker_backend_auto_inside_container(monkeypatch):
+    monkeypatch.setenv("EMBA_BACKEND", "auto")
+    monkeypatch.delenv("SANDBOX_HOST_PREFIX", raising=False)
+    monkeypatch.setattr(extractor, "_in_container", lambda: True)
+    assert extractor.use_docker_backend() is True
+
+
+def test_use_docker_backend_auto_on_host(monkeypatch):
+    monkeypatch.setenv("EMBA_BACKEND", "auto")
+    monkeypatch.setattr(extractor, "_in_container", lambda: False)
+    assert extractor.use_docker_backend() is False

@@ -74,6 +74,19 @@ def test_run_job_empty_stdin_crash_is_startup(tmp_path, monkeypatch):
     assert "不要放弃" in summary["next"]
 
 
+def test_seed_sysv_shm_repairs_zero_mode(tmp_path):
+    import ctypes
+    from pipeline.trace import qemu_cov
+    ids = qemu_cov.seed_sysv_shm()
+    assert ids
+    libc = ctypes.CDLL("libc.so.6", use_errno=True)
+    libc.shmat.restype = ctypes.c_void_p
+    shmid = libc.shmget(0x2F, 0, 0)
+    assert shmid >= 0
+    attached = libc.shmat(shmid, None, 0)
+    assert attached not in (None, ctypes.c_void_p(-1).value)
+
+
 def test_seed_guest_tmp_copies_model(tmp_path):
     from pipeline.trace import qemu_cov
     rootfs = tmp_path / "root"
@@ -100,6 +113,32 @@ def test_classify_rc_timeout_vs_crash_vs_error():
     assert qemu_exec._classify_rc(255) == ("error", None)
     assert qemu_exec._classify_rc(1) == ("error", None)
     assert qemu_exec._classify_rc(0) == ("ok", None)
+
+
+def test_watchdog_kill_after_sigsegv_is_startup(tmp_path, monkeypatch):
+    data = _mk_job(tmp_path)
+    monkeypatch.setattr(qemu_exec.qemu_cov, "find_rootfs",
+                        lambda *_a, **_k: (tmp_path, "/bin/httpd"))
+    monkeypatch.setattr(qemu_exec.qemu_cov, "qemu_for", lambda *_a: "qemu-mips")
+    monkeypatch.setattr(qemu_exec.qemu_cov, "prepare_rootfs",
+                        lambda *_a, **_k: "/qemu-mips")
+    monkeypatch.setattr(qemu_exec.qemu_cov, "trace_exec_mode", lambda: "none")
+    monkeypatch.setattr(qemu_exec.sandbox, "sandbox_image_present",
+                        lambda *_: False)
+
+    def fake_popen(*_a, stdout=None, **_k):
+        if stdout is not None:
+            stdout.write(
+                b"qemu: uncaught target signal 11 (Segmentation fault) "
+                b"- core dumped\n")
+            stdout.flush()
+        return _Proc(-9)
+
+    monkeypatch.setattr(qemu_exec.subprocess, "Popen", fake_popen)
+    summary = qemu_exec.run_job(JOB, data, MD5, seconds=3)
+    assert summary["status"] == "crash"
+    assert summary["crash_kind"] == "startup"
+    assert summary["signal"] == 11
 
 
 @pytest.fixture

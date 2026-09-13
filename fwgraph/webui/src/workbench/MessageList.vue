@@ -8,9 +8,15 @@
         @click="session.backfill(400)"
       >{{ t('chat.loadOlder') }}</button>
       <div v-if="session.state.loadingHistory" class="turn-status" role="status">加载对话…</div>
+      <button
+        v-if="hiddenCount > 0"
+        type="button"
+        class="older"
+        @click="showAll = true"
+      >显示更早 {{ hiddenCount }} 条</button>
 
       <div
-        v-for="node in visibleNodes"
+        v-for="node in timelineNodes"
         :key="node.id"
         class="flow-item"
         :data-chat-anchor-key="node.id"
@@ -35,17 +41,16 @@
           :data-state="node.streaming ? 'running' : 'ok'"
         >
           <button type="button" class="disc-row" @click="toggle(node.id)">
-            <span class="leading">
-              <IconThinkOutline14 v-if="!open[node.id]" :size="14" />
-              <IconChevronDownOutline14 v-else :size="14" />
+            <span class="leading" :class="{ open: open[node.id] }">
+              <IconChevronDownOutline14 :size="14" />
             </span>
-            <span class="disc-title">Thinking</span>
-            <template v-if="thinkPreview(node)">
+            <span class="disc-title">思考中</span>
+            <template v-if="!open[node.id] && thinkPreview(node)">
               <span class="sep" />
-              <span class="summary think-preview">{{ thinkPreview(node) }}</span>
+              <span class="summary think-preview" v-html="hl(thinkPreview(node))" />
             </template>
           </button>
-          <div v-if="open[node.id]" class="think-body">{{ node.text }}<span v-if="node.streaming" class="caret" /></div>
+          <div v-if="open[node.id]" class="think-body"><span v-html="hl(node.text)" /><span v-if="node.streaming" class="caret" /></div>
         </div>
 
         <div
@@ -54,10 +59,9 @@
           :data-state="node.status === 'running' ? 'running' : node.status === 'error' ? 'error' : 'ok'"
         >
           <button type="button" class="disc-row" @click="toggle(node.id)">
-            <span class="leading">
-              <span v-if="node.status === 'running'" class="state-dot" />
-              <IconChevronDownOutline14 v-else-if="open[node.id]" :size="14" />
-              <span v-else class="tool-glyph">{{ toolGlyph(node.name) }}</span>
+            <span v-if="node.status === 'running' || open[node.id]" class="leading">
+              <span v-if="node.status === 'running'" class="fx-dot" />
+              <IconChevronDownOutline14 v-else :size="14" />
             </span>
             <span class="disc-title">{{ toolTitle(node.name) }}</span>
             <span class="sep" />
@@ -87,7 +91,11 @@
         </div>
 
         <div v-else-if="node.kind === 'text'" class="assistant">
-          <span v-if="node.streaming" class="assistant-raw">{{ node.text }}<span class="caret" /></span>
+          <span
+            v-if="node.streaming"
+            class="assistant-raw"
+            :ref="(el) => session.bindStreamEl(node.id, el)"
+          /><span v-if="node.streaming" class="caret" />
           <MarkdownText v-else :text="node.text" />
         </div>
 
@@ -106,10 +114,29 @@
       </div>
 
       <div
-        v-if="session.state.running && !hasThinkRow && !session.state.loadingHistory"
-        class="thinking-line"
+        v-if="liveThink"
+        class="think think-dock"
+        data-state="running"
         role="status"
-      >Thinking</div>
+      >
+        <span class="fx-dot" aria-hidden="true" />
+        <span class="disc-title think-glow">思考中</span>
+        <span class="sep" />
+        <span
+          class="summary think-preview"
+          :ref="(el) => session.bindStreamEl(liveThink.id, el)"
+        />
+        <span class="caret" />
+      </div>
+      <div
+        v-else-if="session.state.running && !session.state.loadingHistory"
+        class="think think-dock"
+        data-state="running"
+        role="status"
+      >
+        <span class="fx-dot" aria-hidden="true" />
+        <span class="disc-title think-glow">思考中</span>
+      </div>
 
       <div v-if="session.state.lastError" class="open-error">{{ session.state.lastError }}</div>
     </div>
@@ -117,13 +144,14 @@
 </template>
 
 <script setup>
-import { computed, inject, reactive } from 'vue'
+import { computed, inject, reactive, ref } from 'vue'
 import MarkdownText from './MarkdownText.vue'
 import {
-  IconThinkOutline14, IconChevronDownOutline14, IconInspectOutline12, IconBranchOutline16
+  IconChevronDownOutline14, IconInspectOutline12, IconBranchOutline16
 } from './icons.js'
 import { t } from './locales.js'
-import { toolTitle } from './dshClient.js'
+import { lastLine, toolTitle } from './dshClient.js'
+import { highlightText } from '../highlight.js'
 
 defineProps({ session: { type: Object, required: true } })
 defineEmits(['inspect', 'fork'])
@@ -132,27 +160,47 @@ const session = inject('wbSession')
 const open = reactive({})
 function toggle (id) { open[id] = !open[id] }
 
-const visibleNodes = computed(() =>
-  session.state.loadingHistory ? [] : session.state.nodes
-)
+const WINDOW = 80
+const showAll = ref(false)
+const allNodes = computed(() => {
+  void session.state.rev
+  return session.state.loadingHistory ? [] : session.state.nodes
+})
+const hiddenCount = computed(() => {
+  if (showAll.value) return 0
+  return Math.max(0, allNodes.value.length - WINDOW)
+})
+const visibleNodes = computed(() => {
+  const nodes = allNodes.value
+  if (showAll.value || nodes.length <= WINDOW) return nodes
+  return nodes.slice(-WINDOW)
+})
 
-const hasThinkRow = computed(() =>
-  visibleNodes.value.some((n) => n.kind === 'reasoning')
-)
+const liveThink = computed(() => {
+  const nodes = allNodes.value
+  for (let i = nodes.length - 1; i >= 0; i--) {
+    if (nodes[i].kind === 'reasoning' && nodes[i].streaming) return nodes[i]
+  }
+  if (session.state.running) {
+    for (let i = nodes.length - 1; i >= 0; i--) {
+      if (nodes[i].kind === 'reasoning') return nodes[i]
+    }
+  }
+  return null
+})
+
+const timelineNodes = computed(() => {
+  const live = liveThink.value
+  const nodes = visibleNodes.value
+  if (!live) return nodes
+  return nodes.filter((n) => n.id !== live.id)
+})
 
 function thinkPreview (node) {
-  const lines = String(node.text || '').split('\n')
-  let last = ''
-  for (const line of lines) {
-    const t = line.trim()
-    if (t) last = t
-  }
-  return last
+  return lastLine(node.text).trim()
 }
-
-function toolGlyph (name) {
-  const v = toolTitle(name)
-  return v.slice(0, 1)
+function hl (text) {
+  return highlightText(text)
 }
 
 function toolSummary (node) {
@@ -184,7 +232,10 @@ function pretty (raw) {
   gap: 16px;
   padding: 16px calc(var(--dsh-composer-side-clearance) + 16px) 24px;
 }
-.flow-item { min-width: 0; }
+.flow-item {
+  min-width: 0;
+  contain: content;
+}
 .flow-item:empty { display: none; }
 
 .user-row {
@@ -253,7 +304,10 @@ function pretty (raw) {
   justify-content: center;
   margin-right: 6px;
   color: var(--dsw-alias-label-tertiary);
+  transition: transform .18s ease;
 }
+.leading.open { transform: rotate(0deg); }
+.think .leading:not(.open) { transform: rotate(-90deg); }
 .disc-title {
   flex: none;
   font-size: 14px;
@@ -307,12 +361,20 @@ function pretty (raw) {
   .tool[data-state='running'] .disc-row::after { animation: none; }
 }
 
-.thinking-line {
-  align-self: flex-start;
+.think-dock {
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  min-width: 0;
   height: 24px;
-  line-height: 24px;
-  font-size: 14px;
-  color: var(--dsw-alias-label-secondary);
+}
+.think-dock .fx-dot { margin-right: 8px; }
+.think-glow {
+  color: #7dd3fc;
+  animation: fx-glow 1.6s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .think-glow { animation: none; }
 }
 .think-body {
   padding: 4px 0 4px 22px;
@@ -322,21 +384,6 @@ function pretty (raw) {
   white-space: pre-wrap;
   word-break: break-word;
 }
-
-.state-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--dsw-alias-state-business-primary);
-  animation: pending 1s ease-in-out infinite alternate;
-}
-@keyframes pending { from { opacity: 0.35; } to { opacity: 1; } }
-.tool-glyph {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--dsw-alias-label-tertiary);
-}
-
 .io-card {
   display: flex;
   flex-direction: column;
@@ -406,7 +453,8 @@ function pretty (raw) {
   width: 2px;
   height: 1em;
   margin-left: 2px;
-  background: var(--dsw-alias-state-business-primary);
+  background: var(--fw-brand);
+  box-shadow: 0 0 8px rgba(34, 211, 238, .7);
   animation: blink 1s step-end infinite;
   vertical-align: text-bottom;
 }

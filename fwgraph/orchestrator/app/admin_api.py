@@ -14,7 +14,7 @@ Endpoints:
   GET  /system/info                host/component/resource inventory
   GET/PUT /system/config           whitelisted runtime config (PUT = admin)
   GET  /logs, /logs/tail           orchestrator/EMBA log listing + tail (admin)
-  GET  /dashboard                  jobs/sessions/findings/reports counters
+  GET  /dashboard                  看板：计数 + 严重级/类型/可达性分布 + 14 日序列
   POST/GET /jobs/{job_id}/report   deterministic综合报告 (pipeline/report.py)
   GET  /reports, /reports/{rid}[/download]         report aggregation
                                    (non-admin sees only own jobs'/sessions')
@@ -29,13 +29,13 @@ import re
 import shutil
 import threading
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from fastapi import Body, Depends, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, PlainTextResponse
 
-from . import accounts, config, extractor, report_export, vulnagent_api
+from . import accounts, config, decompiler, extractor, report_export, vulnagent_api
 from pipeline import report as job_report
 
 # fwgraph/orchestrator/app/admin_api.py -> ../../.. = fwgraph/
@@ -48,12 +48,319 @@ CONFIG_KEYS = [
     "VULNAGENT_ENGINE",
     "LLM_MODEL", "LLM_BASE_URL", "IDA_WORKERS",
     "EMBA_TIMEOUT",
+    "UI_ONBOARD_TOUR",
+    "TRACE_DAILY_PER_JOB", "EXEC_DAILY_PER_JOB", "FUZZ_DAILY_PER_JOB",
 ]
+_CONFIG_DEFAULTS = {
+    "UI_ONBOARD_TOUR": "1",
+    "TRACE_DAILY_PER_JOB": "96",
+    "EXEC_DAILY_PER_JOB": "48",
+    "FUZZ_DAILY_PER_JOB": "12",
+}
 
 _USERNAME_RE = re.compile(r"^[a-zA-Z0-9_.-]{2,32}$")
 _RID_RE = re.compile(r"^job-[a-f0-9]{12}$|^sess-s-[a-z0-9]+-[a-f0-9]{4}$|^pf-[0-9a-f]{8}$")
 
 _START_TS = time.time()
+
+_SEV_KEYS = ("critical", "high", "medium", "low", "info")
+_CLASS_ALIASES = {
+    "cmdi": "command-injection",
+    "command-injection": "command-injection",
+    "commandinjection": "command-injection",
+    "stack-overflow": "stack-overflow",
+    "stack-buffer-overflow": "stack-overflow",
+    "stackoverflow": "stack-overflow",
+    "buffer-overflow": "buffer-overflow",
+    "out-of-bounds-write": "oob-write",
+    "oob-write": "oob-write",
+}
+
+
+def _iso_day(value) -> str:
+    text = str(value or "")
+    if len(text) >= 10 and text[4] == "-" and text[7] == "-":
+        return text[:10]
+    return ""
+
+
+def _last_days(n: int = 14) -> list[str]:
+    today = datetime.now(timezone.utc).date()
+    return [(today - timedelta(days=i)).isoformat() for i in range(n - 1, -1, -1)]
+
+
+def _norm_class(raw: str) -> str:
+    text = re.sub(r"[_\s]+", "-", str(raw or "other").strip().lower())
+    text = re.sub(r"[^a-z0-9-]+", "", text)
+    return _CLASS_ALIASES.get(text, text or "other")
+
+
+def _top_items(counter: dict, limit: int = 8) -> list[dict]:
+    items = sorted(counter.items(), key=lambda kv: (-kv[1], kv[0]))
+    if len(items) <= limit:
+        return [{"key": key, "count": n} for key, n in items if n]
+    head = items[: limit - 1]
+    rest = sum(n for _, n in items[limit - 1:])
+    out = [{"key": key, "count": n} for key, n in head if n]
+    if rest:
+        out.append({"key": "other", "count": rest})
+    return out
+
+
+_VENDOR_RULES = (
+    (re.compile(r"tp-?link|archer|wr\d|c7v|tl-", re.I), "TP-Link"),
+    (re.compile(r"netgear|r7\d|r6\d", re.I), "Netgear"),
+    (re.compile(r"d-?link|dir-", re.I), "D-Link"),
+    (re.compile(r"xiaomi|miwifi|redmi", re.I), "小米"),
+    (re.compile(r"huawei|honor|hg\d", re.I), "华为"),
+    (re.compile(r"cisco|linksys", re.I), "Cisco"),
+    (re.compile(r"asus|rt-", re.I), "ASUS"),
+    (re.compile(r"zte|f6\d", re.I), "中兴"),
+    (re.compile(r"hikvision|ds-", re.I), "海康"),
+    (re.compile(r"dahua", re.I), "大华"),
+)
+
+_STATUS_ZH = {
+    "uploading": "正在上传", "pending": "排队等待", "decrypting": "正在解密",
+    "extracting": "正在解包",
+    "parsing": "解析文件系统", "decompiling": "反编译中", "graphing": "构建图谱",
+    "attacking": "分析攻击路径", "routing": "识别路由", "identifying": "识别输入",
+    "surfacing": "导出攻击面", "graphed": "图谱完成", "attacked": "路径完成",
+    "routed": "路由完成", "surfaced": "前置完成", "failed": "分析失败",
+    "done": "已完成", "error": "出错",
+}
+
+_PROGRESS = {
+    "uploading": 6, "pending": 10, "decrypting": 14, "extracting": 18, "parsing": 28,
+    "decompiling": 40, "ailifting": 48, "graphing": 55, "attacking": 68,
+    "routing": 76, "identifying": 86, "surfacing": 94, "graphed": 58,
+    "attacked": 70, "routed": 80, "surfaced": 100, "done": 100, "failed": 0,
+}
+
+
+def _guess_vendor(name: str) -> str:
+    text = str(name or "")
+    for rule, label in _VENDOR_RULES:
+        if rule.search(text):
+            return label
+    return "其他"
+
+
+def _firmware_stem(name: str) -> str:
+    text = str(name or "").strip() or "未命名固件"
+    return Path(text).stem or text
+
+
+def _report_title(firmware: str, category: str) -> str:
+    stem = _firmware_stem(firmware)
+    if category == "quarter":
+        return f"{stem} 季度风险报告"
+    if category == "protocol":
+        return f"{stem} 协议专项报告"
+    return f"{stem} 专项漏洞报告"
+
+
+def _mtime_day(path: Path) -> str:
+    try:
+        return datetime.fromtimestamp(
+            path.stat().st_mtime, timezone.utc).date().isoformat()
+    except OSError:
+        return ""
+
+
+def build_dashboard(jobs: list) -> dict:
+    """Aggregate job/finding/trace counters and 14-day series."""
+    from . import main as _main
+
+    by_status: dict[str, int] = {}
+    jobs_by_day: dict[str, int] = {}
+    vendor_jobs: dict[str, int] = {}
+    for job in jobs:
+        status = job.get("status") or "unknown"
+        by_status[status] = by_status.get(status, 0) + 1
+        day = _iso_day(job.get("created_at"))
+        if day:
+            jobs_by_day[day] = jobs_by_day.get(day, 0) + 1
+        vendor = _guess_vendor(job.get("firmware") or "")
+        vendor_jobs[vendor] = vendor_jobs.get(vendor, 0) + 1
+
+    sessions_total = sessions_running = 0
+    sessions_by_day: dict[str, int] = {}
+    sessions_dir = vulnagent_api.VULNAGENT_HOME / "sessions"
+    if sessions_dir.is_dir():
+        for sdir in sessions_dir.iterdir():
+            if not sdir.is_dir():
+                continue
+            sessions_total += 1
+            state = vulnagent_api._read_state(sdir)
+            if vulnagent_api._effective_status(sdir.name, state) == "running":
+                sessions_running += 1
+            day = _iso_day((state or {}).get("created_at"))
+            if day:
+                sessions_by_day[day] = sessions_by_day.get(day, 0) + 1
+
+    by_sev = {key: 0 for key in _SEV_KEYS}
+    by_class: dict[str, int] = {}
+    by_reach: dict[str, int] = {}
+    findings_by_day: dict[str, int] = {}
+    findings_dir = vulnagent_api.VULNAGENT_HOME / "findings"
+    findings_total = 0
+    confirmed = 0
+    findings_by_job: dict[str, int] = {}
+    vendor_findings: dict[str, int] = {}
+    if findings_dir.is_dir():
+        for path in findings_dir.glob("F-*.json"):
+            try:
+                doc = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            if not isinstance(doc, dict):
+                continue
+            findings_total += 1
+            sev = doc.get("severity") if doc.get("severity") in by_sev else "info"
+            by_sev[sev] += 1
+            cls = _norm_class(str(doc.get("vuln_class") or "other"))
+            by_class[cls] = by_class.get(cls, 0) + 1
+            reach = str(doc.get("reachability") or "static-only")
+            by_reach[reach] = by_reach.get(reach, 0) + 1
+            day = _iso_day(doc.get("recorded_at")) or _mtime_day(path)
+            if day:
+                findings_by_day[day] = findings_by_day.get(day, 0) + 1
+            jid = str(doc.get("job_id") or "")
+            if jid:
+                findings_by_job[jid] = findings_by_job.get(jid, 0) + 1
+            if reach in ("observed", "verified"):
+                confirmed += 1
+            vendor = _guess_vendor(
+                next((j.get("firmware") for j in jobs if j.get("job_id") == jid),
+                     "") or jid)
+            vendor_findings[vendor] = vendor_findings.get(vendor, 0) + 1
+
+    traces_total = traces_with_diff = 0
+    traces_by_day: dict[str, int] = {}
+    traces_dir = accounts.data_dir() / "traces"
+    if traces_dir.is_dir():
+        for path in traces_dir.glob("*/*/trace.json"):
+            traces_total += 1
+            try:
+                doc = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                doc = {}
+            if not isinstance(doc, dict):
+                doc = {}
+            count = (doc.get("diff") or {}).get("function_count") or 0
+            if count:
+                traces_with_diff += 1
+            day = (_iso_day(doc.get("updated_at"))
+                   or _iso_day(doc.get("created_at"))
+                   or _mtime_day(path))
+            if day:
+                traces_by_day[day] = traces_by_day.get(day, 0) + 1
+
+    days = _last_days(14)
+    data = accounts.data_dir()
+    inputs_dir = data / "inputs"
+    surfaces_dir = data / "surfaces"
+    high_risk = by_sev["critical"] + by_sev["high"]
+    running = []
+    scan_log = []
+    for job in jobs:
+        if job.get("status") not in _main.STATUS_RUNNING:
+            continue
+        status = job.get("status") or ""
+        pct = int(_PROGRESS.get(status, 20))
+        running.append({
+            "job_id": job["job_id"],
+            "firmware": job.get("firmware"),
+            "status": status,
+            "status_label": _STATUS_ZH.get(status, status),
+            "progress": pct,
+            "findings": findings_by_job.get(job["job_id"], 0),
+            "updated_at": job.get("updated_at"),
+        })
+        scan_log.append({
+            "ts": job.get("updated_at") or "",
+            "source": "管线",
+            "text": f"任务「{_firmware_stem(job.get('firmware'))}」"
+                    f"{_STATUS_ZH.get(status, status)}，进度 {pct}%",
+        })
+    if sessions_dir.is_dir():
+        for sdir in list(sessions_dir.iterdir())[:12]:
+            if not sdir.is_dir():
+                continue
+            state = vulnagent_api._read_state(sdir) or {}
+            if vulnagent_api._effective_status(sdir.name, state) != "running":
+                continue
+            scan_log.append({
+                "ts": state.get("updated_at") or "",
+                "source": "挖掘",
+                "text": f"会话 {sdir.name} 正在挖掘"
+                        f"（{int(state.get('turns') or 0)}/"
+                        f"{int(state.get('max_turns') or 80)} 轮），"
+                        f"已入库 {len(state.get('findings') or [])} 个",
+            })
+    scan_log.sort(key=lambda row: str(row.get("ts") or ""), reverse=True)
+    reports = []
+    for item in _list_reports()[:10]:
+        reports.append(item)
+    vendor_rank = []
+    names = set(vendor_jobs) | set(vendor_findings)
+    for name in names:
+        vendor_rank.append({
+            "vendor": name,
+            "jobs": vendor_jobs.get(name, 0),
+            "findings": vendor_findings.get(name, 0),
+        })
+    vendor_rank.sort(key=lambda row: (-row["findings"], -row["jobs"], row["vendor"]))
+    hit_rate = round((traces_with_diff / traces_total) * 100, 1) if traces_total else 0.0
+    confirm_rate = round((confirmed / findings_total) * 100, 1) if findings_total else 0.0
+    return {
+        "jobs_total": len(jobs),
+        "jobs_by_status": by_status,
+        "running": running,
+        "sessions_total": sessions_total,
+        "sessions_running": sessions_running,
+        "findings_total": findings_total,
+        "high_risk": high_risk,
+        "reports_total": len(_list_reports()),
+        "inputs_total": (len(list(inputs_dir.glob("*/identification.json")))
+                         if inputs_dir.is_dir() else 0),
+        "surfaces_total": (len(list(
+            surfaces_dir.glob("*/information/AS-*.json")))
+            if surfaces_dir.is_dir() else 0),
+        "traces_total": traces_total,
+        "traces_with_diff": traces_with_diff,
+        "findings_by_severity": [
+            {"key": key, "count": by_sev[key]} for key in _SEV_KEYS
+        ],
+        "findings_by_class": _top_items(by_class),
+        "findings_by_reachability": [
+            {"key": key, "count": n}
+            for key, n in sorted(by_reach.items(), key=lambda kv: (-kv[1], kv[0]))
+        ],
+        "series": {
+            "days": days,
+            "findings": [findings_by_day.get(day, 0) for day in days],
+            "traces": [traces_by_day.get(day, 0) for day in days],
+            "sessions": [sessions_by_day.get(day, 0) for day in days],
+            "jobs": [jobs_by_day.get(day, 0) for day in days],
+        },
+        "hit_rate": hit_rate,
+        "confirm_rate": confirm_rate,
+        "confirmed": confirmed,
+        "vendor_rank": vendor_rank[:8],
+        "reports": reports,
+        "scan_log": scan_log[:20],
+        "radar": {
+            "critical": by_sev["critical"],
+            "high": by_sev["high"],
+            "hit": traces_with_diff,
+            "surfaces": (len(list(
+                surfaces_dir.glob("*/information/AS-*.json")))
+                if surfaces_dir.is_dir() else 0),
+            "verified": by_reach.get("verified", 0) + by_reach.get("observed", 0),
+        },
+    }
 
 
 def _settings_path() -> Path:
@@ -85,7 +392,9 @@ def _public_user(user: dict) -> dict:
 # ---------------------------------------------------------------------------
 
 def _ida_present() -> bool:
-    """IDA_DIR env 优先；未配置时保留 ~/ida-pro* / ~/ida 的探测兜底。"""
+    """ELF 反编译用仓库内 rootfs_elf；带许可的 idat 仅 raw/PX4 需要。"""
+    if decompiler.rootfs_elf_worker().is_file():
+        return True
     ida = config.ida_dir()
     if ida is not None:
         return (ida / "idat").exists()
@@ -137,8 +446,10 @@ def _system_info() -> dict:
         "pid": os.getpid(),
         "components": {
             "ida": _ida_present(),
+            "ida_dir": str(config.ida_dir() or ""),
             "emba": Path(os.getenv("EMBA_DIR",
-                                   extractor.EMBA_DIR_DEFAULT)).is_dir(),
+                                   extractor.EMBA_DIR_DEFAULT)).is_dir()
+            or extractor.emba_image_present(),
             "cbm": (Path.home() / ".cache" / "codebase-memory-mcp").exists(),
             "frida": _frida_present(),
             "dsh": _dsh_present(),
@@ -191,6 +502,22 @@ def _collect_logs() -> dict:
 # reports helpers
 # ---------------------------------------------------------------------------
 
+def _report_vuln_summary(job_id: str, data) -> tuple:
+    """报告卡片三要素之二：该任务漏洞数与最高严重度（中文标签）。
+
+    复用报告生成的 findings 收集逻辑；读取失败时返回 (None, None)，
+    前端对 None 显示占位符。
+    """
+    try:
+        own, _leftovers = job_report._collect_findings(job_id, data)
+    except Exception:
+        return None, None
+    if not own:
+        return 0, None
+    worst = min(own, key=lambda f: job_report._sev_rank(f.get("severity")))
+    return len(own), job_report._SEV_LABEL.get(worst.get("severity"), worst.get("severity"))
+
+
 def _list_reports() -> list:
     """data/reports/job-*.md + pf-*.md，newest first.
 
@@ -205,28 +532,38 @@ def _list_reports() -> list:
             job = job_report._read_json(
                 data / "firmware" / job_id / "job.json") or {}
             stat = path.stat()
+            created = datetime.fromtimestamp(stat.st_mtime, timezone.utc)
+            quarter = f"{created.year}Q{(created.month - 1) // 3 + 1}"
+            vuln_count, max_severity = _report_vuln_summary(job_id, data)
             out.append({
                 "report_id": path.stem,
                 "kind": "job",
-                "title": f"{job.get('firmware') or job_id} 漏洞报告",
+                "category": "专项报告",
+                "quarter": quarter,
+                "firmware": job.get("firmware") or job_id,
+                "title": _report_title(job.get("firmware") or job_id, "special"),
                 "ref_id": job_id,
                 "owner": job.get("owner"),
-                "created_at": datetime.fromtimestamp(
-                    stat.st_mtime, timezone.utc).isoformat(),
+                "created_at": created.isoformat(),
                 "size": stat.st_size,
+                "vuln_count": vuln_count,
+                "max_severity": max_severity,
             })
         for path in reports_dir.glob("pf-*.md"):
             run = job_report._read_json(
                 data / "protofuzz" / path.stem / "run.json") or {}
             stat = path.stat()
+            created = datetime.fromtimestamp(stat.st_mtime, timezone.utc)
             out.append({
                 "report_id": path.stem,
                 "kind": "protofuzz",
-                "title": f"{run.get('name') or path.stem} 协议测试报告",
+                "category": "协议专项",
+                "quarter": f"{created.year}Q{(created.month - 1) // 3 + 1}",
+                "firmware": run.get("name") or path.stem,
+                "title": _report_title(run.get("name") or path.stem, "protocol"),
                 "ref_id": path.stem,
                 "owner": run.get("owner"),
-                "created_at": datetime.fromtimestamp(
-                    stat.st_mtime, timezone.utc).isoformat(),
+                "created_at": created.isoformat(),
                 "size": stat.st_size,
             })
     out.sort(key=lambda r: r["created_at"], reverse=True)
@@ -466,7 +803,7 @@ def setup(app: FastAPI, require_token, require_admin) -> None:
     @app.get("/system/config", dependencies=auth)
     def get_config():
         settings = load_settings()
-        return {key: settings.get(key, os.environ.get(key, ""))
+        return {key: settings.get(key, os.environ.get(key, _CONFIG_DEFAULTS.get(key, "")))
                 for key in CONFIG_KEYS}
 
     @app.put("/system/config")
@@ -487,7 +824,7 @@ def setup(app: FastAPI, require_token, require_admin) -> None:
         apply_settings()
         accounts.audit(principal["username"], "config_change",
                        ",".join(sorted(payload)))
-        return {key: settings.get(key, os.environ.get(key, ""))
+        return {key: settings.get(key, os.environ.get(key, _CONFIG_DEFAULTS.get(key, "")))
                 for key in CONFIG_KEYS}
 
     # --- logs --------------------------------------------------------------
@@ -540,45 +877,7 @@ def setup(app: FastAPI, require_token, require_admin) -> None:
         from . import main as _main
         with _main._jobs_lock:
             jobs = [dict(j) for j in _main._jobs.values()]
-        by_status = {}
-        for job in jobs:
-            status = job.get("status", "unknown")
-            by_status[status] = by_status.get(status, 0) + 1
-        running = [{"job_id": j["job_id"], "firmware": j.get("firmware"),
-                    "status": j.get("status"),
-                    "updated_at": j.get("updated_at")}
-                   for j in jobs if j.get("status") in _main.STATUS_RUNNING]
-        sessions_total = sessions_running = 0
-        sessions_dir = vulnagent_api.VULNAGENT_HOME / "sessions"
-        if sessions_dir.is_dir():
-            for sdir in sessions_dir.iterdir():
-                if not sdir.is_dir():
-                    continue
-                sessions_total += 1
-                state = vulnagent_api._read_state(sdir)
-                if vulnagent_api._effective_status(sdir.name,
-                                                   state) == "running":
-                    sessions_running += 1
-        findings_dir = vulnagent_api.VULNAGENT_HOME / "findings"
-        findings_total = (len(list(findings_dir.glob("F-*.json")))
-                          if findings_dir.is_dir() else 0)
-        data = accounts.data_dir()
-        inputs_dir = data / "inputs"
-        surfaces_dir = data / "surfaces"
-        return {
-            "jobs_total": len(jobs),
-            "jobs_by_status": by_status,
-            "running": running,
-            "sessions_total": sessions_total,
-            "sessions_running": sessions_running,
-            "findings_total": findings_total,
-            "reports_total": len(_list_reports()),
-            "inputs_total": (len(list(inputs_dir.glob("*/identification.json")))
-                             if inputs_dir.is_dir() else 0),
-            "surfaces_total": (len(list(
-                surfaces_dir.glob("*/information/AS-*.json")))
-                if surfaces_dir.is_dir() else 0),
-        }
+        return build_dashboard(jobs)
 
     # --- reports -----------------------------------------------------------
 

@@ -1,0 +1,30 @@
+{
+  "job_id": "fda120d447c3",
+  "title": "minidlnad UPnP HTTP 请求解析 chunked 传输长度无界 memmove 导致堆缓冲区溢出（预认证）",
+  "severity": "high",
+  "confidence": 0.55,
+  "vuln_class": "heap-overflow",
+  "cwe": "CWE-122",
+  "binary_md5": "3e3258c907b4b461c90472e1fcd6cddb",
+  "binary_path": "firmware/binwalk_extracted/firmware.extracted/0/squashfs-root/bin/minidlnad",
+  "reachability": "static-only",
+  "summary": "minidlnad 的 UPnP HTTP 请求解析函数 sub_40D1FC 在处理 Transfer-Encoding: chunked 的请求体时，用 strtol 以十六进制解析攻击者声明的 chunk 长度（写入 a1+112），随后直接执行 memmove(dest, src, a1+112) 并把 dest 累加该长度，全程没有任何对目标缓冲区剩余容量的边界检查。攻击者可声明任意大的 chunk 长度，导致向堆缓冲区越界写入（CWE-122）。该解析逻辑位于 UPnP HTTP 处理链路（Process_upnphttp 接收网络连接后调用），无需认证即可从 LAN 预认证触发。in，固件为 TP-Link Archer C7v2。",
+  "evidence": [
+    "sub_40D1FC @ 0x40d1fc (minidlnad md5=3e3258c907b4b461c90472e1fcd6cddb): 当 (a1+116 & 0x100) 标志位(Transfer-Encoding: chunked)置位时: dest = a1+32 + a1+44; 循环: a1+112 = strtol(nptr, &src, 16); 若长度非零则 while(*src!=13||*(src+1)!=10) src++; src+=2; memmove(dest, src, a1+112); dest += a1+112; 无边界校验",
+    "调用链: Process_upnphttp(accept) -> sub_40D1FC HTTP 请求解析 -> memmove 无界拷贝",
+    "qemu 动态验证受环境限制(需真实网卡 IP, 进程在 'No IP address automatically detected' 处 fatal 退出), 故为 static-only"
+  ],
+  "session_id": "s-mtcpho81-22b3",
+  "function_name": "sub_40D1FC",
+  "preconditions": "攻击者可达 minidlnad 的 UPnP HTTP 端口(默认 8200)并发送带 Transfer-Encoding: chunked 的 POST/PUT 请求; 请求体中包含恶意 chunk-size 行与相应数据",
+  "exploit_sketch": "向 UPnP HTTP 端口发送 chunked 请求, chunk-size 声明 0xffffffff 使 memmove 以超大长度写入堆缓冲区, 覆盖相邻堆对象/控制结构; 可通过控制 chunk 长度与内容实现堆布局与越界写",
+  "remediation": "在 chunked 解码循环中加入目标缓冲区剩余空间校验, 拒绝超过接收缓冲区长度的 chunk 长度; 使用固定上限并校验 a1+112 < (buffer_end - dest)",
+  "poc": "POST / HTTP/1.1\\r\\nHost: x\\r\\nTransfer-Encoding: chunked\\r\\n\\r\\nFFFFFFFF\\r\\nAAAA... AAAA\\r\\n0\\r\\n\\r\\n  (chunk-size=0xffffffff 使 strtol 返回 0xffffffff, memmove 以该长度越界写入)",
+  "call_chain": "Process_upnphttp(accept) → sub_40D1FC(0x40d1fc, HTTP请求解析) → memmove(dest, src, chunklen) 无界堆拷贝",
+  "function_addr": "0x40d1fc",
+  "id": "F-mtcpruzk-6b35",
+  "status": "draft",
+  "owner": "token-admin",
+  "recorded_at": "2026-08-28T08:53:02Z",
+  "history": []
+}

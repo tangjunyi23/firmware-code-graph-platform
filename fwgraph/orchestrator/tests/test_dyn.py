@@ -46,6 +46,7 @@ def test_fuzz_writes_summary(tmp_path, monkeypatch):
     # （Phase 2 起），本用例语义是宿主 afl 输出解析
     monkeypatch.setattr(fuzz_runner.sandbox, "backend_for",
                         lambda _component: "none")
+    monkeypatch.setattr(fuzz_runner, "_afl_fuzz_bin", lambda: "afl-fuzz")
     monkeypatch.setenv("FUZZ_AFL_QEMU", "/bin/true")  # pretend runtime exists
 
     def fake_popen(cmd, **kw):
@@ -75,6 +76,29 @@ def test_fuzz_missing_runtime_fails_loud(tmp_path, monkeypatch):
         fuzz_runner.run_job("job1", data_dir, md5, seconds=5)
 
 
+def test_afl_fuzz_resolves_from_repo(tmp_path, monkeypatch):
+    fake = tmp_path / "AFLplusplus" / "afl-fuzz"
+    fake.parent.mkdir()
+    fake.write_bytes(b"\x7fELFfake")
+    fake.chmod(0o755)
+    monkeypatch.delenv("AFL_FUZZ", raising=False)
+    monkeypatch.setenv("AFL_REPO", str(fake.parent))
+    monkeypatch.setattr(fuzz_runner.shutil, "which", lambda _n: None)
+    assert fuzz_runner._afl_fuzz_bin() == str(fake)
+
+
+def test_fuzz_missing_afl_fuzz_fails_loud(tmp_path, monkeypatch):
+    data_dir, md5 = _mk_job(tmp_path)
+    monkeypatch.setattr(fuzz_runner.sandbox, "backend_for",
+                        lambda _component: "none")
+    monkeypatch.setenv("FUZZ_AFL_QEMU", "/bin/true")
+    monkeypatch.delenv("AFL_FUZZ", raising=False)
+    monkeypatch.setenv("AFL_REPO", str(tmp_path / "no-afl"))
+    monkeypatch.setattr(fuzz_runner.shutil, "which", lambda _n: None)
+    with pytest.raises(RuntimeError, match="afl-fuzz not found"):
+        fuzz_runner.run_job("job1", data_dir, md5, seconds=5)
+
+
 def test_fuzz_bad_md5(tmp_path):
     data_dir, _ = _mk_job(tmp_path)
     with pytest.raises(KeyError):
@@ -88,6 +112,7 @@ def test_fuzz_function_mode_sets_persistent_env(tmp_path, monkeypatch):
     monkeypatch.setattr(fuzz_runner, "_hook_for", lambda *_a, **_k: hook)
     monkeypatch.setattr(fuzz_runner.sandbox, "backend_for",
                         lambda _component: "none")
+    monkeypatch.setattr(fuzz_runner, "_afl_fuzz_bin", lambda: "afl-fuzz")
     monkeypatch.setenv("FUZZ_AFL_QEMU", "/bin/true")
     seen = {}
 

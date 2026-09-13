@@ -64,11 +64,42 @@ class _StubHost:
                             "message": "gone",
                         }},
                     }
+                if sid and str(sid).startswith("session-corrupt"):
+                    return {
+                        "type": "server-response",
+                        "rpcId": body.get("rpcId"),
+                        "result": {"ok": False, "error": {
+                            "code": "internal",
+                            "message": (
+                                'history unavailable for session '
+                                f'"{sid}": SessionPersistenceCorruptionError: '
+                                'stored session failed validation: Error: '
+                                'session event at seq 58 message must have '
+                                'tool source'
+                            ),
+                        }},
+                    }
                 if not sid:
                     stub.session_counter += 1
                     sid = f"session-stub-{stub.session_counter}"
                 value = {"sessionId": sid,
                          "agentPreset": (body.get("payload") or {}).get("agentPreset")}
+            elif method == "session.history":
+                sid = (body.get("payload") or {}).get("sessionId")
+                if sid and str(sid).startswith("session-badhist"):
+                    return {
+                        "type": "server-response",
+                        "rpcId": body.get("rpcId"),
+                        "result": {"ok": False, "error": {
+                            "code": "internal",
+                            "message": (
+                                f'history unavailable for session "{sid}": '
+                                "SessionPersistenceCorruptionError: stored "
+                                "session failed validation"
+                            ),
+                        }},
+                    }
+                value = {}
             elif method == "session.prompt":
                 value = {"accepted": True}
             elif method == "session.fork":
@@ -200,6 +231,23 @@ class TestManager:
         cmd = spawner.cmds[0]
         assert "fwgraph-web" in cmd
 
+    def test_history_mints_when_dsh_session_id_missing(self, tmp_path):
+        persisted = []
+
+        def persist(sid, sdir, state):
+            persisted.append(state.get("dsh_session_id"))
+
+        spawner = _FakeSpawner()
+        mgr = _make_manager(tmp_path, spawner, persist=persist)
+        sdir = tmp_path / "s-test-emptyid"
+        sdir.mkdir()
+        state = {"job_id": JOB, "dsh_session_id": ""}
+        hist = mgr.rpc("s-test-emptyid", sdir, state, "session.history",
+                       {"maxMessages": 10})
+        assert hist == {}
+        assert state["dsh_session_id"].startswith("session-stub-")
+        assert persisted and persisted[-1] == state["dsh_session_id"]
+
     def test_history_fills_session_id_from_state(self, tmp_path):
         spawner = _FakeSpawner()
         mgr = _make_manager(tmp_path, spawner)
@@ -274,6 +322,43 @@ class TestManager:
         payloads = [p for m, p in spawner.stubs[0].calls
                     if m == "session.history"]
         assert payloads and payloads[0]["sessionId"] == host.dsh_session_id
+
+    def test_resume_corrupt_mints_new_session(self, tmp_path):
+        persisted = []
+
+        def persist(sid, sdir, state):
+            persisted.append(state.get("dsh_session_id"))
+
+        spawner = _FakeSpawner()
+        mgr = _make_manager(tmp_path, spawner, persist=persist)
+        sdir = tmp_path / "s-test-corrupt"
+        sdir.mkdir()
+        state = {"job_id": JOB, "dsh_session_id": "session-corrupt-old"}
+        host = mgr.ensure("s-test-corrupt", sdir, state)
+        assert host.dsh_session_id.startswith("session-stub-")
+        assert state["dsh_session_id"].startswith("session-stub-")
+        assert persisted and persisted[-1] == state["dsh_session_id"]
+
+    def test_history_corrupt_returns_empty_and_mints(self, tmp_path):
+        persisted = []
+
+        def persist(sid, sdir, state):
+            persisted.append(state.get("dsh_session_id"))
+
+        spawner = _FakeSpawner()
+        mgr = _make_manager(tmp_path, spawner, persist=persist)
+        sdir = tmp_path / "s-test-badhist"
+        sdir.mkdir()
+        state = {"job_id": JOB}
+        mgr.create_session("s-test-badhist", sdir, state)
+        mgr._hosts["s-test-badhist"].dsh_session_id = "session-badhist-old"
+        state["dsh_session_id"] = "session-badhist-old"
+        hist = mgr.rpc("s-test-badhist", sdir, state, "session.history",
+                       {"maxMessages": 10})
+        assert hist == {"events": [], "hasMore": False}
+        assert state["dsh_session_id"].startswith("session-stub-")
+        assert state["dsh_session_id"] != "session-badhist-old"
+        assert persisted and persisted[-1] == state["dsh_session_id"]
 
     def test_concurrent_ensure_single_spawn(self, tmp_path):
         spawner = _FakeSpawner()
@@ -474,6 +559,64 @@ class TestSessionEndpoints:
         resp = client.post(f"/vulnagent/sessions/{sid}/rpc/session.history",
                            headers=_legacy(), json={"maxMessages": 10})
         assert resp.status_code == 200
+
+    def test_history_from_sse_when_host_idle(self, client):
+        sid = "s-diskhist-0001"
+        sdir = vulnagent_api.VULNAGENT_HOME / "sessions" / sid
+        sdir.mkdir(parents=True)
+        (sdir / "state.json").write_text(json.dumps({
+            "session_id": sid, "status": "done", "owner": "admin",
+            "job_id": JOB, "turns": 2, "max_turns": 80,
+            "findings": [], "created_at": "t0", "updated_at": "t1",
+        }), encoding="utf-8")
+        (sdir / "events.sse").write_text(
+            "event: session_start\n"
+            "data: {\"seq\":0,\"task\":\"挖洞任务\"}\n\n"
+            "event: thinking\n"
+            "data: {\"seq\":1,\"text\":\"hmm\",\"stream\":true,\"block\":0}\n\n"
+            "event: text\n"
+            "data: {\"seq\":2,\"text\":\"你好\",\"stream\":false,\"block\":0}\n\n"
+            "event: tool_call\n"
+            "data: {\"seq\":3,\"id\":\"c1\",\"name\":\"fw_search\","
+            "\"input\":{\"pattern\":\"x\"}}\n\n"
+            "event: tool_result\n"
+            "data: {\"seq\":4,\"id\":\"c1\",\"name\":\"fw_search\","
+            "\"is_error\":false,\"preview\":\"{}\"}\n\n",
+            encoding="utf-8")
+        resp = client.post(
+            f"/vulnagent/sessions/{sid}/rpc/session.history",
+            headers=_legacy(), json={"maxMessages": 50})
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body.get("source") == "sse"
+        types = [e["event"]["type"] for e in body["events"]]
+        assert "user/message" in types
+        assert "assistant/chunk" in types
+        assert "tool/call" in types
+        assert "tool/result" in types
+        texts = [
+            ((e["event"].get("data") or {}).get("chunk") or {}).get("text")
+            for e in body["events"]
+        ]
+        assert "你好" in texts
+        assert "hmm" not in texts
+        assert sid not in vulnagent_api._dsh_manager._hosts
+
+    def test_mux_idle_when_session_done(self, client):
+        sid = "s-diskhist-0002"
+        sdir = vulnagent_api.VULNAGENT_HOME / "sessions" / sid
+        sdir.mkdir(parents=True)
+        (sdir / "state.json").write_text(json.dumps({
+            "session_id": sid, "status": "done", "owner": "admin",
+            "job_id": JOB, "turns": 1, "max_turns": 80,
+            "findings": [], "created_at": "t0", "updated_at": "t1",
+        }), encoding="utf-8")
+        with client.stream("GET", f"/vulnagent/sessions/{sid}/mux",
+                           headers=_legacy()) as resp:
+            assert resp.status_code == 200
+            text = "".join(resp.iter_text())
+        assert "idle" in text
+        assert sid not in vulnagent_api._dsh_manager._hosts
 
     def test_rpc_404_for_others(self, client):
         sid = _start(client)

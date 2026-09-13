@@ -35,6 +35,8 @@
     "fw_get_cfg",
     "fw_get_ast",
     "fw_cypher",
+    "fw_vulnlib_search",
+    "fw_vulnlib_nday",
     "record_finding",
     "finish"
   ],

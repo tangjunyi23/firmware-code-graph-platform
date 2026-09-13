@@ -1,0 +1,42 @@
+{
+  "id": "F-msebvdc3",
+  "recorded_at": "2026-08-04T07:19:41.379Z",
+  "session_id": "s-msebq0sh-9c87",
+  "job_id": "e40ca92692ed",
+  "title": "sysapihttpd access_internet_handle: unbounded strcat into 64-byte stack buffer feeding fork/execl",
+  "severity": "high",
+  "vuln_class": "stack_buffer_overflow",
+  "binary_md5": "30e2839774afea41eebedfe19da24652",
+  "binary_path": "firmware/binwalk_extracted/firmware.extracted/244BF4/ubifs-root/ubi_244BF4.img/img-1714107305_vol-system.ubifs.extracted/0/ubifs-root/usr/sbin/sysapihttpd",
+  "function_addr": "0x4711bc",
+  "function_name": "sub_4711BC",
+  "sink_function": "strcat",
+  "source_summary": "Network-facing HTTP API handler on sysapihttpd (port 8098). Dispatched from the request loop sub_43785C (verified reachable in trace 9d37a1d6a793) via sub_40964C URL-hash handler lookup; the handler receives the attacker-controlled request struct (a1). A request-derived string (with inet_ntoa IP) is assembled into stack buffer v6[64].",
+  "sanitization": "none found — strcat into v6[64] has no length/bounds guard before appending (no strlen check, no strncat). Contrast: sibling handler sub_47108C (internet_access_duration_handle) builds the same command string but uses bounded strncat() into v5[80].",
+  "reachability": "static-only",
+  "confidence": 0.5,
+  "summary": "sub_4711BC (access_internet_handle) declares char v6[64] and then executes inet_ntoa(); snprintf(); strcat(); — the strcat appends into the fixed 64-byte stack buffer with no bounds check. If the snprintf prefix nearly fills v6 (e.g. any request-derived value >= ~48 bytes), the following strcat overflows the stack. The buffer is then passed to sub_470EF0(v6) which fork()+execl()s it (graph rule sys_spawn_process, asink=cmdexec), so v6 is command/argument material and the overflow occurs on a statically-linked MIPS32 binary with no stack canary (no __stack_chk symbols; image-wide MIPS ELFs are canary:false nx:false pie:false relro:none). Confidence is capped at 0.5 because Hex-Rays collapsed the exact arguments of inet_ntoa()/snprintf()/strcat() and no disassembly/overlay is available in the platform: the strcat source (most plausibly the inet_ntoa() result, i.e. peer/param IP, <=15 chars) and the snprintf prefix length that makes the overflow trigger are inferred, not directly proven. The function itself was never observed in any qemu coverage trace (on_attack_path=false, trace_ids empty, no inbound CALLS edge — it is dispatched via the function-pointer URL table), hence reachability=static-only.",
+  "evidence": [
+    "sub_4711BC @0x4711bc, sysapihttpd md5=30e2839774afea41eebedfe19da24652 (MIPS32LE): `char v6[64]; // [sp+8h] [-30h] BYREF` followed by `inet_ntoa(); snprintf(); strcat();` — unbounded strcat into 64-byte stack buffer, no length guard",
+    "Command-exec sink: `v3 = (sub_470EF0((int)v6) & 0xFF00) >> 8;` — sub_470EF0 calls fork()+execl() (fwgraph rule sys_spawn_process, asink=cmdexec), so v6 is process-spawn material",
+    "Sibling handler sub_47108C (internet_access_duration_handle) builds the analogous command string but uses bounded `strncat()` into v5[80] — the developer's bounded pattern is absent in sub_4711BC which uses plain strcat",
+    "Dispatch evidence: sub_43785C (verified_reachable=true, trace 9d37a1d6a793, attack path 0198138ba403eb35/d2c06bb8da27dbcb) looks up handlers via sub_40964C URL-hash table and calls handler(req,...) with the attacker-controlled request struct",
+    "Hardening: no __stack_chk/stack_chk_fail symbols in the binary; all MIPS ELFs in this image are canary:false nx:false pie:false relro:none (checksec)",
+    "Reachability caveat: sub_4711BC has on_attack_path=false, trace_ids=[], observed_in_trace=false, no inbound CALLS edge (function-pointer dispatch) — static-only; exact snprintf/strcat args collapsed by Hex-Rays and not recoverable via graph edges (only callee names stored)"
+  ],
+  "exploit_sketch": "Send an HTTP request to sysapihttpd (port 8098) targeting the URL registered in the handler hash table for access_internet_handle (request line/params are attacker-controlled per sub_43785C parsing). Provide a request-derived value long enough that snprintf fills v6 near its 64-byte capacity, so the subsequent strcat (e.g. appending the inet_ntoa IP) overflows the stack buffer; on this non-canary, non-PIE MIPS binary the overflow corrupts saved registers/$ra for code execution. Additionally, since v6 feeds fork()+execl(), any shell-metacharacter content that reaches v6 is command-execution material if the exec path is a shell.",
+  "remediation": "Replace the unbounded strcat with snprintf/strncat bounded to the remaining space of v6 and enforce a total-length check before appending; avoid composing command strings from request data entirely (use execl with a fixed argv / validate and whitelist IP input).",
+  "cwe": "CWE-121",
+  "related_findings": [
+    "F-msecvv2b"
+  ],
+  "errata": [
+    "2026-08-05 勘误：原文称 sysapihttpd 为 'statically-linked MIPS32 binary'，有误——trace.json 的 linker 字段表明其动态链接 uClibc（/lib/ld-uClibc.so.0 + 13 个 NEEDED 库）。'零加固'结论不受影响（checksec 直查：canary:false nx:false pie:false relro:none fortified:0/12）。",
+    "2026-08-05 schema 补录：补 cwe/related_findings/open_questions 字段；自然语言字段为英文（中文字段纪律当时尚未强制执行），保留原文。"
+  ],
+  "open_questions": [
+    "strcat 的源缓冲区未确认：若确为 inet_ntoa() 输出（≤15 字符），则在 64 字节缓冲区上的溢出不可达；需经 ?asm=1 取函数级汇编恢复 strcat/snprintf 的 $a0-$a2 实参后判定。",
+    "触发路由字符串未确认（静态路由恢复为 0，handler 经函数指针表分发）；可用 fw_request_trace 对候选路由打点、fw_get_trace 确认目标函数是否进入 diff。",
+    "snprintf 写入前缀的长度未确认（Hex-Rays 折叠了参数），它决定溢出触发条件。"
+  ]
+}

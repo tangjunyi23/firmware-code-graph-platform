@@ -161,15 +161,15 @@ curl -k -X POST -H "Authorization: Bearer $T" -F "file=@firmware.bin" $H/firmwar
 ```bash
 # 构建（--profile build 含沙箱镜像；IDA/cbmbin 可选构建上下文见手册）
 docker compose -f deploy/docker/docker-compose.yml --profile build build
-# 启动（SANDBOX_HOST_PREFIX 须等于 deploy/docker/data 的宿主绝对路径）
-SANDBOX_HOST_PREFIX=$PWD/deploy/docker/data \
-  docker compose -f deploy/docker/docker-compose.yml up -d
+# 启动（命名卷 fwgraph-data，不要写 SANDBOX_HOST_PREFIX / 本机绝对路径）
+docker compose -f deploy/docker/docker-compose.yml up -d
 # 停止
 docker compose -f deploy/docker/docker-compose.yml down
 ```
 
-数据（含 TLS 证书）持久化在 `deploy/docker/data/`；完整手册（.env、
+数据（含 TLS 证书）在 Docker 命名卷 `fwgraph-data`；完整手册（.env、
 可选组件、已知限制）见 [deploy/docker/README.md](deploy/docker/README.md)。
+迁移包：`bash deploy/migrate/pack.sh <目录> --zip`，对方 `bash install.sh`。
 
 ## 仓库里有什么
 

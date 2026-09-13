@@ -1,0 +1,32 @@
+{
+  "id": "F-mshac8sc-ffc0",
+  "recorded_at": "2026-08-06T09:00:07.933Z",
+  "session_id": "s-msh8j3c9-3d5b",
+  "job_id": "e40ca92692ed",
+  "title": "sysapihttpd 路径穿越漏洞：通过 /api-third-party/download/ 读取任意文件（如 /etc/shadow）",
+  "severity": "critical",
+  "vuln_class": "path_traversal",
+  "cwe": "CWE-22",
+  "binary_md5": "30e2839774afea41eebedfe19da24652",
+  "binary_path": "usr/sbin/sysapihttpd",
+  "function_addr": "0x4322dc",
+  "function_name": "sub_4322DC",
+  "sink_function": "open64/sendfile64 (经由 sub_41B198 → sub_43F214)",
+  "source_summary": "HTTP 请求 URI 路径（攻击者可控），通过 sub_4322DC 构造文件路径，未过滤 ../ 序列",
+  "summary": "sysapihttpd 的静态文件服务模块在处理 /api-third-party/download/ 路由时，通过 sub_4322DC 将 HTTP 请求 URI 直接拼接到文件系统路径中（使用 sub_40BB18 逐字节拷贝，无任何 ../ 或绝对路径过滤），随后经 sub_41B198 调用 open64/stat64 打开文件，并通过 sendfile64/writev 将内容返回给客户端。攻击者可在 URL 中注入 ../ 序列穿越目录，读取任意文件（如 /etc/shadow）。",
+  "sanitization": "sub_4322DC 中的 sub_40BB18 仅做逐字节拷贝，sub_415AB4 仅检查首字符是否为 '/' 以决定是否拼接前缀，均未过滤 ../ 或规范化路径。sub_41B198 中的 open64/stat64 直接使用拼接后的路径。",
+  "evidence": [
+    "trace_id=3b5981b8a20d: GET /api-third-party/download/extdisks../etc/shadow → HTTP 200, 153 bytes（动态证实路径穿越成功）",
+    "sub_4322DC @ 0x4322dc: 路径构造函数，调用 sub_40BB18 逐字节拷贝 URI 到文件路径缓冲区，无 ../ 过滤",
+    "sub_40BB18 @ 0x40bb18: 单纯的逐字节 memcpy 实现，无任何路径安全检查",
+    "sub_415AB4 @ 0x415ab4: 路径前缀拼接，仅检查首字符是否为 '/'，无 ../ 规范化",
+    "sub_41B198 @ 0x41b198: 文件打开函数，调用 open64/stat64 使用未净化的路径",
+    "sub_43F214 @ 0x43f214: 文件发送函数，调用 sendfile64 返回文件内容",
+    "binary checksec: canary=false, nx=false, pie=false, relro=none, fortified=0 — 零加固，任意文件读取可直接获取敏感凭据",
+    "trace flow 3b5981b8a20d 确认整条链被执行：sub_4322DC → sub_41B198 → sub_43F214 → sendfile64/writev"
+  ],
+  "exploit_sketch": "发送 HTTP GET 请求到 /api-third-party/download/extdisks../etc/shadow 即可读取 /etc/shadow。更通用的利用：GET /api-third-party/download/extdisks{任意层 ../}{目标文件}，如 ../../../etc/passwd。",
+  "remediation": "在 sub_4322DC 或 sub_40BB18 中增加路径净化：过滤 ../ 和 ..\\ 序列，拒绝绝对路径（以 / 开头），使用 realpath() 规范化后再校验路径是否在允许的根目录范围内。",
+  "confidence": 0.95,
+  "reachability": "verified"
+}

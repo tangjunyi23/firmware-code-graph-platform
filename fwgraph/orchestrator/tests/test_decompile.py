@@ -70,6 +70,14 @@ def _read_symbols(data_dir):
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def test_run_job_does_not_require_ida_dir(data_dir, monkeypatch):
+    monkeypatch.delenv("IDA_DIR", raising=False)
+    d, calls = data_dir
+    summary = decompiler.run_job(JOB, d, only_md5s={MD5_A})
+    assert summary["succeeded"] == 1
+    assert calls == [MD5_A]
+
+
 def test_targeted_run_filters_binaries(data_dir):
     d, calls = data_dir
     summary = decompiler.run_job(JOB, d, only_md5s={MD5_A})

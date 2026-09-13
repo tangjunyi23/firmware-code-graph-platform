@@ -41,6 +41,7 @@ service runs publish 127.0.0.1:<port>, the exec log comes back via an
 docker rm -f'd. Docker/image unavailable -> the userns/root ruling above.
 """
 
+import ctypes
 import os
 import re
 import shlex
@@ -451,6 +452,34 @@ def wait_port(port: int, proc, timeout: float):
     raise QemuError(f"port {port} not ready within {timeout}s")
 
 
+# TP-Link httpd dhcps_shm_init: shmget(0x2f, 16384, IPC_CREAT) then another
+# 43511 / 73052 segment. Guest often omits mode bits (IPC_CREAT|000); the
+# leftover 000 segment makes shmat EACCES and qemu SIGSEGV. Pre-create 0666
+# in the same IPC namespace (docker --ipc=host).
+_SHM_SEEDS = ((0x2F, 16384), (43511, 131072))
+_IPC_CREAT = 0o1000
+_IPC_RMID = 0
+
+
+def seed_sysv_shm(seeds=_SHM_SEEDS):
+    """Ensure SysV shm keys exist with mode 0666. Returns created/repaired ids."""
+    try:
+        libc = ctypes.CDLL("libc.so.6", use_errno=True)
+    except OSError:
+        return []
+    out = []
+    for key, size in seeds:
+        shmid = libc.shmget(int(key), int(size), _IPC_CREAT | 0o666)
+        if shmid < 0:
+            existing = libc.shmget(int(key), 0, 0)
+            if existing >= 0:
+                libc.shmctl(existing, _IPC_RMID, None)
+            shmid = libc.shmget(int(key), int(size), _IPC_CREAT | 0o666)
+        if shmid >= 0:
+            out.append(shmid)
+    return out
+
+
 def seed_guest_tmp(rootfs, tmp_dir):
     """Pre-create guest /tmp files qemu-user httpd (and similar) need.
 
@@ -474,6 +503,15 @@ def seed_guest_tmp(rootfs, tmp_dir):
             shutil.copyfile(model, dest)
         try:
             os.chmod(dest, 0o666)
+        except OSError:
+            pass
+    for name in ("wr841n", "usbdisk", "userRpm", "dynaform", "login", "help",
+                 "frames", "images"):
+        (tmp_dir / name).mkdir(exist_ok=True)
+    fifo = tmp_dir / "pipe_mud80"
+    if not fifo.exists():
+        try:
+            os.mkfifo(fifo, 0o666)
         except OSError:
             pass
 
@@ -554,6 +592,7 @@ def run_coverage(rootfs, qemu_in_rootfs: str, argv_in_rootfs, run_id: str,
         io_dir = Path(rootfs) / "tmp"
         io_dir.mkdir(parents=True, exist_ok=True)
     seed_guest_tmp(rootfs, io_dir)
+    seed_sysv_shm()
     if stdin_bytes is not None:
         stdin_file = io_dir / "fwgraph-stdin"
         stdin_file.write_bytes(stdin_bytes)
@@ -598,6 +637,7 @@ def run_coverage(rootfs, qemu_in_rootfs: str, argv_in_rootfs, run_id: str,
             ports=[(host_port, port)] if port else None,
             user="0",
             cap_add=["SYS_CHROOT", "NET_BIND_SERVICE"],
+            ipc="host",
             sysctls=({"net.ipv4.ip_unprivileged_port_start": "0"}
                      if port else None))
         password = ""

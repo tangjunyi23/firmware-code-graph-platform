@@ -1,0 +1,30 @@
+{
+  "job_id": "6df0ba4135c9",
+  "title": "uclited PPPoE AC/服务名称未过滤拼入 shell 命令（认证后命令注入）",
+  "severity": "high",
+  "confidence": 0.5,
+  "vuln_class": "command-injection",
+  "cwe": "CWE-78",
+  "binary_md5": "d61e67ed20163b7fee8bd3c606fb0331",
+  "binary_path": "firmware/binwalk_extracted/firmware.extracted/100000/squashfs-root/usr/bin/uclited",
+  "reachability": "static-only",
+  "summary": "uclited 的 PPPoE 命令构造函数 pppoeFormatCmd(0x448d14) 将 PPPoE 配置结构中的 AC 名称(a1+544)与服务名称(a1+512)经 sprintf(\"%s\") 原样拼入全局命令串 byte_5448E4，随后 pppoeCmdReqIPv4 执行 system(byte_5448E4)（sub_41153C 为 fork+execve(\"/bin/sh\")）。AC/服务名称由已认证 Web 管理用户在 WAN PPPoE 配置页设置，若值含 ';'、'$(...)' 等 shell 元字符，即形成 root 命令注入；超长值同时可溢出命令串缓冲。",
+  "evidence": [
+    "Hex-Rays(0x448d14): sprintf(&a2[v2], \" rp_pppoe_ac %s \", (const char *)(a1 + 544)); sprintf(&a2[v3], \" rp_pppoe_service %s \", (const char *)(a1 + 512)); —— AC/服务名称原样拼入命令串，无字符过滤",
+    "Hex-Rays(0x4488f4) dangerous_calls: system(byte_5448E4); callees: swGetPppoeCfg / pppoeFormatCmd / system",
+    "Hex-Rays(0x41153c): execve(\"/bin/sh\", argv, 0)（execFormatCmd→sub_41153C 的 shell 执行）",
+    "调用方注册: opWan_fun_register(0x4254f0) ucl_op_addMod(7, dword_53D118)，WAN 配置经 UCL 设置入口写入"
+  ],
+  "session_id": "s-mt6lgkly-2e7f",
+  "function_name": "pppoeFormatCmd",
+  "preconditions": "需已认证的 Web 管理权限（WAN PPPoE 配置页）；AC/服务名称字段为任意字符串（ISP 名称），代码路径未做 shell 元字符过滤（PPTP/L2TP 域有 swChk*Domain 校验，PPPoE 未见对应校验）；执行经 fork+execve(/bin/sh)。",
+  "remediation": "对 PPPoE AC/服务名执行白名单字符校验（如 swChkLegalDomain 同类）或在拼入命令前引用/转义；命令构造改用 execve 参数数组而非 shell。",
+  "poc": "在 Web「网络设置→WAN→PPPoE」填入 AC 名称/服务名称（认证后）：\nrp_pppoe_ac:  \"x;telnetd -l /bin/sh;\"\n保存并触发重连（重启 WAN/设备）→ pppoeFormatCmd 拼出\n\"pppd pppoe ... rp_pppoe_ac x;telnetd -l /bin/sh; ...\" 交由 system(/bin/sh) 执行。",
+  "call_chain": "opWan_fun_register(0x4254f0)/pppRouterSet → pppoeCmdReqIPv4(0x4488f4) → pppoeFormatCmd(0x448d14) → system(byte_5448E4) → execve(/bin/sh)",
+  "function_addr": "0x448d14",
+  "id": "F-mt6te51s-350b",
+  "status": "draft",
+  "owner": "token-admin",
+  "recorded_at": "2026-08-24T05:47:43Z",
+  "history": []
+}

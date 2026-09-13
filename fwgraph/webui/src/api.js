@@ -183,6 +183,26 @@ export async function streamSse (path, { signal, onFrame } = {}) {
 
 // ---- auth helpers ----------------------------------------------------------
 
+// 会话空闲看护：共享机器/实验室场景下，长时间无操作自动收回凭证，
+// 缩短 localStorage token 的实际暴露窗口。
+const IDLE_TIMEOUT_MS = 4 * 60 * 60 * 1000
+let lastActiveAt = Date.now()
+export function touchSession () {
+  lastActiveAt = Date.now()
+}
+export function startSessionWatch (onIdle, intervalMs = 60 * 1000) {
+  for (const ev of ['pointerdown', 'keydown', 'visibilitychange']) {
+    document.addEventListener(ev, touchSession, { passive: true })
+  }
+  window.setInterval(() => {
+    if (!getToken()) return
+    if (document.visibilityState === 'visible' && Date.now() - lastActiveAt > IDLE_TIMEOUT_MS) {
+      clearToken()
+      onIdle()
+    }
+  }, intervalMs)
+}
+
 export async function login (username, password) {
   return api('/auth/login', { method: 'POST', body: { username, password } })
 }

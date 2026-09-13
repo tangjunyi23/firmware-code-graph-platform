@@ -1,5 +1,12 @@
 <template>
   <div class="events-page">
+    <header class="ins-head">
+      <div class="ins-head-row">
+        <h1 class="ins-title"><span class="ins-ico"><component :is="NAV_ICONS.Tickets" :size="18" /></span>事件流</h1>
+      </div>
+      <p class="ins-sub">固件任务与挖掘会话的事件时间线。</p>
+    </header>
+
     <el-card class="col-jobs" shadow="never">
       <template #header>
         <div class="row-between">
@@ -45,29 +52,40 @@
       <p v-if="job && job.error" class="fail">{{ job.error }}</p>
 
       <div ref="logPane" class="log-pane">
-        <div v-for="(line, i) in logLines" :key="i" class="log-line">{{ line }}</div>
-        <div v-if="!logLines.length" class="muted pad">等待解包日志…</div>
+        <div
+          v-for="(row, i) in viewLines"
+          :key="i"
+          class="log-line"
+          :data-lv="row.lv"
+        >
+          <span class="log-mark">{{ row.mark }}</span>
+          <time v-if="row.time">{{ row.time }}</time>
+          <span v-else class="log-time-gap" />
+          <span class="log-msg">{{ row.msg }}</span>
+        </div>
+        <div v-if="!viewLines.length" class="muted pad">等待解包日志…</div>
       </div>
     </el-card>
   </div>
 </template>
 
 <script setup>
+import { NAV_ICONS } from '../workbench/icons.js'
 import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 import { api } from '../api'
 
 const STORE_JOB = 'fwgraph_events_job'
-const PIPE = ['解包', '解析', '反编译', '图谱', '攻击路径', '路由', '输入', '攻击面']
+const PIPE = ['解密', '解包', '解析', '反编译', '图谱', '攻击路径', '路由', '输入', '攻击面']
 const STEP_INDEX = {
-  uploading: 0, pending: 0, extracting: 0, parsing: 1, decompiling: 2,
-  graphing: 3, attacking: 4, routing: 5, identifying: 6, surfacing: 7, surfaced: 7
+  uploading: 0, pending: 0, decrypting: 0, extracting: 1, parsing: 2, decompiling: 3,
+  graphing: 4, attacking: 5, routing: 6, identifying: 7, surfacing: 8, surfaced: 8
 }
 const RUNNING = new Set([
-  'pending', 'extracting', 'parsing', 'decompiling', 'graphing',
+  'pending', 'decrypting', 'extracting', 'parsing', 'decompiling', 'graphing',
   'attacking', 'routing', 'identifying', 'surfacing'
 ])
 const STATUS_TEXT = {
-  pending: '排队', extracting: '解包中', parsing: '解析中', decompiling: '反编译',
+  pending: '排队', decrypting: '解密中', extracting: '解包中', parsing: '解析中', decompiling: '反编译',
   graphing: '建图', attacking: '攻击路径', routing: '路由', identifying: '输入识别',
   surfacing: '攻击面', graphed: '图谱完成', attacked: '路径完成', routed: '完成',
   surfaced: '完成', failed: '失败', done: '解包完成'
@@ -81,6 +99,48 @@ const logPane = ref(null)
 let pollTimer = null
 
 const running = computed(() => job.value && RUNNING.has(job.value.status))
+
+const MARK_LV = { '+': 'ok', '*': 'info', '!': 'warn', '✓': 'ok', '-': 'mute' }
+const ZH = [
+  [/EMBA finished analysis in default mode \(docker container\)\./i, 'EMBA 解包分析结束'],
+  [/EMBA main container starting and detaching\./i, 'EMBA 主容器启动中'],
+  [/Quest container .+ started and detached\./i, '辅助容器已启动'],
+  [/EMBA main container .+ started and detached\./i, '主容器已启动'],
+  [/Final cleanup started\./i, '开始收尾清理'],
+  [/Pre-checking phase started on .+/i, '预检阶段开始'],
+  [/Pre-checking phase ended on .+/i, '预检阶段结束'],
+  [/Testing phase started on .+/i, '检测阶段开始'],
+  [/Test ended on .+/i, '本阶段结束'],
+  [/ not executed - blacklist triggered\s*$/i, '（策略跳过）'],
+  [/ starting\s*$/i, ' 开始'],
+  [/ finished\s*$/i, ' 完成'],
+  [/Firmware binary path:/i, '固件路径：'],
+  [/Firmware path:/i, '固件路径：'],
+  [/Log directory:/i, '日志目录：'],
+  [/Firmware tested:/i, '分析固件：'],
+]
+
+function zhMsg (s) {
+  let out = s
+  for (const [re, to] of ZH) out = out.replace(re, to)
+  return out
+}
+
+function parseLogLine (line) {
+  const raw = String(line || '')
+  const m = raw.match(/^\[([+*!✓-])\]\s*(.*)$/)
+  if (!m) return { lv: 'plain', mark: '', time: '', msg: raw }
+  let rest = m[2]
+  let time = ''
+  const tm = rest.match(/^[A-Za-z]{3} [A-Za-z]{3} +\d{1,2} (\d{2}:\d{2}:\d{2}) UTC \d{4}(?: - )?(.*)$/)
+  if (tm) {
+    time = tm[1]
+    rest = tm[2]
+  }
+  return { lv: MARK_LV[m[1]] || 'plain', mark: m[1], time, msg: zhMsg(rest) }
+}
+
+const viewLines = computed(() => logLines.value.map(parseLogLine))
 
 function statusType (s) {
   if (s === 'failed') return 'danger'
@@ -140,6 +200,7 @@ onUnmounted(() => {
 
 <style scoped>
 .events-page {
+.ins-head { grid-column: 1 / -1; margin-bottom: 2px; }
   display: grid;
   grid-template-columns: 280px 1fr;
   gap: 14px;
@@ -156,46 +217,72 @@ onUnmounted(() => {
   border: 1px solid transparent;
   transition: background .15s ease, border-color .15s ease;
 }
-.job-item:hover { background: #f4f8fd; }
-.job-item.on { background: #e9f2fd; border-color: #c0d4f8; }
-.job-name { font-size: 13px; color: #1c2b3a; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.job-item:hover { background: var(--fw-surface-2); }
+.job-item.on { background: var(--fw-fill-strong); border-color: var(--fw-line-strong); }
+.job-name { font-size: 13px; color: var(--fw-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .job-meta { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
 .mono { font-family: ui-monospace, Consolas, monospace; font-size: 11px; }
-.muted { color: #64748f; }
+.muted { color: var(--fw-text-3); }
 .live {
   display: inline-flex; align-items: center; gap: 6px;
-  color: #16a34a; font-size: 12px; font-weight: 650; margin-left: 8px;
+  color: #86efac; font-size: 12px; font-weight: 650; margin-left: 8px;
 }
 .live i {
-  width: 8px; height: 8px; border-radius: 50%; background: #16a34a;
-  animation: pulse 1.2s ease-in-out infinite;
-}
-@keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: .35; }
+  width: 8px; height: 8px; border-radius: 50%; background: #4ade80;
+  animation: fx-pulse 1.6s ease-out infinite;
 }
 .pipe-mini {
   display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px;
 }
 .mini-step {
   font-size: 12px; padding: 3px 8px; border-radius: 999px;
-  background: #f0f5fb; color: #9aa9bd;
+  background: var(--fw-fill); color: var(--fw-text-3);
 }
-.mini-step.ok { background: #ecf7f0; color: #16a34a; }
-.mini-step.now { background: #e9f2fd; color: #2b6ce5; font-weight: 650; }
-.mini-step.err { background: #fceeee; color: #dc2626; }
+.mini-step.ok { background: #dcfce7; color: #166534; }
+.mini-step.now { background: var(--fw-fill-strong); color: var(--fw-brand); font-weight: 650; }
+.mini-step.err { background: #ffe4e6; color: #9f1239; }
 .fail {
-  color: #b91c1c; background: #fceeee; border-radius: 8px;
+  color: var(--fw-danger); background: #ffe4e6; border-radius: 8px;
   padding: 8px 10px; font-size: 13px; margin: 0 0 10px;
 }
 .log-pane {
   flex: 1; min-height: 280px; overflow: auto;
-  background: #0f172a; color: #e2e8f0;
-  border-radius: 10px; padding: 10px 12px;
-  font-family: ui-monospace, Consolas, monospace; font-size: 12px;
-  line-height: 1.5;
+  background: var(--fw-surface); color: var(--fw-text-2);
+  border: 1px solid var(--fw-line);
+  border-radius: 12px; padding: 10px 14px;
+  font-family: var(--fw-font-mono); font-size: 12.5px;
+  line-height: 1.65;
 }
-.log-line { white-space: pre-wrap; word-break: break-all; }
+.log-line {
+  display: grid;
+  grid-template-columns: 18px 64px minmax(0, 1fr);
+  column-gap: 10px;
+  align-items: start;
+  white-space: pre-wrap;
+  word-break: break-word;
+  padding: 1px 0;
+}
+.log-line[data-lv='plain'] {
+  grid-template-columns: 1fr;
+}
+.log-line[data-lv='plain'] .log-mark,
+.log-line[data-lv='plain'] .log-time-gap,
+.log-line[data-lv='plain'] time { display: none; }
+.log-mark {
+  font-weight: 700;
+  text-align: center;
+}
+.log-line[data-lv='ok'] .log-mark { color: var(--fw-ok); }
+.log-line[data-lv='info'] .log-mark { color: var(--fw-brand); }
+.log-line[data-lv='warn'] .log-mark { color: var(--fw-warn); }
+.log-line[data-lv='mute'] .log-mark { color: var(--fw-text-3); }
+time, .log-time-gap {
+  color: var(--fw-text-3);
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  padding-top: 2px;
+}
+.log-msg { min-width: 0; color: var(--fw-text); }
 .pad { padding: 24px 8px; }
 @media (max-width: 900px) {
   .events-page { grid-template-columns: 1fr; }

@@ -82,6 +82,31 @@ def _afl_qemu_trace(arch=None):
     return None
 
 
+def _afl_fuzz_bin():
+    """宿主 afl-fuzz：AFL_FUZZ → PATH → $AFL_REPO/afl-fuzz。
+
+    systemd 用户服务的 PATH 通常不含 ~/AFLplusplus，bare ``afl-fuzz``
+    会 FileNotFoundError。沙箱路径仍用 SANDBOX_AFL_FUZZ。
+    """
+    explicit = os.getenv("AFL_FUZZ", "").strip()
+    if explicit:
+        p = Path(explicit)
+        if p.is_file() and os.access(p, os.X_OK):
+            return str(p.resolve())
+        found = shutil.which(explicit)
+        if found:
+            return found
+    found = shutil.which("afl-fuzz")
+    if found:
+        return found
+    repo_bin = _afl_repo() / "afl-fuzz"
+    if repo_bin.is_file() and os.access(repo_bin, os.X_OK):
+        return str(repo_bin)
+    raise RuntimeError(
+        "afl-fuzz not found (PATH, AFL_FUZZ, or "
+        f"{_afl_repo()}/afl-fuzz). Install AFL++ or set AFL_REPO / AFL_FUZZ.")
+
+
 def _load_manifest_binary(data_dir, job_id, md5):
     manifest = json.loads((Path(data_dir) / "extracted" / job_id
                            / "manifest.json").read_text(encoding="utf-8"))
@@ -222,6 +247,7 @@ def run_job(job_id, data_dir, binary_md5, function=None, args=None,
     env["AFL_SKIP_CPUFREQ"] = "1"
     env["AFL_I_DONT_CARE_ABOUT_MISSING_CRASHES"] = "1"
     env["AFL_NO_UI"] = "1"
+    env.setdefault("AFL_NO_AFFINITY", "1")
     # afl-fuzz resolves "afl-qemu-trace" by NAME inside AFL_PATH — point it
     # at a per-arch directory whose afl-qemu-trace is a link to the right
     # arch build (afl-qemu-trace-arm / -mipsel / ...)
@@ -278,10 +304,15 @@ def run_job(job_id, data_dir, binary_md5, function=None, args=None,
         proc = _spawn_afl_docker(cmd, env, rootfs, work, trace_dir,
                                  qemu_trace, hook, seconds)
     else:
-        proc = subprocess.Popen(cmd, cwd=str(work), env=env,
-                                stdout=subprocess.PIPE,
-                                stderr=subprocess.STDOUT, text=True,
-                                start_new_session=True)
+        cmd[0] = _afl_fuzz_bin()
+        try:
+            proc = subprocess.Popen(cmd, cwd=str(work), env=env,
+                                    stdout=subprocess.PIPE,
+                                    stderr=subprocess.STDOUT, text=True,
+                                    start_new_session=True)
+        except FileNotFoundError as exc:
+            raise RuntimeError(
+                f"afl-fuzz not executable at {cmd[0]}: {exc}") from exc
     try:
         # host: stdout=PIPE + stderr=STDOUT so AFL_NO_UI 日志在 stdout
         out, err = proc.communicate(timeout=seconds + 120)

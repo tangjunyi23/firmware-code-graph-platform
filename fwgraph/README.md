@@ -41,8 +41,8 @@
 | `AUTO_ATTACK` / `AUTO_ROUTES` | graph 后自动生成攻击路径 / 扫描静态路由（默认 1） |
 | `AUTO_ATTACK_AI` / `ATTACK_AI_MAX_PATHS` | 规则路径算完后对 Top-N 做 LLM 分诊 overlay（有 LLM_API_KEY 时默认开；`0` 关闭） |
 | `CBM_GIT` / `CBM_GIT_MAX_FILES` | 摄入时是否 git 快照（默认开；文件数超过阈值或 `CBM_GIT=0` 则跳过） |
-| `IDA_DIR` / `IDA_WORKERS` / `IDA_TIMEOUT` | IDA 路径 / rootfs_elf `ida_worker` 并发（默认 3）/ 单二进制超时 |
-| `EMBA_DIR` / `EMBA_PROFILE` / `EMBA_TIMEOUT` / `EMBA_SUDO_PASSWORD` | EMBA 调用参数 |
+| `IDA_DIR` / `IDA_DROP_DIR` / `IDA_WORKERS` / `IDA_TIMEOUT` | IDA 路径；投放目录自动识别；rootfs_elf 并发 / 超时 |
+| `EMBA_BACKEND` / `EMBA_IMAGE` / `EMBA_DIR` / `EMBA_PROFILE` / `EMBA_TIMEOUT` / `EMBA_SUDO_PASSWORD` | `docker` 走官方镜像；`script` 走本机 `./emba` |
 | `TRACE_RUN_TIMEOUT` / `TRACE_HOLD_SECONDS` / `TRACE_SUDO_PASSWORD` | M7 单次覆盖率运行硬超时（默认 60s）/ 触发前后驻留（默认 2s）/ chroot 所需 sudo 密码 |
 | `ORCH_HOST` / `ORCH_PORT` / `ORCH_TOKEN` | 服务绑定（0.0.0.0:8000）/ API token |
 | `FLIRT_SIGS` | `1`=应用全部 `fwgraph_*.sig`；逗号列表=指定 |

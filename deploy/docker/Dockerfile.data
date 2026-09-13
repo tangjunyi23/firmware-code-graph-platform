@@ -1,0 +1,13 @@
+# 第一层业务数据镜像：任务 data + 工作台 sessions/findings + .env。
+# 不要用仓库根当构建上下文（体积过大）。pack.sh 会搭一个精简 staging 目录：
+#   docker build -f deploy/docker/Dockerfile.data -t fwgraph-data:local <staging>
+FROM busybox:1.36
+
+COPY seed.sh /seed.sh
+COPY data/ /seed/data/
+COPY sessions/ /seed/vulnagent/sessions/
+COPY findings/ /seed/vulnagent/findings/
+COPY env /seed/env
+
+RUN chmod 755 /seed.sh
+ENTRYPOINT ["/bin/sh", "/seed.sh"]

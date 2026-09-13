@@ -1,0 +1,30 @@
+{
+  "job_id": "6df0ba4135c9",
+  "title": "httpd ChangeLoginPwdRpm 处理器对缺失参数 newpassword3 未判空解引用致崩溃",
+  "severity": "low",
+  "confidence": 0.6,
+  "vuln_class": "null-pointer-dereference",
+  "cwe": "CWE-476",
+  "binary_md5": "9582aa23b0bc2de099b9997b09457d01",
+  "binary_path": "firmware/binwalk_extracted/firmware.extracted/100000/squashfs-root/usr/bin/httpd",
+  "reachability": "static-only",
+  "summary": "httpd 修改登录密码的 RPM 处理器 sub_47DBF0（POST /userRpm/ChangeLoginPwdRpm.htm）在密码校验通过后无条件执行 v17 = httpGetEnv(a1,\"newpassword3\"); v16 = strlen(v17);。httpGetEnv(0x4233b4) 对缺失参数返回 NULL（return 0），此处未判空，导致已认证用户省略 newpassword3 字段提交 Save=Save 时触发 strlen(NULL) 段错误，httpd 进程崩溃（Web 管理界面 DoS）。",
+  "evidence": [
+    "Hex-Rays(0x47dbf0): v17 = httpGetEnv(a1, \"newpassword3\"); v16 = strlen(v17); —— 未判空直接 strlen",
+    "Hex-Rays(0x4233b4): httpGetEnv 在参数缺失时 return 0（返回 NULL）",
+    "Hex-Rays(0x47d860): httpRpmConfAdd(2, \"/userRpm/ChangeLoginPwdRpm.htm\", sub_47DBF0) —— POST 注册该处理器",
+    "代码路径前序判断：swChkPasswordCfg 通过后无条件执行到 strlen(v17)"
+  ],
+  "session_id": "s-mt6lgkly-2e7f",
+  "function_name": "sub_47DBF0",
+  "preconditions": "需先通过 Web 认证（HttpAccessPermit 检查）；提交 Save=Save 而不带 newpassword3 字段。",
+  "remediation": "在 strlen/b64_decode 前对 httpGetEnv 返回值判空；newpassword3 缺失时走错误分支而非直接解引用。",
+  "poc": "POST /userRpm/ChangeLoginPwdRpm.htm HTTP/1.1\nHost: 192.168.1.1\nCookie: <已认证会话>\nContent-Type: application/x-www-form-urlencoded\nContent-Length: 17\n\nSave=Save\n（表单中省略 newpassword3 参数；sub_47DBF0 中 httpGetEnv 返回 NULL 后 strlen(NULL) 触发崩溃）",
+  "call_chain": "main(0x420584) → httpd(0x45cbc0) → httpDispatcher(0x425d08) → sub_47DBF0(0x47dbf0) → strlen(NULL) 崩溃",
+  "function_addr": "0x47dbf0",
+  "id": "F-mt6sw3k1-2f20",
+  "status": "draft",
+  "owner": "token-admin",
+  "recorded_at": "2026-08-24T05:33:41Z",
+  "history": []
+}

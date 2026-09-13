@@ -1,0 +1,30 @@
+{
+  "job_id": "6df0ba4135c9",
+  "title": "httpd 配置备份恢复 parseSetUsrCfgFunc 未限拷贝长度致栈溢出（认证后）",
+  "severity": "high",
+  "confidence": 0.55,
+  "vuln_class": "stack-overflow",
+  "cwe": "CWE-121",
+  "binary_md5": "9582aa23b0bc2de099b9997b09457d01",
+  "binary_path": "firmware/binwalk_extracted/firmware.extracted/100000/squashfs-root/usr/bin/httpd",
+  "reachability": "static-only",
+  "summary": "httpd 配置备份恢复链（httpConfUpload→httpRpmUpload→httpConfUploadTemp(0x4801a0)→tddp_UploadFlashData(0x508ed4)→parseSetUsrCfgFunc(0x50636c)）中，parseSetUsrCfgFunc 把解密后的配置文本按行 memcpy 到 1280 字节栈缓冲 a3：仅检查起始偏移 v10<1152，拷贝长度 v12 无上限（输入行可长达 122880 字节，且 16 字节 MD5+固定 DES 密钥 byte_5AD8C8 使备份内容可被完全伪造）。认证用户上传含超长配置行的备份即触发栈越界写，可覆盖保存寄存器/返回地址；与 TP-Link 配置恢复 RCE（CVE-2019-7405 类）同型。",
+  "evidence": [
+    "Hex-Rays(0x50636c): memset(a3, 0, 0x500u); ... if ( v10 < 1152 ) { memcpy(&a3[v10], v8, v12); ... } —— 目标缓冲 1280 字节，仅校验起始偏移 v10<1152，实拷长度 v12 无上限；v12 为输入行长度",
+    "Hex-Rays(0x508ed4): 输入 a2 < 122881，des_min_do 解密入 122880 字节缓冲 v9，v14=v9+16，parseSetUsrCfgFunc(v14, v16, a3, a4) 传入可直接构造的超长配置行",
+    "Hex-Rays(0x508ed4): md5_verify_digest(v9, v9+16, v11-16) 校验通过后 usrconf_load_factory_setting(); parseSetUsrCfgFunc(…); usrconf_save() —— 16 字节 MD5 前置 + 固定 DES 密钥 byte_5AD8C8，可被逆向伪造",
+    "单调用者: httpConfUploadTemp(0x4801a0)（配置备份恢复，需认证）"
+  ],
+  "session_id": "s-mt6lgkly-2e7f",
+  "function_name": "parseSetUsrCfgFunc",
+  "preconditions": "需已认证并能上传配置备份（Backup&Restore 页）；备份需按内嵌 DES 密钥+MD5 头伪造（密钥静态，可逆向）；行内容/长度完全可控，远超目标缓冲。",
+  "remediation": "parseSetUsrCfgFunc 在 memcpy/累加前校验 v10+v12+name_len ≤ 0x500；对单行长度与累积长度双重限界；恢复流程输入改用动态分配。",
+  "poc": "构造备份文件：payload = 16B(MD5(body)) || body，body 为一行超长配置（如 \"admin_password = AAAAA...5000B\"）：先 DES（密钥取 httpd 内嵌 byte_5AD8C8）加密整体，写入备份 bin；已认证会话 POST /userRpm/ConfUpdateTemp.htm 上传 → httpConfUploadTemp→tddp_UploadFlashData 解密+MD5 校验 → parseSetUsrCfgFunc 中 memcpy(&a3[v10], line, 5000+) 覆盖 1280 字节栈缓冲。",
+  "call_chain": "httpConfUpload(0x480300)/httpRpmUpload → httpConfUploadTemp(0x4801a0) → tddp_UploadFlashData(0x508ed4) → parseSetUsrCfgFunc(0x50636c) → memcpy(&a3[v10], v8, v12) 栈越界写",
+  "function_addr": "0x50636c",
+  "id": "F-mt6tuhd3-ace7",
+  "status": "draft",
+  "owner": "token-admin",
+  "recorded_at": "2026-08-24T06:00:25Z",
+  "history": []
+}

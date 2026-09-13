@@ -26,6 +26,13 @@ export const DYNAMIC_ONLY_TOOLS = new Set([
   "fw_request_trace", "fw_request_fuzz", "fw_request_frida", "fw_qemu_exec",
 ]);
 
+function cbmTraceDirection(raw) {
+  const key = String(raw || "both").trim().toLowerCase();
+  if (key === "in" || key === "inbound") return "inbound";
+  if (key === "out" || key === "outbound") return "outbound";
+  return "both";
+}
+
 // ---------------------------------------------------------------------------
 // fwgraph HTTP helper
 // ---------------------------------------------------------------------------
@@ -168,7 +175,7 @@ const executors = {
     if (!input.name) throw new Error("name is required");
     return graphQuery(ctx, jobOf(ctx, input), "trace", {
       name: input.name,
-      direction: input.direction ?? "both",
+      direction: cbmTraceDirection(input.direction),
     });
   },
 
@@ -629,7 +636,7 @@ export const TOOL_DEFS = [
       properties: {
         ...JOB_ID_PROP,
         name: { type: "string", description: "Function name" },
-        direction: { type: "string", enum: ["both", "inbound", "outbound"] },
+        direction: { type: "string", enum: ["both", "in", "out", "inbound", "outbound"] },
       },
       required: ["name"],
     },

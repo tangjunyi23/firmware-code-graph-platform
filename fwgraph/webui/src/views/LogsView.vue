@@ -1,5 +1,12 @@
 <template>
   <div>
+    <header class="ins-head">
+      <div class="ins-head-row">
+        <h1 class="ins-title"><span class="ins-ico"><component :is="NAV_ICONS.Tickets" :size="18" /></span>日志审计</h1>
+      </div>
+      <p class="ins-sub">运行与服务日志检索、实时跟踪。</p>
+    </header>
+
     <el-card shadow="never" class="block">
       <el-tabs v-model="tab">
         <el-tab-pane label="运行日志" name="runtime">
@@ -37,7 +44,11 @@
               <template #default="{ row }">{{ fmtTime(row.ts) }}</template>
             </el-table-column>
             <el-table-column prop="user" label="用户" width="140" />
-            <el-table-column prop="action" label="动作" width="160" />
+            <el-table-column label="动作" width="160">
+              <template #default="{ row }">
+                <span class="act-tag" :class="actionKind(row.action)">{{ row.action }}</span>
+              </template>
+            </el-table-column>
             <el-table-column prop="detail" label="详情" min-width="220" show-overflow-tooltip />
           </el-table>
         </el-tab-pane>
@@ -47,6 +58,7 @@
 </template>
 
 <script setup>
+import { NAV_ICONS } from '../workbench/icons.js'
 import { nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { api } from '../api'
@@ -77,6 +89,14 @@ function fmtSize (n) {
   if (n > 1048576) return (n / 1048576).toFixed(1) + ' MB'
   if (n > 1024) return (n / 1024).toFixed(1) + ' KB'
   return n + ' B'
+}
+
+// 审计动作三级分色：读操作灰、写操作蓝、敏感操作红（登录/令牌/用户/配置）
+function actionKind (action) {
+  const a = String(action || '').toLowerCase()
+  if (/(login|logout|token|password|user|config|fuzz|exec|trace|delete|remove)/.test(a)) return 'act-danger'
+  if (/(upload|create|post|put|graph|attack|route|decompile|extract)/.test(a)) return 'act-write'
+  return 'act-read'
 }
 
 async function loadFiles () {
@@ -139,6 +159,26 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
 
 <style scoped>
 .block { margin-bottom: 14px; }
+.act-tag {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  line-height: 18px;
+  white-space: nowrap;
+}
+.act-read {
+  color: var(--fw-text-2);
+  background: var(--fw-bg-2);
+}
+.act-write {
+  color: var(--fw-brand);
+  background: var(--fw-fill);
+}
+.act-danger {
+  color: var(--fw-danger);
+  background: rgba(225, 29, 72, .1);
+}
 .log-controls {
   display: flex;
   align-items: center;
@@ -147,9 +187,9 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
   margin-bottom: 12px;
 }
 .log-view {
-  background: #f4f8fd;
-  color: #3d5470;
-  border: 1px solid rgba(43, 108, 229, .18);
+  background: var(--fw-surface-2);
+  color: var(--fw-text-2);
+  border: 1px solid color-mix(in srgb, var(--fw-brand) 18%, transparent);
   border-radius: 6px;
   padding: 12px;
   font-size: 12px;

@@ -4,6 +4,11 @@ Runs EMBA with the extract-only profile via subprocess (non-blocking Popen +
 polling), then parses csv_logs/p99_prepare_analyzer.csv into manifest.json.
 
 Config (from .env, with defaults matching the dev VM):
+  EMBA_BACKEND        script | docker | auto
+                      script = sudo ./emba（开发机）
+                      docker = 官方镜像 embeddedanalyzer/emba（compose 交付）
+                      auto   = 容器内走 docker（官方镜像）
+  EMBA_IMAGE          docker 后端镜像（默认 embeddedanalyzer/emba:2.0.3a）
   EMBA_DIR            EMBA repo path            (默认 <仓库根>/emba，即 fwgraph/ 同级)
   EMBA_PROFILE        profile in scan-profiles/ (extract-only.emba)
   EMBA_TIMEOUT        extraction timeout in s   (7200)
@@ -26,6 +31,10 @@ EMBA_LOCK = threading.Lock()
 
 # 默认按仓库布局推导：fwgraph/ 与 emba/ 同级（EMBA_DIR env 优先，见 run_emba）
 EMBA_DIR_DEFAULT = str(config.FWGRAPH_ROOT.parent / "emba")
+EMBA_IMAGE_DEFAULT = "embeddedanalyzer/emba:2.0.3a"
+_PROFILE_SRC = (
+    Path(__file__).resolve().parents[2] / "pipeline" / "extract" / "extract-only.emba"
+)
 
 
 def _cfg(name: str, default: str) -> str:
@@ -129,6 +138,66 @@ def parse_p99_csv(csv_path, log_dir=None):
     return binaries
 
 
+def _in_container() -> bool:
+    return os.path.exists("/.dockerenv")
+
+
+def use_docker_backend() -> bool:
+    """True when extract should launch the official EMBA image via docker."""
+    mode = _cfg("EMBA_BACKEND", "auto").strip().lower()
+    if mode == "docker":
+        return True
+    if mode == "script":
+        return False
+    return _in_container()
+
+
+def emba_image_present(image: str | None = None) -> bool:
+    image = image or _cfg("EMBA_IMAGE", EMBA_IMAGE_DEFAULT)
+    try:
+        return subprocess.run(
+            ["docker", "image", "inspect", image],
+            capture_output=True, timeout=15).returncode == 0
+    except Exception:  # noqa: BLE001 - probe must not raise
+        return False
+
+
+def _ensure_profile() -> Path:
+    dest_dir = Path(os.getenv("FWGRAPH_DATA") or config.data_dir()) / "emba"
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest = dest_dir / "extract-only.emba"
+    if _PROFILE_SRC.is_file():
+        dest.write_bytes(_PROFILE_SRC.read_bytes())
+    elif not dest.is_file():
+        dest.write_text("# extract-only placeholder\n", encoding="utf-8")
+    return dest
+
+
+def _docker_emba_cmd(firmware_path, log_dir):
+    from pipeline.sandbox.docker_backend import host_mount_path
+
+    image = _cfg("EMBA_IMAGE", EMBA_IMAGE_DEFAULT)
+    fw = Path(firmware_path).resolve()
+    logs = Path(log_dir).resolve()
+    logs.mkdir(parents=True, exist_ok=True)
+    profile = _ensure_profile()
+    return [
+        "docker", "run", "--rm", "--name", "emba",
+        "--privileged",
+        "--network", "none",
+        "--cap-add", "SYS_ADMIN",
+        "-v", f"{host_mount_path(fw.parent)}:/firmware:ro",
+        "-v", f"{host_mount_path(logs)}:/logs",
+        "-v", f"{host_mount_path(profile)}:/emba/scan-profiles/extract-only.emba:ro",
+        "--entrypoint", "./emba",
+        image,
+        "-l", "/logs",
+        "-f", f"/firmware/{fw.name}",
+        "-p", "./scan-profiles/extract-only.emba",
+        "-F", "-y",
+    ]
+
+
 def run_emba(firmware_path, log_dir, stdout_log_path, timeout=None):
     """Run EMBA extract-only on firmware_path, logging to log_dir.
 
@@ -136,29 +205,42 @@ def run_emba(firmware_path, log_dir, stdout_log_path, timeout=None):
     stdout_log_path. On timeout the whole process group is killed and the
     leftover EMBA containers are removed.
     """
-    emba_dir = _cfg("EMBA_DIR", EMBA_DIR_DEFAULT)
-    profile = _cfg("EMBA_PROFILE", "extract-only.emba")
-    sudo_pw = _cfg("EMBA_SUDO_PASSWORD", "")
     timeout = int(timeout or _cfg("EMBA_TIMEOUT", "7200"))
+    docker = use_docker_backend()
+    if docker:
+        cmd = _docker_emba_cmd(firmware_path, log_dir)
+        cwd = None
+        sudo_pw = ""
+    else:
+        emba_dir = _cfg("EMBA_DIR", EMBA_DIR_DEFAULT)
+        profile = _cfg("EMBA_PROFILE", "extract-only.emba")
+        sudo_pw = _cfg("EMBA_SUDO_PASSWORD", "")
+        # -F: ignore host-side dependency-check errors (emba_venv / NVD database /
+        # inotifywait are missing on this host but unused by dockerized extraction).
+        # -y: overwrite a non-empty log dir without an interactive prompt.
+        sudo_args = ["-S", "-p", ""] if sudo_pw else ["-n"]
+        cmd = [
+            "sudo", *sudo_args, "./emba",
+            "-l", str(log_dir),
+            "-f", str(firmware_path),
+            "-p", f"./scan-profiles/{profile}",
+            "-F", "-y",
+        ]
+        cwd = emba_dir
 
-    # -F: ignore host-side dependency-check errors (emba_venv / NVD database /
-    # inotifywait are missing on this host but unused by dockerized extraction).
-    # -y: overwrite a non-empty log dir without an interactive prompt.
-    sudo_args = ["-S", "-p", ""] if sudo_pw else ["-n"]
-    cmd = [
-        "sudo", *sudo_args, "./emba",
-        "-l", str(log_dir),
-        "-f", str(firmware_path),
-        "-p", f"./scan-profiles/{profile}",
-        "-F", "-y",
-    ]
     with EMBA_LOCK, open(stdout_log_path, "wb") as logf:
-        logf.write(f"[extractor] cmd: sudo ./emba -l {log_dir} -f {firmware_path} "
-                   f"-p ./scan-profiles/{profile} -F -y (timeout {timeout}s)\n".encode())
+        logf.write(f"[extractor] cmd: {' '.join(cmd)} (timeout {timeout}s)\n".encode())
         logf.flush()
+        if docker and not emba_image_present():
+            image = _cfg("EMBA_IMAGE", EMBA_IMAGE_DEFAULT)
+            logf.write(
+                f"[extractor] 未找到镜像 {image}。"
+                f"请先 docker pull {image} 或 "
+                f"docker compose --profile tools pull\n".encode())
+            return 127, False
         proc = subprocess.Popen(
             cmd,
-            cwd=emba_dir,
+            cwd=cwd,
             stdin=subprocess.PIPE if sudo_pw else subprocess.DEVNULL,
             stdout=logf,
             stderr=subprocess.STDOUT,
@@ -180,6 +262,8 @@ def run_emba(firmware_path, log_dir, stdout_log_path, timeout=None):
 
 def _chown_output(log_dir):
     """Make root-owned EMBA container output readable by the worker user."""
+    if os.geteuid() == 0:
+        return
     owner = f"{os.getuid()}:{os.getgid()}"
     sudo_pw = _cfg("EMBA_SUDO_PASSWORD", "")
     if sudo_pw:

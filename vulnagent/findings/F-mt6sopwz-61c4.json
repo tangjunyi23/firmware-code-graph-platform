@@ -1,0 +1,30 @@
+{
+  "job_id": "6df0ba4135c9",
+  "title": "athadhoc 十六进制密钥解析边界检查绕过导致全局缓冲越界写",
+  "severity": "low",
+  "confidence": 0.5,
+  "vuln_class": "global-buffer-overflow",
+  "cwe": "CWE-787",
+  "binary_md5": "53a5015af68ecf517285cb18d3aeab27",
+  "binary_path": "firmware/binwalk_extracted/firmware.extracted/100000/squashfs-root/sbin/athadhoc",
+  "reachability": "static-only",
+  "summary": "athadhoc main(0x4010c0) 用 sub_400C00(argv[3], &ath_group_key, 0x10) 与 sub_400C00(argv[4], &ath_ucast_key, 0x10) 解析命令行十六进制密钥。sub_400C00 的容量检查写反：当输出索引 v6 达到上限 a3（16）后，分支 `if (a3 < v6) goto LABEL_21` 判断为假仍继续执行 LABEL_13 的 `*(_BYTE *)(a2 + v6++) = ...`，只是打印 \"too much data\" 后照常写入，导致超过 32 个十六进制字符（16 字节）的密钥把越界数据连续写入 16 字节全局密钥缓冲之后的 .bss 相邻变量（key 长度、ucast key 等）。",
+  "evidence": [
+    "Hex-Rays(0x400c00): if ( a3 < v6 ) goto LABEL_21; LABEL_13: *(_BYTE *)(a2 + v6++) = v12 | v11; ...... LABEL_21: printf(\"too much data in %s, max %u bytes\\n\", a1, a3); goto LABEL_13; —— 越界时仍回写",
+    "Hex-Rays(0x4010c0): v7 = sub_400C00(v6, (int)&ath_group_key, 0x10u); ath_group_key_len = v7; ath_ucast_key_len = sub_400C00(v8, (int)&ath_ucast_key, 0x10u); —— 16 字节目标缓冲",
+    "qemu 验证过二进制可运行（timeout，无崩溃；越界破坏的是 .bss 全局而非控制流）"
+  ],
+  "session_id": "s-mt6lgkly-2e7f",
+  "function_name": "sub_400C00",
+  "preconditions": "需在设备本地执行带超长密钥参数的 athadhoc（远程攻击者需先获得命令注入/shell 等本地执行能力；主要影响为全局数据破坏与潜在不稳定，无直接控制流劫持）。",
+  "exploit_sketch": "按全局布局，超过 16 字节的写入会依次覆盖 ath_group_key_len/ath_ucast_key/ath_ucast_key_len 等 .bss 相邻变量；继续加长输入可破坏更多全局（含驱动 ioctl 参数），可能导致非预期无线配置或崩溃，但无返回地址覆盖。",
+  "remediation": "修复边界检查：在 v6 >= a3 时终止解析并返回错误（将 `a3 < v6` 改为 `a3 <= v6` 或直接 return），并校验输入长度不超过 2*a3。",
+  "poc": "athadhoc wlan0 1 4142434445464748494A4B4C4D4E4F505152535455565758595A5B5C 0102030405\n（argv[3] 为 40 个十六进制字符 = 20 字节密钥，超过 16 字节上限，sub_400C00 打印 too much data 后仍继续越界写入 ath_group_key 之后的全局变量）",
+  "call_chain": "main(0x4010c0) → sub_400C00(0x400c00) → 全局 16 字节缓冲越界写（边界检查绕过）",
+  "function_addr": "0x400c00",
+  "id": "F-mt6sopwz-61c4",
+  "status": "draft",
+  "owner": "token-admin",
+  "recorded_at": "2026-08-24T05:27:57Z",
+  "history": []
+}

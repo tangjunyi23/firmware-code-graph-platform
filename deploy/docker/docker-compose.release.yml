@@ -1,0 +1,49 @@
+# 迁移包用的运行时 compose：只引用已 load 的镜像，不构建。
+# 数据走命名卷 fwgraph-data，IDA 投放用相对路径 ./ida-drop。
+# 不要设置 SANDBOX_HOST_PREFIX。
+name: fwgraph
+
+services:
+  orchestrator:
+    image: fwgraph-orchestrator:local
+    ports:
+      - "8000:8000"
+    volumes:
+      - fwgraph-data:/data
+      - ./ida-drop:/opt/ida-drop
+      - /var/run/docker.sock:/var/run/docker.sock
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      FWGRAPH_ROOT: /app/fwgraph
+      FWGRAPH_DATA: /data
+      VULNAGENT_HOME: /data/vulnagent
+      IDA_DROP_DIR: /opt/ida-drop
+      EMBA_BACKEND: docker
+      EMBA_IMAGE: ${EMBA_IMAGE:-embeddedanalyzer/emba:2.0.3a}
+      SANDBOX_BACKEND: docker
+    healthcheck:
+      test: ["CMD", "curl", "-kf", "https://localhost:8000/login", "-o", "/dev/null"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+  seed:
+    image: fwgraph-data:local
+    profiles: ["migrate"]
+    volumes:
+      - fwgraph-data:/data
+    restart: "no"
+
+  emba:
+    image: ${EMBA_IMAGE:-embeddedanalyzer/emba:2.0.3a}
+    profiles: ["tools"]
+    entrypoint: ["true"]
+    restart: "no"
+
+volumes:
+  fwgraph-data:
+    name: fwgraph-data

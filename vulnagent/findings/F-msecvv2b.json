@@ -1,0 +1,43 @@
+{
+  "id": "F-msecvv2b",
+  "recorded_at": "2026-08-04T07:48:03.971Z",
+  "session_id": "s-msecr8lx-adf9",
+  "job_id": "e40ca92692ed",
+  "binary_md5": "30e2839774afea41eebedfe19da24652",
+  "binary_path": "firmware/binwalk_extracted/firmware.extracted/244BF4/ubifs-root/ubi_244BF4.img/img-1714107305_vol-system.ubifs.extracted/0/ubifs-root/usr/sbin/sysapihttpd",
+  "confidence": 0.75,
+  "cwe": "CWE-121",
+  "evidence": [
+    "函数 sub_4711BC @ 0x4711bc 声明 char v6[64]; // [sp+8h] [-30h] BYREF，64 字节栈缓冲区",
+    "伪代码顺序调用 inet_ntoa(); snprintf(); strcat(); —— strcat 为无界追加（fw_dangerous_callsites 确认 sub_4711BC → strcat 调用边存在）",
+    "同族函数 sub_47108C（internet_access_duration_handle）使用 strncat 有界版本，反衬 sub_4711BC 使用 strcat 为开发者选择失误",
+    "v6 随后作为参数传入 sub_470EF0((int)v6)；sub_470EF0 @ 0x470ef0 内部执行 fork() + execl()，构成命令执行 sink",
+    "sub_4711BC 日志字符串 'Function: access_internet_handle, %s' 表明其为 HTTP handler；sub_43785C（网络源，trace 9d37a1d6a793 验证可达）通过函数指针表 (*(int (__fastcall **)(int, unsigned int *, _DWORD))(v32 + 12))(req, v25, ...) 分发 handler，故 sub_4711BC 无静态 CALLS 边但属 HTTP 可达路径",
+    "同固件所有 MIPS 二进制（含 netifd/ubusd/fw3 等）均无 canary/NX/PIE/RELRO/FORTIFY，sysapihttpd 推断同为零加固（manifest 截断未直接显示，但构建体系一致）"
+  ],
+  "exploit_sketch": "攻击者向 sysapihttpd（端口 8098）发送 HTTP 请求至 access_internet_handle 对应路由（推断为 /api/access_internet 或类似路径），在请求参数中填入超长 IP/域名字符串（>64 字节）。handler 将参数经 inet_ntoa 转换后 snprintf 写入 v6[64]，随后 strcat 无界追加导致栈溢出，覆盖返回地址。由于 sysapihttpd 推断无 canary/NX/PIE，攻击者可直接构造 ROP 链或 shellcode 劫持控制流，在 fork/execl 子进程上下文中执行任意命令，获取路由器系统权限。",
+  "function_addr": "0x4711bc",
+  "function_name": "sub_4711BC",
+  "remediation": "1) 将 strcat 替换为 strncat 或统一用 snprintf 控制总长度，确保 v6 不越界；2) 增大缓冲区至合理上限（如 PATH_MAX）并配合长度校验；3) 对 inet_ntoa 输出及拼接字符串做白名单/长度过滤（IP 最长 15 字符，域名按 RFC 限制）；4) 为 sysapihttpd 启用 canary、NX、PIE、RELRO、FORTIFY_SOURCE 等编译期加固；5) 优先使用 execve 替代 execl 并显式传参，避免 shell 元字符注入风险。",
+  "sanitization": "未发现任何边界检查：snprintf 虽对首次写入有界，但后续 strcat 无长度限制；无对输入字符串的长度校验或字符过滤；无 canary 保护栈帧。",
+  "severity": "high",
+  "sink_function": "strcat",
+  "source_summary": "HTTP 请求参数（推断为 access_internet_handle 路由对应的 IP/域名参数），经 inet_ntoa 转换后进入 v6 栈缓冲区。",
+  "summary": "sysapihttpd 的 HTTP handler sub_4711BC（日志标识 \"Function: access_internet_handle\"）在 64 字节栈缓冲区 v6 上先执行有界 snprintf，随后执行无界 strcat 追加，追加内容长度不受任何限制，可越过 v6 边界覆盖栈上返回地址，造成栈缓冲区溢出（CWE-121）。溢出后的 v6 还会作为参数传入 sub_470EF0，该函数内部执行 fork()+execl() 启动子进程，使该 bug 兼具命令执行通道。strcat 的参数来源在反编译抽象层未直接还原（推断为请求中的 IP/域名参数经 inet_ntoa 得到，最长仅 15 字符，若 strcat 源为固定短串则溢出需 snprintf 内容本身超长，此为推断）；但 strcat 调用本身无界已由调用边证据确认，且同族函数 sub_47108C 使用 strncat 有界版本，说明此处为开发者疏忽。sub_4711BC 经 sub_43785C 的函数指针表间接分发（无静态 CALLS 边），未被任何 trace 覆盖，可达性为 static-only；固件整体零加固（推断），一旦触发可导致远程代码执行。",
+  "title": "sysapihttpd access_internet_handle 栈缓冲区溢出（strcat 无界追加至 64 字节栈缓冲区后 fork/execl）",
+  "vuln_class": "stack_buffer_overflow",
+  "reachability": "static-only",
+  "related_findings": [
+    "F-msebvdc3"
+  ],
+  "errata": [
+    "2026-08-05 勘误：证据 6 称 'manifest 截断未直接显示，推断零加固'——实际可用 fw_get_manifest(binary_md5=...) 直接核实：sysapihttpd checksec 为 canary:false nx:false pie:false relro:none fortified:0/12，零加固是已确认事实，不应写'推断'。",
+    "2026-08-05 勘误：本记录将 confidence 从 F-msebvdc3 的 0.5 上调至 0.75，但未解决原记录标注的决定性疑点（strcat 源与溢出触发条件）；按现行纪律（提分需新增决定性证据），asm 证据补齐前应按 0.5 对待。另：exploit_sketch 的'超长输入经 inet_ntoa 后溢出'与证据中 inet_ntoa 输出 ≤15 字符相矛盾，利用可行性未证实。",
+    "2026-08-05 schema 补录：补 reachability（static-only，summary 原有表述）/related_findings/open_questions 字段。"
+  ],
+  "open_questions": [
+    "strcat 的源缓冲区未确认：若确为 inet_ntoa() 输出（≤15 字符），则在 64 字节缓冲区上的溢出不可达；需经 ?asm=1 取函数级汇编恢复 strcat/snprintf 的 $a0-$a2 实参后判定。",
+    "触发路由字符串未确认（静态路由恢复为 0，handler 经函数指针表分发）；可用 fw_request_trace 对候选路由打点、fw_get_trace 确认目标函数是否进入 diff。",
+    "snprintf 写入前缀的长度未确认（Hex-Rays 折叠了参数），它决定溢出触发条件。"
+  ]
+}

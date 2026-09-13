@@ -50,6 +50,12 @@ class TestRunCli:
         with pytest.raises(query.CBMError, match="boom happened"):
             query._run_cli(["search_graph"], 30)
 
+    def test_nonzero_rc_salvages_stdout_json(self, cli):
+        cli.respond(stdout='{"status": "ambiguous", "suggestions": []}\n',
+                    stderr="level=warn msg=mem.allocator.not_owned",
+                    returncode=1)
+        assert query._run_cli(["trace_path"], 30)["status"] == "ambiguous"
+
     def test_empty_stdout_raises(self, cli):
         cli.respond(stdout="", stderr="level=info msg=x")
         with pytest.raises(query.CBMError, match="no JSON"):
@@ -137,6 +143,23 @@ class TestCommands:
         assert cli.calls[0]["cmd"][2:] == [
             "trace_path", "--project", "p", "--function-name", "f",
             "--direction", "inbound", "--format", "json"]
+
+    def test_trace_maps_in_to_inbound(self, cli):
+        cli.respond(stdout='{"function": "f", "callers": []}')
+        query.trace("p", "f", direction="in")
+        cmd = cli.calls[0]["cmd"]
+        assert cmd[cmd.index("--direction") + 1] == "inbound"
+
+    def test_trace_maps_out_to_outbound(self, cli):
+        cli.respond(stdout='{"function": "f", "callees": []}')
+        query.trace("p", "f", direction="out")
+        cmd = cli.calls[0]["cmd"]
+        assert cmd[cmd.index("--direction") + 1] == "outbound"
+
+    def test_trace_rejects_unknown_direction(self, cli):
+        with pytest.raises(query.CBMError, match="invalid trace direction"):
+            query.trace("p", "f", direction="sideways")
+        assert cli.calls == []
 
     def test_snippet_resolves_qualified_name(self, cli):
         cli.respond(stdout=json.dumps({"total": 2, "results": [

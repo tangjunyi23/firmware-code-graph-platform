@@ -1,26 +1,29 @@
 <template>
   <div>
-    <el-card shadow="never" class="block">
-      <div class="toolbar">
-        <el-select v-model="jobId" placeholder="选择任务" class="job-select" @change="loadAll">
-          <el-option v-for="job in jobs" :key="job.job_id" :value="job.job_id"
-                     :label="`${job.job_id}  ${job.firmware}  (${job.status})`" />
-        </el-select>
-        <el-button :icon="RefreshCw" :loading="loading" @click="loadAll">刷新</el-button>
-        <el-button :icon="Radar" :loading="runningAttack" @click="rerunAttack">重算攻击面</el-button>
-        <el-button :icon="Route" :loading="runningRoutes" @click="rerunRoutes">扫描路由</el-button>
+    <header class="ins-head">
+      <div class="ins-head-row">
+        <h1 class="ins-title">
+          <span class="ins-ico"><component :is="NAV_ICONS.Aim" :size="18" /></span>
+          攻击面
+        </h1>
+        <div class="ins-actions">
+          <JobPicker v-model="jobId" :prefer="['surfaced', 'routed', 'attacked', 'graphed']" @change="loadAll" />
+          <el-button :icon="RefreshCw" :loading="loading" @click="loadAll">刷新</el-button>
+          <el-button :icon="Radar" :loading="runningAttack" @click="rerunAttack">重算攻击面</el-button>
+          <el-button :icon="Route" :loading="runningRoutes" @click="rerunRoutes">扫描路由</el-button>
+        </div>
       </div>
-      <el-descriptions v-if="attackSummary" :column="4" border size="small" class="summary">
-        <el-descriptions-item label="输入源">{{ attackSummary.sources }}</el-descriptions-item>
-        <el-descriptions-item label="候选汇">{{ attackSummary.sinks }}</el-descriptions-item>
-        <el-descriptions-item label="候选路径">{{ attackSummary.path_candidates }}</el-descriptions-item>
-        <el-descriptions-item label="Top 路径">{{ attackSummary.paths_returned }}</el-descriptions-item>
-        <el-descriptions-item label="有效 trace">{{ cross.traces_considered ?? 0 }}</el-descriptions-item>
-        <el-descriptions-item label="轨迹观测函数">{{ cross.observed_functions ?? 0 }}</el-descriptions-item>
-        <el-descriptions-item label="候选链观测函数">{{ cross.verified_functions ?? 0 }}</el-descriptions-item>
-        <el-descriptions-item label="完整链观测路径">{{ cross.verified_paths ?? 0 }}</el-descriptions-item>
-      </el-descriptions>
-    </el-card>
+      <p class="ins-sub">source → sink 候选路径评分与动态覆盖交叉验证，点行展开完整调用链。</p>
+      <div v-if="attackSummary" class="ins-stats">
+        <span class="stat-chip">输入源 <b>{{ attackSummary.sources }}</b></span>
+        <span class="stat-chip">候选汇 <b>{{ attackSummary.sinks }}</b></span>
+        <span class="stat-chip accent">候选路径 <b>{{ attackSummary.path_candidates }}</b></span>
+        <span class="stat-chip">Top 路径 <b>{{ attackSummary.paths_returned }}</b></span>
+        <span class="stat-chip">有效 trace <b>{{ cross.traces_considered ?? 0 }}</b></span>
+        <span class="stat-chip">观测函数 <b>{{ cross.observed_functions ?? 0 }}</b></span>
+        <span class="stat-chip accent">完整链观测 <b>{{ cross.verified_paths ?? 0 }}</b></span>
+      </div>
+    </header>
 
     <el-card shadow="never" class="block">
       <template #header>
@@ -45,6 +48,20 @@
         <el-table-column label="评分" prop="score" width="90" sortable>
           <template #default="{ row }">
             <span class="score-cell" :style="{ color: scoreColor(row.score) }">{{ row.score.toFixed(2) }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="路径" min-width="300">
+          <template #default="{ row }">
+            <span class="chain-preview">
+              <template v-for="(node, i) in chainPreview(row)" :key="`cp-${i}`">
+                <span v-if="i > 0" class="cp-arrow">→</span>
+                <span
+                  class="mono cp-node"
+                  :class="{ 'cp-src': (node.asrc || []).length, 'cp-sink': (node.asink || []).length }"
+                >{{ displayName(node) }}</span>
+              </template>
+              <span v-if="chainHidden(row)" class="cp-more">+{{ chainHidden(row) }} 跳</span>
+            </span>
           </template>
         </el-table-column>
         <el-table-column label="输入源" min-width="190">
@@ -179,7 +196,7 @@
           </el-radio-group>
         </div>
       </template>
-      <CodeViewer :code="srcCode" :loading="srcLoading" />
+      <CodeViewer :code="srcCode" :loading="srcLoading" :language="srcKind === 'asm' ? 'asm' : 'c'" />
     </el-dialog>
 
     <el-card shadow="never" class="block">
@@ -220,11 +237,12 @@ import { ElMessage } from 'element-plus'
 import { FileCode, Radar, RefreshCw, Route, Search } from '@lucide/vue'
 import { api } from '../api'
 import CodeViewer from '../components/CodeViewer.vue'
+import JobPicker from '../components/JobPicker.vue'
+import { NAV_ICONS } from '../workbench/icons.js'
 import { useNarrowViewport } from '../useNarrowViewport'
 
 const isNarrow = useNarrowViewport()
 
-const jobs = ref([])
 const jobId = ref('')
 const loading = ref(false)
 const loadingPaths = ref(false)
@@ -261,6 +279,16 @@ const sinkKinds = computed(() => Object.keys(attackSummary.value?.sink_counts ||
 
 function displayName (node) {
   return node.ai_name || node.name || node.addr
+}
+// 表格内只露链路两端（source + sink），中间收敛成 "+N 跳"，详情抽屉里看全链
+function chainPreview (row) {
+  const chain = row.chain || []
+  if (chain.length <= 2) return chain
+  return [chain[0], chain[chain.length - 1]]
+}
+function chainHidden (row) {
+  const chain = row.chain || []
+  return chain.length > 2 ? chain.length - 2 : 0
 }
 function scorePct (score) {
   return Math.max(4, Math.min(100, Math.round((score / 5.5) * 100)))
@@ -311,11 +339,10 @@ async function loadSource () {
   try {
     srcCode.value = await api(base + query)
   } catch (error) {
-    if (error.status === 404 && srcKind.value !== 'hexrays') {
-      // no asm export for this function: fall back to Hex-Rays
-      srcKind.value = 'hexrays'
+    if (error.status === 404 && srcKind.value === 'asm') {
       try {
-        srcCode.value = await api(base)
+        const c = await api(base)
+        srcCode.value = `// 该函数没有汇编导出，已显示伪代码。\n${c}`
       } catch (error2) {
         srcCode.value = `（源码加载失败：${error2.message}）`
       }
@@ -429,56 +456,71 @@ async function rerunRoutes () {
   }
 }
 
-onMounted(async () => {
-  try {
-    jobs.value = await api('/jobs')
-    const ready = jobs.value.find(job => ['surfaced', 'routed', 'attacked', 'graphed'].includes(job.status))
-    if (ready) {
-      jobId.value = ready.job_id
-      await loadAll()
-    }
-  } catch (error) {
-    ElMessage.error('加载任务失败: ' + error.message)
-  }
-})
+// 任务选择与自动选中由 JobPicker 完成，change 后 loadAll
 </script>
 
 <style scoped>
 .block { margin-bottom: 14px; }
-.toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-.job-select { width: min(440px, 100%); }
-.summary { margin-top: 12px; }
 .row-between { display: flex; justify-content: space-between; align-items: center; }
 .filters { margin-bottom: 12px; }
 .filter-select { width: 180px; }
 .route-search { width: min(360px, 100%); }
-.switch-label { color: #64748f; font-size: 13px; }
+.switch-label { color: var(--fw-text-3); font-size: 13px; }
 .path-table :deep(.el-table__row) { cursor: pointer; }
 .score-cell { font-weight: 700; font-family: 'JetBrains Mono', ui-monospace, Consolas, monospace; }
 .tag-gap { margin-left: 6px; }
 
+/* 表格内链路预览：两端函数 + 折叠中间跳数 */
+.chain-preview {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.cp-node {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 12px;
+  color: var(--fw-text-2);
+  max-width: 150px;
+}
+.cp-node.cp-src { color: #b45309; }
+.cp-node.cp-sink { color: #dc2626; }
+.cp-arrow { color: var(--fw-text-3); font-size: 11px; flex: none; }
+.cp-more {
+  flex: none;
+  font-size: 11px;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: var(--fw-fill);
+  color: var(--fw-brand);
+  line-height: 18px;
+}
+
 /* path detail drawer */
 .drawer-head { display: flex; align-items: baseline; gap: 10px; }
-.drawer-title { font-weight: 600; font-size: 15px; letter-spacing: 1px; color: #2b6ce5; }
+.drawer-title { font-weight: 600; font-size: 15px; letter-spacing: 1px; color: var(--fw-brand); }
 .path-detail { padding-bottom: 24px; }
 .score-panel { display: flex; gap: 18px; align-items: center; padding: 4px 0 12px; }
 .score-left { flex: 0 0 180px; }
 .score-num { font-size: 28px; font-weight: 700; font-family: 'JetBrains Mono', ui-monospace, Consolas, monospace; line-height: 1.1; }
 .score-bar { margin-top: 8px; }
-.score-facts { font-size: 12px; color: #64748f; display: flex; flex-direction: column; gap: 4px; }
+.score-facts { font-size: 12px; color: var(--fw-text-3); display: flex; flex-direction: column; gap: 4px; }
 .trace-alert { margin-bottom: 12px; }
 .trace-tag { margin-left: 6px; }
 
 .chain-v { padding-top: 4px; }
 .step { display: flex; align-items: stretch; }
 .rail { display: flex; flex-direction: column; align-items: center; width: 20px; flex: none; }
-.dot { width: 10px; height: 10px; border-radius: 50%; margin-top: 10px; flex: none; border: 2px solid rgba(28, 43, 58, .8); box-shadow: 0 0 6px rgba(43, 108, 229, .35); }
+.dot { width: 10px; height: 10px; border-radius: 50%; margin-top: 10px; flex: none; border: 2px solid rgba(28, 43, 58, .8); box-shadow: 0 0 6px color-mix(in srgb, var(--fw-brand) 35%, transparent); }
 .dot-src { background: #b45309; box-shadow: 0 0 8px rgba(180, 83, 9, .55); }
 .dot-sink { background: #dc2626; box-shadow: 0 0 8px rgba(220, 38, 38, .55); }
 .dot-both { background: linear-gradient(135deg, #b45309 50%, #dc2626 50%); box-shadow: 0 0 8px rgba(234, 88, 12, .55); }
 .dot-mid { background: #8b9cb3; }
-.line { width: 2px; flex: 1 1 auto; background: rgba(43, 108, 229, .25); margin: 2px 0; }
-.node-card { flex: 1 1 auto; min-width: 0; margin: 0 0 10px 10px; padding: 8px 10px; border: 1px solid rgba(43, 108, 229, .25); border-radius: 8px; background: #ffffff; }
+.line { width: 2px; flex: 1 1 auto; background: color-mix(in srgb, var(--fw-brand) 25%, transparent); margin: 2px 0; }
+.node-card { flex: 1 1 auto; min-width: 0; margin: 0 0 10px 10px; padding: 8px 10px; border: 1px solid color-mix(in srgb, var(--fw-brand) 25%, transparent); border-radius: 8px; background: var(--fw-surface); }
 .node-card.source { border-left: 3px solid #b45309; }
 .node-card.sink { border-left: 3px solid #dc2626; }
 .node-card.source.sink { border-left: 3px solid #ea580c; }

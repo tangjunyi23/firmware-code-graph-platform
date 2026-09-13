@@ -24,9 +24,11 @@
  */
 
 import { createWriteStream } from 'node:fs'
+import { sanitizeToolStream } from './sanitize.js'
 
 export const name = 'fwgraph-events'
 export const inject = []
+export { sanitizeChunk, sanitizeToolStream } from './sanitize.js'
 
 const FLUSH_MS = 350
 
@@ -55,26 +57,26 @@ export function apply(ctx, config) {
 
   emit('session_start', { session_id: config.sessionId, agent_id: 'dsh-fwgraph', task: config.task })
 
-  // ---- llm/stream: thinking chain + streaming text + usage ---------------
-  const blocks = new Map()      // index -> {kind, text}
-  let dirty = false
-  let timer = null
-  const flush = () => {
-    timer = null
-    if (!dirty) return
-    dirty = false
-    for (const [idx, b] of [...blocks.entries()].sort((a, z) => a[0] - z[0])) {
-      if (b.text) emit(b.kind, { text: b.text, stream: true, block: idx })
-    }
-  }
-  const schedule = () => {
-    dirty = true
-    if (timer === null) timer = setTimeout(flush, FLUSH_MS)
-  }
-
+  // Per-request maps live inside tap() so the title-LLM stream and the hunt
+  // stream cannot interleave into one thinking card.
   const tap = async function* (iter) {
+    const blocks = new Map()
+    let dirty = false
+    let timer = null
+    const flush = () => {
+      timer = null
+      if (!dirty) return
+      dirty = false
+      for (const [idx, b] of [...blocks.entries()].sort((a, z) => a[0] - z[0])) {
+        if (b.text) emit(b.kind, { text: b.text, stream: true, block: idx })
+      }
+    }
+    const schedule = () => {
+      dirty = true
+      if (timer === null) timer = setTimeout(flush, FLUSH_MS)
+    }
     try {
-      for await (const chunk of iter) {
+      for await (const chunk of sanitizeToolStream(iter)) {
         if (chunk.type === 'reasoning-delta' || chunk.type === 'text-delta') {
           const kind = chunk.type === 'reasoning-delta' ? 'thinking' : 'text'
           const b = blocks.get(chunk.index) ?? { kind, text: '' }
@@ -106,6 +108,9 @@ export function apply(ctx, config) {
     } catch (err) {
       emit('error', { message: `llm stream: ${err?.message ?? err}` })
       throw err
+    } finally {
+      if (timer !== null) clearTimeout(timer)
+      flush()
     }
   }
   ctx.on('llm/stream', (_options, next) => tap(next()), { global: true })
@@ -133,8 +138,6 @@ export function apply(ctx, config) {
 
   // ---- lifecycle -----------------------------------------------------------
   process.on('beforeExit', () => {
-    if (timer !== null) clearTimeout(timer)
-    flush()
     stream.end()
   })
 }

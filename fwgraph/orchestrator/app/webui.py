@@ -150,17 +150,58 @@ async def _proxy(request: Request, upstream_path: str, rewrite_html: bool) -> Re
                     headers=headers, media_type=None)
 
 
+_STALE_RELOAD_JS = (
+    "(function(){try{"
+    "if(sessionStorage.getItem('fwgraph_stale_reload'))return;"
+    "sessionStorage.setItem('fwgraph_stale_reload','1');"
+    "var u=new URL(location.href);u.searchParams.set('_v',Date.now());"
+    "location.replace(u);"
+    "}catch(e){}})();"
+)
+
+
+def _stale_reload_response() -> Response:
+    """Executable stub for a stale build's hashed .js: force one cache-busted
+    reload (guarded), so a page built from an old index.html recovers itself
+    instead of showing a dead white screen. A fresh page never requests
+    missing assets, so this only ever runs for stale clients."""
+    return Response(
+        content=_STALE_RELOAD_JS,
+        media_type="text/javascript; charset=utf-8",
+        headers={"Cache-Control": "no-store"},
+    )
+
+
 class SPAStaticFiles(StaticFiles):
     """StaticFiles that falls back to index.html for unknown GET/HEAD paths
-    (client-side routing / deep links)."""
+    (client-side routing / deep links).
+
+    Missing assets/ files 404 instead of falling back: serving HTML for a
+    stale hashed build's <script> URLs gets blocked by MIME checking and the
+    SPA never mounts. index.html itself is sent no-cache so browsers pick up
+    new hashed asset names right after a redeploy.
+
+    A browser still holding a PRE-no-cache index.html requests the old build's
+    hashed .js, which now 404s and would leave a dead white page. Serve those
+    a tiny executable stub that force-reloads once (sessionStorage-guarded),
+    healing stale caches without the user having to hard-refresh."""
 
     async def get_response(self, path: str, scope):
         try:
-            return await super().get_response(path, scope)
+            response = await super().get_response(path, scope)
         except StarletteHTTPException as exc:
             if exc.status_code == 404 and scope["method"] in ("GET", "HEAD"):
-                return await super().get_response("index.html", scope)
+                if path.startswith("assets/") and path.endswith(".js"):
+                    return _stale_reload_response()
+                if not path.startswith("assets/"):
+                    response = await super().get_response("index.html", scope)
+                    if str(getattr(response, "path", "")).endswith("index.html"):
+                        response.headers["Cache-Control"] = "no-cache"
+                    return response
             raise
+        if str(getattr(response, "path", "")).endswith("index.html"):
+            response.headers["Cache-Control"] = "no-cache"
+        return response
 
 
 def setup(app: FastAPI, dist_dir: Path | None = None) -> None:

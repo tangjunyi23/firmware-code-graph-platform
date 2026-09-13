@@ -1,0 +1,32 @@
+{
+  "job_id": "6df0ba4135c9",
+  "title": "uclited execFormatCmd(0x411658) 无界 vsprintf → sub_41153C fork+execve(\"/bin/sh -c\") 命令注入原语",
+  "severity": "high",
+  "confidence": 0.45,
+  "vuln_class": "command_injection",
+  "cwe": "CWE-78",
+  "binary_md5": "d61e67ed20163b7fee8bd3c606fb0331",
+  "binary_path": "firmware/binwalk_extracted/firmware.extracted/100000/squashfs-root/usr/bin/uclited",
+  "reachability": "static-only",
+  "summary": "uclited(usr/bin/uclited, md5 d61e67ed) 存在与 httpd 完全同构的命令执行原语：execFormatCmd(0x411658) 将变参无界 vsprintf 到栈上 char s[260] 后交给 sub_41153C(0x41153C)，后者 fork 子进程执行 execve(\"/bin/sh\", {\"sh\",\"-c\",cmd}, NULL)（AST 已直读证实两条函数）。调用方覆盖 ExecuteDmzCfg(0x431b84)/ExecutePtTable(0x431850)/ExecuteVsTable(0x43144c)/executeDhcpStaticRoute(0x4401ac)/execWlanCmd(0x49c84c) 等由 StartMiniServer(0x46acf8, UPnP IGD 入口 igdEnable→UpnpInit) 与 HTTP 配置解析驱动的处理器；任何未过滤字符串参数即构成 root 权限 shell -c 命令执行，超长输入同步栈溢出。动态 trace(9ecff5fde521) 空差分，无崩溃；static-only。",
+  "evidence": [
+    "fw_get_ast md5=d61e67ed addr=0x411658(execFormatCmd): char s[260]; va_start(arg,format); vsprintf(s,format,arg); return sub_41153C(s); —— 无界 vsprintf",
+    "fw_get_ast addr=0x41153c(sub_41153C): fork(); 子进程 argv={\"sh\",\"-c\",a1,NULL}; execve(\"/bin/sh\",argv,0); 父进程 waitpid —— 纯 shell -c 执行",
+    "fw_call_trace inbound execFormatCmd(uclited)：ExecuteDmzCfg 0x431b84、ExecutePtTable 0x431850、ExecuteVsTable 0x43144c、ExecuteStaticRouteTable 0x43fd18、executeDhcpStaticRoute 0x4401ac、execWlanCmd 0x49c84c 等",
+    "fw_call_trace inbound StartMiniServer(0x46acf8): UpnpInit 0x479790 → sub_47F958 → igdEnable 0x4803d8 (UPnP IGD 入口)",
+    "fw_attack_surface: uclited IN-020 tcp 输入，httpd 同构 execFormatCmd 模式",
+    "动态：9ecff5fde521(uclited stdin) ok_empty_diff、c12ed8c44dbc 等均空；无 payload 崩溃"
+  ],
+  "session_id": "s-mt6lgkly-2e7f",
+  "function_name": "execFormatCmd",
+  "preconditions": "可达 uclited 的 TCP 配置/IGD 监听（LAN 或默认口令登录态）；处理器把用户字符串作为格式化变参传入 execFormatCmd",
+  "remediation": "execFormatCmd(0x411658) 改 snprintf 并拒绝 shell 元字符；各 Execute* 处理器先做参数校验；与 httpd 端同一修法",
+  "poc": "经 uclited 的 UPnP IGD/配置入口提交含 shell 元字符的值：如 igmp 配置接口（IGMP Multicast IP）或静态路由/端口触发参数中注入 \\\"; telnetd -l /bin/sh -p 999; #（web 配置页 → uclited cgi → ExecuteDmzCfg/ExecutePtTable 等 → execFormatCmd 无界 vsprintf 拼入命令 → fork+execve /bin/sh -c 执行）；超长值(>260B)同步栈溢出",
+  "call_chain": "igdEnable(0x4803d8) → sub_47F958 → UpnpInit(0x479790) → StartMiniServer(0x46acf8) / parser_parse(0x4692f4)+parse_uri(0x464f30) → sw*/uc* 配置处理器(ExecuteDmzCfg 0x431b84 / ExecutePtTable 0x431850 / ExecuteVsTable 0x43144c / executeDhcpStaticRoute 0x4401ac / ucSetIgmpCfg) → execFormatCmd(0x411658) → sub_41153C(0x41153C) → fork+execve(\"/bin/sh\",\"-c\",cmd)",
+  "function_addr": "0x411658",
+  "id": "F-mt6nypkt-4495",
+  "status": "draft",
+  "owner": "token-admin",
+  "recorded_at": "2026-08-24T03:15:45Z",
+  "history": []
+}

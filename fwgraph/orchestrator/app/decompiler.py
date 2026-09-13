@@ -249,7 +249,7 @@ def _decompile_binary_rootfs_elf(job_id: str, binary: dict, data_dir: Path,
                 f"(see idat.log)")
             return result
 
-        done = adapt_rootfs_elf_outdir(outdir, binary)
+        done = adapt_rootfs_elf_outdir(outdir, binary, elf_path=elf)
         if done.get("status") != "ok":
             result["error"] = str(done.get("error") or "rootfs_elf adapt failed")[:300]
             return result
@@ -281,10 +281,11 @@ def run_job(job_id: str, data_dir, only_md5s=None) -> dict:
     without it every binary is decompiled and symbols.json is rewritten.
     """
     data_dir = Path(data_dir)
-    if config.ida_dir() is None:
-        # 启动 decompile job 前 fail-fast：错误会经 _decompile_worker 落入 job.error
+    worker = rootfs_elf_worker()
+    if not worker.is_file():
         raise RuntimeError(
-            "未配置 IDA_DIR：请在 fwgraph/.env 或环境变量中设置 IDA 安装目录")
+            f"未找到 rootfs_elf 反编译器：{worker}。"
+            "Docker 镜像应内置 tools/ida-no-mcp/rootfs_elf")
     t0 = time.time()
     manifest_path = data_dir / "extracted" / job_id / "manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))

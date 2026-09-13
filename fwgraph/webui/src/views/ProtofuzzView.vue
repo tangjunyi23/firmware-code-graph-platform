@@ -1,5 +1,12 @@
 <template>
   <div>
+    <header class="ins-head">
+      <div class="ins-head-row">
+        <h1 class="ins-title"><span class="ins-ico"><component :is="NAV_ICONS.Share" :size="18" /></span>协议模糊测试</h1>
+      </div>
+      <p class="ins-sub">面向协议实现的主动模糊测试。</p>
+    </header>
+
     <div class="pf-layout">
       <!-- 新建测试 -->
       <el-card shadow="never" class="new-card">
@@ -240,14 +247,13 @@
 </template>
 
 <script setup>
+import { NAV_ICONS } from '../workbench/icons.js'
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { RefreshCw } from '@lucide/vue'
-import { marked } from 'marked'
 import { api } from '../api'
+import { renderMarkdown } from '../highlight.js'
 import { useNarrowViewport } from '../useNarrowViewport'
-
-marked.setOptions({ breaks: true, gfm: true })
 
 const isNarrow = useNarrowViewport()
 const entryMode = ref('real')
@@ -436,7 +442,7 @@ async function makeReport () {
   try {
     const resp = await api(`/protofuzz/${detail.value.run_id}/report`, { method: 'POST' })
     const text = await api(`/reports/${resp.report_id}`)
-    reportHtml.value = marked.parse(String(text))
+    reportHtml.value = renderMarkdown(String(text))
     reportVisible.value = true
   } catch (e) {
     ElMessage.error(e.message)
@@ -479,10 +485,10 @@ onUnmounted(() => { if (pollTimer) clearTimeout(pollTimer) })
 .svc-tip { margin-bottom: 6px; }
 .svc-row {
   display: flex; align-items: center; gap: 8px; padding: 6px 8px;
-  border-radius: 6px; cursor: pointer; border: 1px solid rgba(43, 108, 229, .12);
+  border-radius: 6px; cursor: pointer; border: 1px solid color-mix(in srgb, var(--fw-brand) 12%, transparent);
   margin-bottom: 4px;
 }
-.svc-row:hover { background: rgba(43, 108, 229, .08); }
+.svc-row:hover { background: color-mix(in srgb, var(--fw-brand) 08%, transparent); }
 .svc-name { font-weight: 600; min-width: 90px; }
 .adv { margin-bottom: 12px; }
 .warn { margin-bottom: 12px; }
@@ -490,19 +496,19 @@ onUnmounted(() => { if (pollTimer) clearTimeout(pollTimer) })
 :deep(.ack .el-checkbox__label) { color: #b91c1c; white-space: normal; line-height: 1.5; }
 .start-btn { width: 100%; }
 .row-between { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
-.muted { color: #64748f; font-size: 12px; }
+.muted { color: var(--fw-text-3); font-size: 12px; }
 .mono { font-family: 'JetBrains Mono', ui-monospace, Consolas, monospace; }
-.poll-dot { color: #2b6ce5; margin-right: 8px; animation: pulse 1.4s ease-in-out infinite; }
+.poll-dot { color: var(--fw-brand); margin-right: 8px; animation: pulse 1.4s ease-in-out infinite; }
 .fault-n { color: #dc2626; font-weight: 700; }
 .ok { color: #16a34a; }
 .drawer-head { display: flex; align-items: baseline; gap: 10px; }
-.drawer-title { font-weight: 600; font-size: 15px; letter-spacing: 1px; color: #2b6ce5; }
+.drawer-title { font-weight: 600; font-size: 15px; letter-spacing: 1px; color: var(--fw-brand); }
 .detail-body { padding-bottom: 24px; }
 .progress-row { display: flex; align-items: center; gap: 10px; margin: 14px 0 8px; }
 .progress-row .el-progress { flex: 1; }
 .outcomes { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
-.sec-head { margin: 16px 0 8px; font-weight: 600; color: #2b6ce5; }
-.report-md { max-height: 62vh; overflow-y: auto; line-height: 1.7; color: #1c2b3a; }
+.sec-head { margin: 16px 0 8px; font-weight: 600; color: var(--fw-brand); }
+.report-md { max-height: 62vh; overflow-y: auto; line-height: 1.7; color: var(--fw-text); }
 :deep(.clickable) { cursor: pointer; }
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
 @media (max-width: 960px) {

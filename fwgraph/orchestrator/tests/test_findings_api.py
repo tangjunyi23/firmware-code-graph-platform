@@ -570,3 +570,61 @@ class TestSpawnDsh:
         assert "report exploded" in (sdir / "runner.log").read_text()
         events = (sdir / "events.sse").read_text(encoding="utf-8")
         assert "event: error" in events and "report exploded" in events
+
+
+def test_write_report_without_findings(tmp_path, monkeypatch):
+    monkeypatch.setenv("FWGRAPH_DATA", str(tmp_path))
+    va = tmp_path / "vulnagent"
+    (va / "findings").mkdir(parents=True)
+    monkeypatch.setattr(vulnagent_api, "VULNAGENT_HOME", va)
+    sdir = va / "sessions" / "s-empty-0001"
+    sdir.mkdir(parents=True)
+    state = {
+        "session_id": "s-empty-0001",
+        "task": "挖掘存在的漏洞",
+        "mode": "dynamic",
+        "job_id": JOB,
+        "turns": 6,
+        "max_turns": 80,
+        "updated_at": "2026-08-24T06:00:00Z",
+        "findings": [],
+    }
+    tdir = tmp_path / "traces" / JOB / TRACE
+    tdir.mkdir(parents=True, exist_ok=True)
+    (tdir / "trace.json").write_text(json.dumps({
+        "trace_id": TRACE,
+        "status": "ok_empty_diff",
+        "request": {"via": "net", "port": 80},
+        "diff": {"function_count": 0},
+        "error": "",
+    }), encoding="utf-8")
+    vulnagent_api._write_report(sdir, state)
+    text = (sdir / "report.md").read_text(encoding="utf-8")
+    assert "本轮没有入库漏洞" in text
+    assert "四、漏洞详情" in text
+    assert TRACE in text
+    assert "ok_empty_diff" in text
+
+
+def test_session_report_generates_when_missing(client, tmp_path):
+    sdir = tmp_path / "vulnagent" / "sessions" / "s-norep-0001"
+    sdir.mkdir(parents=True)
+    (sdir / "state.json").write_text(json.dumps({
+        "session_id": "s-norep-0001",
+        "task": "挖洞",
+        "status": "running",
+        "turns": 2,
+        "max_turns": 80,
+        "findings": [],
+        "usage": {},
+        "mode": "dynamic",
+        "job_id": JOB,
+        "owner": "admin",
+        "created_at": "2026-01-01T00:00:00Z",
+        "updated_at": "2026-01-01T00:01:00Z",
+    }), encoding="utf-8")
+    resp = client.get("/vulnagent/sessions/s-norep-0001/report",
+                      headers=_legacy())
+    assert resp.status_code == 200
+    assert "本轮没有入库漏洞" in resp.text
+    assert (sdir / "report.md").is_file()

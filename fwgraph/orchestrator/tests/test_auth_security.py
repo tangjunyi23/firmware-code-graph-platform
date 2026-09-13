@@ -228,7 +228,7 @@ class TestQuota:
         for env in ("TRACE_DAILY_PER_JOB", "FUZZ_DAILY_PER_JOB",
                     "FRIDA_DAILY_PER_JOB", "ATTACK_AI_DAILY_PER_JOB"):
             monkeypatch.delenv(env, raising=False)
-        assert accounts.quota_limit("trace") == 24
+        assert accounts.quota_limit("trace") == 96
         assert accounts.quota_limit("fuzz") == 12
         assert accounts.quota_limit("frida") == 6
         assert accounts.quota_limit("attack_ai") == 8

@@ -42,20 +42,20 @@ let selected = null
 const EDGE_COLORS = {
   CALLS: 'rgba(43, 108, 229, 0.38)',
   DEFINES: 'rgba(130, 160, 200, 0.22)',
-  CONTAINS_FILE: 'rgba(43, 108, 229, .10)',
-  CONTAINS_FOLDER: 'rgba(43, 108, 229, .10)',
+  CONTAINS_FILE: 'color-mix(in srgb, var(--fw-brand) 10%, transparent)',
+  CONTAINS_FOLDER: 'color-mix(in srgb, var(--fw-brand) 10%, transparent)',
 }
 const DEFAULT_EDGE_COLOR = 'rgba(190, 140, 220, 0.24)'
 
 // soft modern palette by node label; the CBM per-node color is only a
 // fallback so the view stays consistent with the SPA theme
 const LABEL_COLORS = {
-  File: '#8fa8c9',
-  Module: '#2b6ce5',
-  Function: '#16a34a',
-  Project: '#7c3aed',
-  Branch: '#b45309',
-  Folder: '#0284c7',
+  File: '#f59e0b',
+  Module: '#2dd4bf',
+  Function: '#34d399',
+  Project: '#a78bfa',
+  Branch: '#fb923c',
+  Folder: '#38bdf8',
 }
 
 function rebuild () {
@@ -98,10 +98,9 @@ function render () {
   dirty = false
   ctx.save()
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-  ctx.fillStyle = '#f4f8fd'
+  ctx.fillStyle = '#f7f8fa'
   ctx.fillRect(0, 0, viewW, viewH)
-  // subtle dot grid so panning/zooming has a visual reference
-  ctx.fillStyle = 'rgba(43, 108, 229, 0.12)'
+  ctx.fillStyle = 'rgba(19, 76, 255, 0.10)'
   const grid = 28
   for (let gx = (transform.ox % grid + grid) % grid; gx < viewW; gx += grid) {
     for (let gy = (transform.oy % grid + grid) % grid; gy < viewH; gy += grid) {
@@ -150,10 +149,10 @@ function render () {
     const isHl = hl && (n.name || '').toLowerCase().includes(hl)
     ctx.beginPath()
     ctx.arc(sx, sy, isHl ? r + 2.5 : r, 0, Math.PI * 2)
-    ctx.fillStyle = LABEL_COLORS[n.label] || n.color || '#2b6ce5'
+    ctx.fillStyle = LABEL_COLORS[n.label] || n.color || '#38bdf8'
     ctx.fill()
     ctx.lineWidth = 0.8
-    ctx.strokeStyle = 'rgba(28, 43, 58, 0.35)'
+    ctx.strokeStyle = 'rgba(8, 15, 28, 0.55)'
     ctx.stroke()
     if (isHl) {
       ctx.lineWidth = 1.6
@@ -164,11 +163,11 @@ function render () {
       ctx.beginPath()
       ctx.arc(sx, sy, r + 4, 0, Math.PI * 2)
       ctx.lineWidth = 1.8
-      ctx.strokeStyle = '#2b6ce5'
+      ctx.strokeStyle = '#38bdf8'
       ctx.stroke()
     }
     if ((isHl || showLabels || (selected && selected.id === n.id)) && n.name) {
-      ctx.fillStyle = '#1c2b3a'
+      ctx.fillStyle = '#e8eef8'
       ctx.font = '10px sans-serif'
       ctx.fillText(n.name.length > 40 ? n.name.slice(0, 39) + '…' : n.name, sx + r + 2, sy + 3)
     }
@@ -273,11 +272,11 @@ watch(() => props.fitSignal, fit)
 .graph-canvas-wrap {
   width: 100%;
   height: 66vh;
-  border: 1px solid rgba(43, 108, 229, .25);
+  border: 1px solid color-mix(in srgb, var(--fw-brand) 25%, transparent);
   border-radius: 6px;
   overflow: hidden;
-  background: #eef3fa;
-  box-shadow: inset 0 0 30px rgba(43, 108, 229, .06);
+  background: var(--fw-bg-2);
+  box-shadow: inset 0 0 30px color-mix(in srgb, var(--fw-brand) 06%, transparent);
 }
 canvas { display: block; cursor: grab; }
 canvas:active { cursor: grabbing; }

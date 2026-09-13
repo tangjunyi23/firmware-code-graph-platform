@@ -8,9 +8,10 @@
   >
     <div
       class="wb-body"
-      :style="{ gridTemplateColumns: `${RAIL}px minmax(0, 1fr) ${cols.details}px` }"
+      :style="bodyGrid"
     >
-    <aside class="wb-rail">
+    <div v-if="isNarrow && railOpen" class="rail-mask" aria-hidden="true" @click="railOpen = false" />
+    <aside class="wb-rail" :class="{ open: isNarrow && railOpen }">
       <SidebarJobs
         :active-sid="activeSid"
         :job-id="currentJobId"
@@ -24,6 +25,18 @@
       />
     </aside>
     <main class="wb-main">
+      <header class="stage-bar">
+        <button
+          v-if="isNarrow"
+          type="button"
+          class="rail-toggle"
+          aria-label="打开对话列表"
+          @click="railOpen = true"
+        >
+          <IconPanelLeftOutline16 :size="16" />
+        </button>
+        <span class="stage-title">{{ firmwareLabel || 'FWGraph' }}</span>
+      </header>
       <div class="conv" :data-phase="phase">
         <div class="scroll-wrap" v-show="phase === 'active'">
           <div
@@ -51,11 +64,16 @@
         </div>
         <div ref="seatRef" class="composer-seat" data-composer-seat>
           <div class="composer-stack" :class="{ 'composer-hero': phase === 'hero' }">
+            <div v-if="phase === 'hero'" class="hero-copy">
+              <h1>今天挖哪一块固件？</h1>
+              <p>选一个已完成的分析任务，直接描述入口或漏洞类型。</p>
+            </div>
             <div v-if="phase === 'hero'" class="hero-workspace-row">
               <button
                 ref="chipRef"
                 type="button"
                 class="workspace"
+                data-tour="wb-workspace"
                 :aria-expanded="pickerOpen"
                 :aria-label="t('hero.chooseWorkspace')"
                 @click="pickerOpen = !pickerOpen"
@@ -69,6 +87,7 @@
                 :open="pickerOpen"
                 :jobs="readyJobs"
                 :selected-id="currentJobId"
+                :anchor="chipRef"
                 @close="pickerOpen = false"
                 @pick="onPickJob"
               />
@@ -123,7 +142,7 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, provide, reactive, ref, watch } from 'vue'
+import { computed, inject, nextTick, onBeforeUnmount, onMounted, provide, reactive, ref, watch } from 'vue'
 import './tokens.css'
 import SidebarJobs from './SidebarJobs.vue'
 import MessageList from './MessageList.vue'
@@ -142,9 +161,20 @@ import { t } from './locales.js'
 import {
   DEFAULT_TASK, HUNT_TURNS, pipelineFinished
 } from './pipeline.js'
-import { IconFolderClose16, IconFolderOpen16, IconChevronDownOutline14 } from './icons.js'
+import { IconFolderClose16, IconFolderOpen16, IconChevronDownOutline14, IconPanelLeftOutline16 } from './icons.js'
 
-const RAIL = 280
+const RAIL = 260
+
+// ≤900px：会话栏转抽屉，主区单列
+const isNarrow = ref(false)
+const railOpen = ref(false)
+let narrowMq = null
+function onNarrowMq (e) {
+  isNarrow.value = e.matches
+  if (!e.matches) railOpen.value = false
+}
+
+
 const DETAILS_MIN = 300
 const DETAILS_MAX = 520
 const DETAILS_DEFAULT = 360
@@ -178,6 +208,11 @@ const cols = computed(() => computeColumns(
   viewport.value,
   detailsOpen.value ? detailsPref.value : 0
 ))
+const bodyGrid = computed(() => ({
+  gridTemplateColumns: isNarrow.value
+    ? 'minmax(0, 1fr)'
+    : `${RAIL}px minmax(0, 1fr) ${cols.value.details}px`
+}))
 
 const frameRef = ref(null)
 const scrollEl = ref(null)
@@ -197,6 +232,8 @@ provide('wbCatalog', catalog)
 provide('wbTheme', theme)
 provide('wbOpenSettings', () => { settingsOpen.value = true })
 provide('wbOpenTrajectory', () => { trajectoryOpen.value = true })
+provide('wbAccount', inject('wbAccount', ref(null)))
+
 
 const trajectoryOpen = ref(false)
 const settingsOpen = ref(false)
@@ -216,7 +253,37 @@ const readyJobs = computed(() =>
 )
 const phase = computed(() => (activeSid.value ? 'active' : 'hero'))
 
+function writeSidQuery (sid) {
+  const url = new URL(window.location.href)
+  if (sid) url.searchParams.set('sid', sid)
+  else url.searchParams.delete('sid')
+  window.history.replaceState(null, '', url)
+  try {
+    if (sid) sessionStorage.setItem('fwgraph_wb_sid', sid)
+    else sessionStorage.removeItem('fwgraph_wb_sid')
+  } catch { /* private mode */ }
+}
+
+function restoreSid () {
+  let sid = ''
+  try {
+    sid = new URL(window.location.href).searchParams.get('sid')
+      || sessionStorage.getItem('fwgraph_wb_sid')
+      || ''
+  } catch {
+    sid = ''
+  }
+  sid = String(sid || '').trim()
+  if (!sid) return
+  const sess = (catalog.state.sessions || []).find((s) => s.session_id === sid)
+  onSelectSession({
+    sid,
+    jobId: sess?.job_id || sessionJobMap[sid] || ''
+  })
+}
+
 function onSelectSession ({ sid, jobId, expectRunning = false }) {
+  railOpen.value = false
   pickerOpen.value = false
   if (jobId) {
     currentJobId.value = jobId
@@ -226,10 +293,12 @@ function onSelectSession ({ sid, jobId, expectRunning = false }) {
   }
   if (activeSid.value === sid) {
     if (expectRunning) session.state.running = true
+    writeSidQuery(sid)
     return
   }
   session.detach()
   activeSid.value = sid
+  writeSidQuery(sid)
   if (sid) session.attach(sid, { expectRunning })
 }
 
@@ -240,7 +309,7 @@ function onSelectJob (job) {
 function onPickJob (job) {
   pickerOpen.value = false
   if (!pipelineFinished(job)) {
-    notice.value = { level: 'error', text: '该前置任务尚未完成，请到「前置任务」页等待或新建。' }
+    notice.value = { level: 'error', text: '该分析任务尚未完成，请到「分析任务」页等待或新建。' }
     return
   }
   notice.value = null
@@ -251,7 +320,7 @@ function onPickJob (job) {
 function onNewSession () {
   session.detach()
   activeSid.value = null
-  currentJobId.value = ''
+  writeSidQuery('')
   firmwareLabel.value = ''
   draft.value = ''
   notice.value = null
@@ -259,6 +328,7 @@ function onNewSession () {
   inspected.value = null
   detailsOpen.value = false
 }
+
 
 async function onStopSession ({ sid }) {
   if (!sid) return
@@ -316,6 +386,7 @@ async function onPurgeArchived () {
   if (archived.some((s) => s.session_id === activeSid.value)) {
     session.detach()
     activeSid.value = null
+    writeSidQuery('')
     draft.value = ''
     inspected.value = null
     detailsOpen.value = false
@@ -400,7 +471,7 @@ async function onSend () {
   }
   const job = catalog.jobById(jobId)
   if (!job || !pipelineFinished(job)) {
-    notice.value = { level: 'error', text: '请选择已完成的前置任务后再发送。' }
+    notice.value = { level: 'error', text: '请选择已完成的分析任务后再发送。' }
     return
   }
   sending.value = true
@@ -411,29 +482,54 @@ async function onSend () {
   }
 }
 
-const follow = ref(true)
 function onScroll () {
   const el = scrollEl.value
   if (!el) return
   const gap = el.scrollHeight - el.scrollTop - el.clientHeight
-  follow.value = gap <= 24
   showToBottom.value = gap > 48
 }
+
+let scrollAnim = 0
+function animateScrollTo (el, top, ms = 320) {
+  if (scrollAnim) cancelAnimationFrame(scrollAnim)
+  const from = el.scrollTop
+  const to = Math.max(0, top)
+  if (Math.abs(to - from) < 2) {
+    el.scrollTop = to
+    onScroll()
+    return
+  }
+  const t0 = performance.now()
+  const ease = (t) => 1 - (1 - t) ** 3
+  const step = (now) => {
+    const p = Math.min(1, (now - t0) / ms)
+    el.scrollTop = from + (to - from) * ease(p)
+    if (p < 1) scrollAnim = requestAnimationFrame(step)
+    else {
+      scrollAnim = 0
+      onScroll()
+    }
+  }
+  scrollAnim = requestAnimationFrame(step)
+}
+
 function scrollToBottom () {
   const el = scrollEl.value
   if (!el) return
-  el.scrollTop = el.scrollHeight
-  follow.value = true
-  showToBottom.value = false
+  animateScrollTo(el, el.scrollHeight)
 }
-let scrollRaf = 0
-watch(() => session.state.rev, () => {
-  if (!follow.value) return
-  if (scrollRaf) return
-  scrollRaf = requestAnimationFrame(() => {
-    scrollRaf = 0
-    scrollToBottom()
-  })
+
+function jumpToBottom () {
+  const el = scrollEl.value
+  if (!el) return
+  el.scrollTop = el.scrollHeight
+  onScroll()
+}
+
+watch([activeSid, () => session.state.loadingHistory], async ([sid, loading]) => {
+  if (!sid || loading) return
+  await nextTick()
+  jumpToBottom()
 })
 
 let seatObs = null
@@ -468,6 +564,9 @@ function startDrag (which, ev) {
 let catalogTimer = null
 let frameRo = null
 onMounted(() => {
+  narrowMq = window.matchMedia('(max-width: 900px)')
+  onNarrowMq(narrowMq)
+  narrowMq.addEventListener('change', onNarrowMq)
   const el = frameRef.value
   let raf = null
   if (el) {
@@ -480,14 +579,19 @@ onMounted(() => {
     frameRo.observe(el)
   }
   onResize()
-  catalog.refresh()
-  catalogTimer = setInterval(() => catalog.refresh(), 5000)
+  catalog.refresh().then(() => restoreSid())
+  catalogTimer = setInterval(() => {
+    if (typeof document !== 'undefined' && document.hidden) return
+    catalog.refresh({ silent: true })
+  }, 20000)
 })
 onBeforeUnmount(() => {
   session.detach()
   if (catalogTimer) clearInterval(catalogTimer)
   if (frameRo) frameRo.disconnect()
   if (seatObs) seatObs.disconnect()
+  if (scrollAnim) cancelAnimationFrame(scrollAnim)
+  if (narrowMq) narrowMq.removeEventListener('change', onNarrowMq)
 })
 </script>
 
@@ -499,15 +603,48 @@ onBeforeUnmount(() => {
   height: 100%;
   min-height: 0;
   overflow: hidden;
-  background: var(--dsw-alias-bg-base);
+  background: transparent;
   color: var(--dsw-alias-label-primary);
   font-family: var(--dsw-font-family);
 }
+
 .wb-rail {
   min-width: 0;
   overflow: hidden;
   background: var(--dsw-specific-sidebar-fill);
-  border-right: 1px solid var(--dsw-alias-border-l1);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-right: 1px solid var(--fw-line);
+}
+.rail-toggle {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  flex: none;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+}
+.rail-toggle:hover { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); }
+.rail-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 950;
+  background: rgba(19, 18, 18, .42);
+}
+@media (max-width: 900px) {
+  .wb-rail {
+    position: fixed;
+    inset: 0 auto 0 0;
+    z-index: 960;
+    width: min(300px, 84vw);
+    transform: translateX(-102%);
+    transition: transform .22s ease;
+  }
+  .wb-rail.open { transform: translateX(0); box-shadow: var(--fw-shadow-lg); }
 }
 .wb-body {
   position: relative;
@@ -527,6 +664,38 @@ onBeforeUnmount(() => {
   flex-direction: column;
   overflow: hidden;
 }
+.stage-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  height: 48px;
+  padding: 0 20px;
+}
+.stage-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--dsw-alias-label-primary);
+}
+.hero-copy {
+  padding: 0 20px 8px;
+  text-align: left;
+}
+.hero-copy h1 {
+  margin: 0 0 8px;
+  font-size: 28px;
+  font-weight: 650;
+  letter-spacing: -0.04em;
+  color: var(--dsw-alias-label-primary);
+}
+.hero-copy p {
+  margin: 0;
+  font-size: 14px;
+  color: var(--dsw-alias-label-tertiary);
+}
 .wb-details {
   min-width: 0;
   overflow: hidden;
@@ -539,7 +708,7 @@ onBeforeUnmount(() => {
   flex-direction: column;
   height: 100%;
   min-width: 0;
-  background: var(--dsw-alias-bg-base);
+  background: transparent;
   --dsh-chat-content-width: 748px;
   --dsh-composer-card-max-width: calc(var(--dsh-chat-content-width) + 32px);
   --dsh-composer-side-clearance: 16px;
@@ -649,6 +818,7 @@ onBeforeUnmount(() => {
   background: var(--dsw-alias-button-floating-fill);
   box-shadow: var(--dsw-shadow-lv2);
   cursor: pointer;
+  transition: transform .18s ease, opacity .18s ease;
 }
 .to-bottom:hover { background: var(--dsw-alias-button-floating-hover); }
 

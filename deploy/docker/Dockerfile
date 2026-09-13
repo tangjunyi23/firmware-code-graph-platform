@@ -51,6 +51,8 @@ RUN pip install --no-cache-dir -r /app/fwgraph/requirements.txt \
 COPY fwgraph/ /app/fwgraph/
 COPY --from=webui /build/webui/dist /app/fwgraph/webui/dist
 COPY vulnagent/ /app/vulnagent/
+# ELF 反编译：仓库内 rootfs_elf（来自 rootfs_elf.tar.gz，无 Hex-Rays 许可文件）
+COPY tools/ida-no-mcp/rootfs_elf/ /app/tools/ida-no-mcp/rootfs_elf/
 
 # 可选组件：IDA 反编译器与 cbm 二进制（上下文缺失时为空目录，功能缺席不阻断）
 RUN mkdir -p /opt/ida /opt/cbmbin
@@ -67,7 +69,7 @@ RUN chmod +x /entrypoint.sh
 
 ENV FWGRAPH_ROOT=/app/fwgraph \
     FWGRAPH_DATA=/data \
-    IDA_DIR=/opt/ida \
+    ROOTFS_ELF_WORKER=/app/tools/ida-no-mcp/rootfs_elf/ida_worker.py \
     SANDBOX_BACKEND=docker \
     QEMU_BIN_DIR=/usr/bin \
     ORCH_HOST=0.0.0.0 \

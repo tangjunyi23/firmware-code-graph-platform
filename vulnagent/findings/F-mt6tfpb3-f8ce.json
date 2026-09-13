@@ -1,0 +1,30 @@
+{
+  "job_id": "6df0ba4135c9",
+  "title": "uclited PPTP/L2TP 拨号用户名/密码/服务器未过滤拼入 shell 命令（认证后命令注入）",
+  "severity": "high",
+  "confidence": 0.5,
+  "vuln_class": "command-injection",
+  "cwe": "CWE-78",
+  "binary_md5": "d61e67ed20163b7fee8bd3c606fb0331",
+  "binary_path": "firmware/binwalk_extracted/firmware.extracted/100000/squashfs-root/usr/bin/uclited",
+  "reachability": "static-only",
+  "summary": "uclited 的 pptpFormatCmd(0x44a63c) 与 l2tpFormatCmd(0x44b748) 将 WAN 拨号配置中用户可控的服务器地址(a1+28)、用户名(a1+284)、密码(a1+540)经 sprintf(\"%s\") 原样拼入最终交给 /bin/sh 执行的命令串（execFormatCmd→sub_41153C fork+execve(\"/bin/sh\")）。httpd 侧只有 PPTP/L2TP 域名（服务器）字段的 swChk*Domain 校验，用户名/密码无等价过滤；而 uclited 本地 UCL 配置口（127.0.0.1:51237）可完全绕过 httpd 校验直接把上述字段写入。含 shell 元字符或闭合引号的用户名/服务器值即触发 root 命令注入。",
+  "evidence": [
+    "Hex-Rays(0x44a63c): sprintf(a2, \"pppd pptp pptp_server %s \", (const char *)(a1 + 28)); … sprintf(&a2[v2], \" user \\\"%s\\\" password \\\"%s\\\" \", (const char *)(a1 + 284), (const char *)(a1 + 540)); —— 服务器/用户名/密码原样拼入",
+    "Hex-Rays(0x44b748): sprintf(&a2[v2], \" user \\\"%s\\\" password \\\"%s\\\" \", (const char *)(a1 + 284), (const char *)(a1 + 540));（同款）",
+    "上游 httpd 仅对域名字段有 swChkPptpDomain/swChkL2tpDomain 校验（0x4b6344/0x4b7120），用户名/密码无同类过滤；且 uclited 的 127.0.0.1:51237 UCL 配置入口可绕过 httpd 校验",
+    "执行侧: execFormatCmd(0x411658)→sub_41153C fork+execve(/bin/sh)（pptpCmdReq 等经此执行）"
+  ],
+  "session_id": "s-mt6lgkly-2e7f",
+  "function_name": "pptpFormatCmd",
+  "preconditions": "需已认证 Web 权限设置 PPTP/L2TP 账号（域名/服务器字段在 httpd 侧有校验，但用户名/密码字段未过滤；引号内用户名可用含 \\\" 的值闭合引号注入）；或具有本地 UCL 配置通道（127.0.0.1:51237）绕过 httpd 校验。",
+  "remediation": "用户名/密码/服务器字段在拼入命令前做白名单校验并转义；命令使用 execve 参数数组；PPPoE/PPTP/L2TP 三处 FormatCmd 统一治理。",
+  "poc": "Web「WAN→PPTP/L2TP」（认证后）设置用户名为：\nx\";telnetd -l /bin/sh;\"\n保存并触发拨号（或经本地 UCL 接口直接下发同名字段）→ pptpFormatCmd 拼出\npppd pptp pptp_server <ip>  user \"x\";telnetd -l /bin/sh;\" password \"...\" → /bin/sh 执行注入。",
+  "call_chain": "opWan → swSetPptpCfg(0x4ec324)/pptpCmdReq(0x44a3c0) → pptpFormatCmd(0x44a63c)/l2tpFormatCmd(0x44b748) → system/shell 执行",
+  "function_addr": "0x44a63c",
+  "id": "F-mt6tfpb3-f8ce",
+  "status": "draft",
+  "owner": "token-admin",
+  "recorded_at": "2026-08-24T05:48:56Z",
+  "history": []
+}

@@ -98,6 +98,26 @@ def test_truncation_marked_with_finding_id(vuln_home, tmp_path):
 # 未关联发现 → 附录
 # ---------------------------------------------------------------------------
 
+def test_github_findings_match_local_job_by_binary_md5(vuln_home, tmp_path):
+    """Clone findings keep the original job_id; attach by ELF md5."""
+    data = tmp_path / "data"
+    md5 = "b" * 32
+    man = data / "extracted" / "job-local" / "manifest.json"
+    man.parent.mkdir(parents=True)
+    man.write_text(json.dumps({
+        "binaries": [{"md5": md5, "path": "usr/bin/httpd"}],
+    }), encoding="utf-8")
+    _write_finding(vuln_home, _mk_finding(
+        "F-gh-00001", job_id="job-from-github",
+        binary_md5=md5, title="GitHub 入库 httpd 命令注入"))
+    _write_finding(vuln_home, _mk_finding(
+        "F-other-0001", job_id="other-fw",
+        binary_md5="c" * 32, title="别的固件不应出现"))
+    md = _gen("job-local", data)
+    assert "GitHub 入库 httpd 命令注入" in md
+    assert "别的固件不应出现" not in md
+
+
 def test_unrelated_findings_moved_to_appendix(vuln_home, tmp_path):
     _write_finding(vuln_home, _mk_finding("F-rel-00001", job_id="job1"))
     _write_finding(vuln_home, _mk_finding("F-unr-00001", job_id="",

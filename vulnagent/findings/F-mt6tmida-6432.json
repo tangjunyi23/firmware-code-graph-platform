@@ -1,0 +1,29 @@
+{
+  "job_id": "6df0ba4135c9",
+  "title": "httpd NAS Samba 用户名/密码未过滤经 execFormatCmd 命令注入（认证后）",
+  "severity": "high",
+  "confidence": 0.5,
+  "vuln_class": "command-injection",
+  "cwe": "CWE-78",
+  "binary_md5": "9582aa23b0bc2de099b9997b09457d01",
+  "binary_path": "firmware/binwalk_extracted/firmware.extracted/100000/squashfs-root/usr/bin/httpd",
+  "reachability": "static-only",
+  "summary": "httpd NAS 模块的 nasSambaSetUserList(0x5471d0) 在设置 Samba 共享用户时执行 execFormatCmd(\"%s -p %s -a %s\", \"smbpasswd\", 密码, 用户名)，用户名仅经 myStrlwr 转小写、密码原样，随后 execFormatCmd(0x5308cc) 用 vsprintf 拼入 260 字节栈缓冲并交给 tp_systemEx 以 /bin/sh 执行。认证用户在 USB 存储用户管理页填入含 ';'、'$()' 的用户名/密码即触发 root 命令注入；超长字段同时造成 execFormatCmd 栈溢出。",
+  "evidence": [
+    "Hex-Rays(0x5471d0): execFormatCmd(\"%s -p %s -a %s\", \"smbpasswd\", (const char *)&a1[44 * v5 + 6], v7); 其中 v7 = myStrlwr((char *)&a1[44 * v5 + 2], v29) —— 用户名（仅转小写）与密码原样进命令",
+    "Hex-Rays(0x5308cc): char s[260]; vsprintf(s, format, arg); return tp_systemEx(s); —— 无长度/字符过滤的 shell 执行",
+    "调用侧: nasSambaStart(0x54780c)/sub_547740 等 NAS Samba 服务启动路径均经 execFormatCmd"
+  ],
+  "session_id": "s-mt6lgkly-2e7f",
+  "function_name": "nasSambaSetUserList",
+  "preconditions": "需已认证 Web 权限且开启 USB/NAS 存储（Archer C7 v2 带 USB 口）；Samba 共享用户名经 myStrlwr 仅转小写，未过滤 shell 元字符（';'、'$()' 等在转小写后保留）。",
+  "remediation": "共享用户名/密码做白名单校验（[A-Za-z0-9_.-]）后再拼命令；execFormatCmd 改用参数数组执行，避免经 shell。",
+  "poc": "Web「USB→用户管理」新增共享用户（认证后），用户名为：\nx;telnetd -l /bin/sh;x\n保存 → nasSambaSetUserList 执行 execFormatCmd(\"smbpasswd -p <pass> -a x;telnetd -l /bin/sh;x\") → /bin/sh 执行注入载荷。",
+  "call_chain": "httpd NAS 用户管理入口（认证后） → nasSambaSetUserList(0x5471d0) → execFormatCmd(0x5308cc) → vsprintf → tp_systemEx(/bin/sh)",
+  "function_addr": "0x5471d0",
+  "id": "F-mt6tmida-6432",
+  "status": "draft",
+  "owner": "token-admin",
+  "recorded_at": "2026-08-24T05:54:14Z",
+  "history": []
+}

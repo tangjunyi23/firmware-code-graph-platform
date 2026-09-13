@@ -1,0 +1,30 @@
+{
+  "job_id": "6df0ba4135c9",
+  "title": "httpd b64_decode 忽略目标长度导致修改密码接口栈越界写（认证后）",
+  "severity": "medium",
+  "confidence": 0.5,
+  "vuln_class": "stack-overflow",
+  "cwe": "CWE-121",
+  "binary_md5": "9582aa23b0bc2de099b9997b09457d01",
+  "binary_path": "firmware/binwalk_extracted/firmware.extracted/100000/squashfs-root/usr/bin/httpd",
+  "reachability": "static-only",
+  "summary": "httpd 的 base64 解码器 b64_decode(0x52f4bc) 完全忽略 dstlen 参数（仅 _assert(dstlen>0)），解码循环每 4 个输入字符写 3 个输出字节且无上界检查。唯一调用点 sub_47DBF0（POST /userRpm/ChangeLoginPwdRpm.htm 修改登录密码，需认证）把 URL 编码表单中的 oldpassword/newpassword/newpassword3 直接 b64 解码进 32 字节目标窗口（v32[16]/v32[65]/src[36]）。解码输出超过 33~34 字节（base64 输入 ≥ 46 字符）即发生栈越界写，可覆盖相邻局部变量、NAS 配置结构 s[1948] 乃至保存寄存器。",
+  "evidence": [
+    "Hex-Rays(0x52f4bc): if ( !a1 || a2 <= 0 ) _assert(...); result = 0; ... 解码循环 while ( v11 > 0 ) 每 4 输入字节写 3 输出字节，全程未用 dstlen(a2) 做上界检查",
+    "Hex-Rays(0x47dbf0): b64_decode(&v32[16], 32, oldpassword, strlen(oldpassword)); b64_decode(&v32[65], 32, newpassword, strlen(newpassword)); ... b64_decode(src, 32, newpassword3, strlen(newpassword3))；v32 仅 98 字节、src 仅 36 字节",
+    "Hex-Rays(0x47dbf0) 顶部: if ( !HttpAccessPermit(a1) ) return HttpDenyPage(a1) —— 需已认证会话",
+    "唯一调用者(fw_call_trace): 0x47dbf0"
+  ],
+  "session_id": "s-mt6lgkly-2e7f",
+  "function_name": "b64_decode",
+  "preconditions": "需已认证（HttpAccessPermit）；入侵者提交超长 base64 字段即可令 b64_decode 无视 32 字节 dstlen 越界写；实际可覆盖范围取决于请求体 env 值解析上限。",
+  "remediation": "b64_decode 应在写入前检查输出长度不超过 dstlen（HELPER 字节计数），或调用侧先按 strlen(src)*3/4+1 校验；sub_47DBF0 处对输入长度做上限校验。",
+  "poc": "POST /userRpm/ChangeLoginPwdRpm.htm HTTP/1.1\nHost: 192.168.1.1\nCookie: <已认证会话>\nContent-Type: application/x-www-form-urlencoded\nContent-Length: 8192\n\nSave=Save&oldpassword=<46+ 字节 base64 串>&newpassword=<超长 base64 串>&newpassword3=<超长 base64 串>\n（newpassword 的 base64 解码输出超过 33 字节即突破 &v32[65] 的 32 字节目标窗口，继续写入相邻栈变量与 NAS 结构 s）",
+  "call_chain": "httpDispatcher(0x425d08) → sub_47DBF0(0x47dbf0) → b64_decode(0x52f4bc)(&v32[65]/&v32[16]/src[36], 32, env值) → 栈越界写",
+  "function_addr": "0x52f4bc",
+  "id": "F-mt6szdqy-3380",
+  "status": "draft",
+  "owner": "token-admin",
+  "recorded_at": "2026-08-24T05:36:14Z",
+  "history": []
+}

@@ -11,8 +11,10 @@ docker 不可用时的兜底：fuzz/frida -> none（宿主直跑，调用方写�
 trace -> userns（原有 unshare 路径）。
 
 兄弟容器路径（Phase 3）：编排器自身容器化后，docker run -v 的源路径由宿主
-daemon 解析，与容器内路径不一致；设置 SANDBOX_HOST_PREFIX 后，run_sandboxed
-把挂载源中以容器内 FWGRAPH_DATA 开头的前缀改写为宿主侧路径（host_mount_path）。
+daemon 解析，与容器内路径不一致。host_mount_path 把以容器内 FWGRAPH_DATA
+开头的挂载源改写成宿主侧路径：优先读 SANDBOX_HOST_PREFIX；未设或为占位符
+时自动从 docker inspect / mountinfo 取 /data 卷的 Source，compose 不必写死
+本机绝对路径。
 """
 
 import os
@@ -20,6 +22,7 @@ import shutil
 import signal
 import subprocess
 import threading
+from pathlib import Path
 
 # 统一资源限额；调用方写 meta 时引用同一组常量，避免漂移
 DEFAULT_LIMITS = {"memory": "2g", "cpus": 2, "pids": 256}
@@ -27,21 +30,99 @@ DEFAULT_LIMITS = {"memory": "2g", "cpus": 2, "pids": 256}
 VALID_BACKENDS = ("docker", "userns", "none")
 
 _DOCKER_OK = None
+_HOST_DATA_PREFIX = None
+
+
+def _data_root() -> str:
+    return os.getenv("FWGRAPH_DATA", "/data").strip().rstrip("/") or "/data"
+
+
+def _prefix_from_mountinfo(dest: str) -> str:
+    """从 /proc/self/mountinfo 读 dest 对应的宿主 bind 源。"""
+    try:
+        text = Path("/proc/self/mountinfo").read_text(encoding="utf-8",
+                                                      errors="replace")
+    except OSError:
+        return ""
+    best = ""
+    best_len = 0
+    for line in text.splitlines():
+        parts = line.split()
+        if len(parts) < 10:
+            continue
+        try:
+            dash = parts.index("-")
+        except ValueError:
+            continue
+        if dash < 6:
+            continue
+        root, mount_point = parts[3], parts[4]
+        if mount_point == dest or dest.startswith(mount_point + "/"):
+            # bind：root 是源文件系统上的路径
+            if root and root != "/":
+                extra = dest[len(mount_point):] if mount_point != dest else ""
+                cand = root.rstrip("/") + extra
+            else:
+                cand = ""
+            if cand and len(mount_point) >= best_len:
+                best = cand
+                best_len = len(mount_point)
+    return best
+
+
+def _prefix_from_docker_inspect(dest: str) -> str:
+    """容器内通过 docker.sock 查自己 /data 挂载的 Source。"""
+    cid = os.getenv("HOSTNAME", "").strip()
+    if not cid:
+        return ""
+    try:
+        proc = subprocess.run(
+            ["docker", "inspect", "--format",
+             '{{range .Mounts}}{{if eq .Destination "%s"}}{{.Source}}{{end}}{{end}}'
+             % dest, cid],
+            capture_output=True, text=True, timeout=8)
+    except Exception:  # noqa: BLE001
+        return ""
+    src = (proc.stdout or "").strip()
+    return src if src.startswith("/") else ""
+
+
+def _explicit_host_prefix() -> str:
+    """SANDBOX_HOST_PREFIX：仅接受绝对路径；占位符 / 相对路径视为未设置。"""
+    raw = os.getenv("SANDBOX_HOST_PREFIX", "").strip().rstrip("/")
+    if not raw or not raw.startswith("/"):
+        return ""
+    if "CHANGE_ME" in raw.upper():
+        return ""
+    return raw
+
+
+def resolved_host_data_prefix() -> str:
+    """宿主侧数据目录。优先有效的 SANDBOX_HOST_PREFIX，否则自动探测。"""
+    global _HOST_DATA_PREFIX
+    explicit = _explicit_host_prefix()
+    if explicit:
+        return explicit
+    if _HOST_DATA_PREFIX is not None:
+        return _HOST_DATA_PREFIX
+    dest = _data_root()
+    src = _prefix_from_docker_inspect(dest) or _prefix_from_mountinfo(dest)
+    _HOST_DATA_PREFIX = src
+    return src
 
 
 def host_mount_path(path) -> str:
     """docker run -v 挂载源的宿主侧路径（兄弟容器路径改写，Phase 3）。
 
-    编排器自身跑在容器里、经挂载的 docker.sock 起兄弟沙箱容器时，-v 的源
-    路径由宿主 docker daemon 解析——容器内路径在宿主上通常不存在。此时设置
-    SANDBOX_HOST_PREFIX 为宿主侧数据目录绝对路径，本函数把源路径中以容器内
-    FWGRAPH_DATA（默认 /data）开头的前缀替换为它。默认空 = 宿主直跑，不改写。
+    编排器在容器内经 docker.sock 起兄弟容器时，-v 源路径由宿主 daemon 解析。
+    前缀来自有效的 SANDBOX_HOST_PREFIX，或自动识别 /data 的 bind/volume Source。
+    未探测到则原样返回（宿主直跑）。
     """
     path = str(path)
-    prefix = os.getenv("SANDBOX_HOST_PREFIX", "").strip().rstrip("/")
+    prefix = resolved_host_data_prefix()
     if not prefix:
         return path
-    data = os.getenv("FWGRAPH_DATA", "/data").strip().rstrip("/") or "/data"
+    data = _data_root()
     if path == data or path.startswith(data + "/"):
         return prefix + path[len(data):]
     return path
@@ -98,13 +179,14 @@ def run_sandboxed(cmd, *, image, mounts, workdir=None, network="none",
                   extra_hosts=None, ports=None, env=None,
                   mem=DEFAULT_LIMITS["memory"], cpus=DEFAULT_LIMITS["cpus"],
                   pids=DEFAULT_LIMITS["pids"], timeout=None, log_path=None,
-                  name=None, sysctls=None, user=None, cap_add=None):
+                  name=None, sysctls=None, user=None, cap_add=None,
+                  ipc=None):
     """以隔离容器运行 cmd，返回 docker run 客户端的 Popen。
 
     cmd            容器内执行的 argv（调用方负责容器内路径的正确性）
     mounts         [(host_path, container_path, mode)]，mode 如 "ro"/"rw"；
-                   host_path 经 host_mount_path() 改写为宿主侧路径（仅当
-                   SANDBOX_HOST_PREFIX 非空且源路径在 FWGRAPH_DATA 下）
+                   host_path 经 host_mount_path() 改写为宿主侧路径（源路径
+                   在 FWGRAPH_DATA 下且已解析到宿主前缀时）
     ports          需发布到宿主 127.0.0.1 的端口列表（service 型 trace 用）
     sysctls        docker --sysctl 键值（service 型 trace 把
                    net.ipv4.ip_unprivileged_port_start=0，让 uid 1000 能
@@ -127,6 +209,8 @@ def run_sandboxed(cmd, *, image, mounts, workdir=None, network="none",
                   "--pids-limit", str(pids),
                   "--memory", str(mem), "--cpus", str(cpus),
                   "--tmpfs", "/tmp:rw,size=512m"]
+    if ipc:
+        docker_cmd += ["--ipc", str(ipc)]
     for host_path, container_path, mode in mounts or []:
         docker_cmd += ["-v", f"{host_mount_path(host_path)}:"
                              f"{container_path}:{mode}"]

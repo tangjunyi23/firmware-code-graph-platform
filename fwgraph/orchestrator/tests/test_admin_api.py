@@ -209,6 +209,16 @@ class TestSystemConfig:
         assert client.get("/system/config", headers=_legacy()
                           ).json()["IDA_WORKERS"] == "5"
 
+    def test_onboard_tour_default_and_toggle(self, client):
+        got = client.get("/system/config", headers=_legacy()).json()
+        assert got["UI_ONBOARD_TOUR"] == "1"
+        resp = client.put("/system/config", headers=_legacy(),
+                          json={"UI_ONBOARD_TOUR": "0"})
+        assert resp.status_code == 200
+        assert resp.json()["UI_ONBOARD_TOUR"] == "0"
+        assert client.get("/system/config", headers=_legacy()
+                          ).json()["UI_ONBOARD_TOUR"] == "0"
+
     def test_system_info_shape(self, client):
         resp = client.get("/system/info", headers=_legacy())
         assert resp.status_code == 200
@@ -387,3 +397,41 @@ class TestDashboard:
         assert body["jobs_total"] == 1
         assert body["jobs_by_status"] == {"graphing": 1}
         assert body["running"][0]["job_id"] == JOB
+        for key in ("findings_by_severity", "findings_by_class",
+                    "findings_by_reachability", "series", "high_risk",
+                    "traces_total", "traces_with_diff", "hit_rate",
+                    "vendor_rank", "scan_log", "radar", "reports"):
+            assert key in body
+        assert body["running"][0]["progress"] >= 0
+        assert "status_label" in body["running"][0]
+        assert [x["key"] for x in body["findings_by_severity"]] == [
+            "critical", "high", "medium", "low", "info"]
+        assert body["series"]["days"]
+        assert len(body["series"]["days"]) == 14
+        assert body["series"]["findings"] == [0] * 14
+
+    def test_quant_from_findings_and_traces(self, client, tmp_path):
+        findings = tmp_path / "vulnagent" / "findings"
+        (findings / "F-demo-0001.json").write_text(json.dumps({
+            "id": "F-demo-0001",
+            "severity": "high",
+            "vuln_class": "cmdi",
+            "reachability": "static-only",
+            "recorded_at": "2026-08-24T01:00:00Z",
+        }), encoding="utf-8")
+        tdir = tmp_path / "traces" / JOB / "aabbccddeeff"
+        tdir.mkdir(parents=True)
+        (tdir / "trace.json").write_text(json.dumps({
+            "trace_id": "aabbccddeeff",
+            "status": "ok",
+            "diff": {"function_count": 3},
+            "created_at": "2026-08-24T02:00:00Z",
+        }), encoding="utf-8")
+        body = client.get("/dashboard", headers=_legacy()).json()
+        assert body["findings_total"] == 1
+        assert body["high_risk"] == 1
+        sev = {row["key"]: row["count"] for row in body["findings_by_severity"]}
+        assert sev["high"] == 1
+        assert body["findings_by_class"][0]["key"] == "command-injection"
+        assert body["traces_total"] == 1
+        assert body["traces_with_diff"] == 1

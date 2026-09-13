@@ -261,6 +261,8 @@ def _export_function_index(out_dir: str, source_path: str) -> None:
     with open(index_path, "w", encoding="utf-8", errors="ignore") as f:
         for ea in funcs:
             name = idc.get_func_name(ea)
+            func = ida_funcs.get_func(ea)
+            size = func.size() if func is not None else 0
             callers = _get_callers(ea)
             callees = _get_callees(ea)
             entry_line = entry_line_map.get(name, 0)
@@ -276,6 +278,7 @@ def _export_function_index(out_dir: str, source_path: str) -> None:
             obj = {
                 "name": name,
                 "address": hex(ea),
+                "size": size,
                 "filename": "source.c",
                 "entry_line": entry_line,
                 "callers": [hex(x) for x in callers],
@@ -285,6 +288,29 @@ def _export_function_index(out_dir: str, source_path: str) -> None:
             }
             f.write(json.dumps(obj, ensure_ascii=False))
             f.write("\n")
+
+
+def _export_function_asm(out_dir: str) -> None:
+    """Per-function disassembly in fwgraph functions/<addr>.asm format.
+
+    Same header + ``{:08x}: <disasm>`` lines as pipeline/decompile/ida_export.py,
+    so CFG / 函数页汇编 / protocol_reverse 都能吃。
+    """
+    funcs_dir = os.path.join(out_dir, "functions")
+    _ensure_dir(funcs_dir)
+    for func_ea in idautils.Functions():
+        func = ida_funcs.get_func(func_ea)
+        if func is None:
+            continue
+        name = idc.get_func_name(func_ea) or ""
+        size = func.size()
+        path = os.path.join(funcs_dir, hex(func_ea) + ".asm")
+        with open(path, "w", encoding="utf-8", errors="ignore") as fh:
+            fh.write("// addr={} name={} arch={} size={}\n".format(
+                hex(func_ea), name, "", size))
+            for item in idautils.FuncItems(func.start_ea):
+                fh.write("{:08x}: {}\n".format(
+                    item, idc.generate_disasm_line(item, 0) or ""))
 
 
 def _export_decompiled_functions(out_dir: str) -> None:
@@ -505,6 +531,9 @@ def export_all(
     if not no_function_index:
         _export_function_index(out_dir, source_path)
         _append_log(log_path, "[export] function_index.jsonl")
+
+    _export_function_asm(out_dir)
+    _append_log(log_path, "[export] functions/*.asm")
 
     if not no_decompile_funcs:
         _export_decompiled_functions(out_dir)

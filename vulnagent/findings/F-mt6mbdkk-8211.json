@@ -1,0 +1,30 @@
+{
+  "job_id": "6df0ba4135c9",
+  "title": "xl2tpd start_pppd 网络源命令执行路径（L2TP 控制面会话参数 → pppd 启动命令）",
+  "severity": "medium",
+  "confidence": 0.4,
+  "vuln_class": "command_injection",
+  "cwe": "CWE-78",
+  "binary_md5": "08b0860102c4b034bfbae2238115a7e6",
+  "binary_path": "firmware/binwalk_extracted/firmware.extracted/100000/squashfs-root/usr/sbin/xl2tpd",
+  "reachability": "static-only",
+  "summary": "xl2tpd(usr/sbin/xl2tpd, md5 08b08601，平台打标为 TP-Link 深度魔改版) 的 start_pppd(0x404db0) 是本次固件图里唯一一条 source=network→sink=cmdexec 的高分路径（score 5.65，入口出度 22）。接收 L2TP 对等点控制报文的 network_thread(0x4114d0) → handle_packet/do_control/magic_lac_dial → control_finish(0x40784c) 后用会话参数拉起 pppd，若参数（主机名/用户名/密码）未经 shell 转义拼入命令，即以 xl2tpd 权限执行任意命令。注：identification gate 将 xl2tpd 标为 not-public（基础设施守护进程），实际可达性取决于 L2TP 会话能否由对端建立；动态 qemu trace 未覆盖该 ELF。",
+  "evidence": [
+    "fw_attack_surface path 31d5fd40d73972f9: source=network(0x404db0 start_pppd) sink=cmdexec score=5.65 sanitizer=strlen",
+    "fw_call_trace inbound start_pppd: control_finish(0x40784c,hop1)、sub_403668、handle_packet(0x40a728)、sub_403AF8、network_thread(0x4114d0,hop3)、do_control(0x4041b4)、magic_lac_dial(0x403d3c) —— L2TP 控制面报文驱动的 PPP 拨号路径",
+    "L2TP 控制消息（SCCRQ/ICRQ 等）携带会话参数，双方对等点 TCP/UDP 1701/对端地址可控，network_thread 直接收包",
+    "动态：xl2tpd 未被列入公网输入（identification EXCLUDED not-public），qemu trace 未跑"
+  ],
+  "session_id": "s-mt6lgkly-2e7f",
+  "function_name": "start_pppd",
+  "preconditions": "需要能建立 L2TP 控制会话的对端（WAN 侧对端可达或可诱导设备发起 LAC 拨号）；start_pppd 用会话参数拼接 pppd 命令行（字符串无转义则注入成立）",
+  "remediation": "start_pppd 改用参数数组 execv 而非 shell 拼接；对会话 username/password/hostname 做长度与字符过滤；升级 xl2tpd",
+  "poc": "构造 L2TP 控制连接：向 xl2tpd 端口(默认 1701/udp-tcp)发送 SCCRQ 建立隧道、ICRQ 建立会话，会话 AV/宿主名字段（e.g. hostname=\\\"x;telnetd;#\\\"）经 network_thread→do_control→control_finish 进入 start_pppd 拼装 pppd 启动命令。命令注入测试串：hostname = a;touch /tmp/pwned;#（完整对端=攻击者网关，隧道协商为预条件）",
+  "call_chain": "network_thread(0x4114d0) → handle_packet(0x40a728) / do_control(0x4041b4) / magic_lac_dial(0x403d3c) → control_finish(0x40784c) → start_pppd(0x404db0) → cmdexec(system/exec)",
+  "function_addr": "0x404db0",
+  "id": "F-mt6mbdkk-8211",
+  "status": "draft",
+  "owner": "token-admin",
+  "recorded_at": "2026-08-24T02:29:37Z",
+  "history": []
+}

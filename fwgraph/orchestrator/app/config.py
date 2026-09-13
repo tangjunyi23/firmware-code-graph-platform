@@ -37,7 +37,74 @@ def data_dir() -> Path:
     return Path(os.getenv("FWGRAPH_DATA", str(FWGRAPH_ROOT / "data")))
 
 
+# 用户把 IDA 整包丢进这些目录即可被识别（含一层子目录，如 ida-pro-9.1/）。
+IDA_DROP_DEFAULTS = ("/opt/ida-drop",)
+_IDA_MARKERS = ("idat", "idat64", "libidalib.so")
+
+
+def looks_like_ida(root: Path) -> bool:
+    """True if root looks like an IDA install (idat or idalib present)."""
+    try:
+        if not root.is_dir():
+            return False
+        return any((root / name).is_file() for name in _IDA_MARKERS)
+    except OSError:
+        return False
+
+
+def find_ida_install(root: Path, depth: int = 2) -> Path | None:
+    """Return root or a descendant (≤ depth) that looks like IDA."""
+    if looks_like_ida(root):
+        return root.resolve()
+    if depth <= 0:
+        return None
+    try:
+        children = sorted(p for p in root.iterdir() if p.is_dir())
+    except OSError:
+        return None
+    for child in children:
+        found = find_ida_install(child, depth - 1)
+        if found is not None:
+            return found
+    return None
+
+
+def ida_drop_dirs() -> list[Path]:
+    """Directories the user may drop an IDA tree into."""
+    out: list[Path] = []
+    extra = os.getenv("IDA_DROP_DIR", "").strip()
+    if extra:
+        out.append(Path(extra))
+    out.append(data_dir() / "ida")
+    out.extend(Path(p) for p in IDA_DROP_DEFAULTS)
+    # bundled image context (/opt/ida) only if it actually contains IDA
+    out.append(Path("/opt/ida"))
+    seen: set[str] = set()
+    uniq: list[Path] = []
+    for path in out:
+        key = str(path)
+        if key in seen:
+            continue
+        seen.add(key)
+        uniq.append(path)
+    return uniq
+
+
 def ida_dir() -> Path | None:
-    """IDA 安装目录（IDA_DIR）；未配置时返回 None，由调用方给出报错。"""
-    value = os.getenv("IDA_DIR", "").strip()
-    return Path(value) if value else None
+    """Resolved IDA install directory.
+
+    Order: valid ``IDA_DIR`` → drop-in folders → explicit ``IDA_DIR`` even if
+    empty (tests / 自定义路径) → None. ``/opt/ida`` 空占位不算有效安装。
+    """
+    explicit = os.getenv("IDA_DIR", "").strip()
+    if explicit:
+        candidate = Path(explicit)
+        if looks_like_ida(candidate):
+            return candidate.resolve()
+    for root in ida_drop_dirs():
+        found = find_ida_install(root)
+        if found is not None:
+            return found
+    if explicit and Path(explicit) != Path("/opt/ida"):
+        return Path(explicit)
+    return None

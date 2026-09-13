@@ -631,15 +631,15 @@ onUnmounted(() => {
 
 <style scoped>
 .card { margin-bottom: 12px; }
-.card-title { font-weight: 600; letter-spacing: 1px; color: #2b6ce5; }
+.card-title { font-weight: 600; letter-spacing: 1px; color: var(--fw-brand); }
 .row-between { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .launch-row { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
 .cols { display: flex; gap: 12px; align-items: stretch; }
 .col-sessions { flex: 0 0 320px; }
 .col-events { flex: 1 1 auto; min-width: 0; }
-.sess-item { padding: 8px; border: 1px solid rgba(43, 108, 229, .22); border-radius: 6px; margin-bottom: 8px; cursor: pointer; }
-.sess-item:hover { background: rgba(43, 108, 229, .08); }
-.sess-item.active { border-color: #2b6ce5; background: rgba(43, 108, 229, .13); box-shadow: 0 0 10px rgba(43, 108, 229, .18); }
+.sess-item { padding: 8px; border: 1px solid color-mix(in srgb, var(--fw-brand) 22%, transparent); border-radius: 6px; margin-bottom: 8px; cursor: pointer; }
+.sess-item:hover { background: color-mix(in srgb, var(--fw-brand) 08%, transparent); }
+.sess-item.active { border-color: var(--fw-brand); background: color-mix(in srgb, var(--fw-brand) 13%, transparent); box-shadow: 0 0 10px color-mix(in srgb, var(--fw-brand) 18%, transparent); }
 .sess-head { display: flex; justify-content: space-between; align-items: center; }
 .sid { font-size: 12px; }
 .sess-task { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin: 4px 0; }
@@ -647,25 +647,25 @@ onUnmounted(() => {
 /* event stream */
 .ev-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 8px; flex-wrap: wrap; }
 .ev-toolbar-right { display: flex; align-items: center; gap: 10px; }
-.events { height: 520px; overflow-y: auto; background: #f4f8fd; border: 1px solid rgba(43, 108, 229, .22); border-radius: 8px; padding: 10px; }
+.events { height: 520px; overflow-y: auto; background: var(--fw-surface-2); border: 1px solid color-mix(in srgb, var(--fw-brand) 22%, transparent); border-radius: 8px; padding: 10px; }
 .events .pad { padding: 12px; text-align: center; }
-.ev-card { background: #ffffff; border: 1px solid rgba(43, 108, 229, .22); border-left-width: 3px; border-radius: 8px; padding: 8px 10px; margin-bottom: 8px; }
+.ev-card { background: var(--fw-surface); border: 1px solid color-mix(in srgb, var(--fw-brand) 22%, transparent); border-left-width: 3px; border-radius: 8px; padding: 8px 10px; margin-bottom: 8px; }
 .ev-head { display: flex; align-items: center; gap: 6px; min-height: 20px; }
 .ev-head.clickable { cursor: pointer; user-select: none; }
 .ev-head time, .ev-marker time, .ev-usage time { margin-left: auto; color: #8b9cb3; font-size: 11px; flex: none; }
 .ev-icon { flex: none; }
 .ev-label { font-size: 12px; font-weight: 600; }
-.ev-preview { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #64748f; font-size: 12px; }
+.ev-preview { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fw-text-3); font-size: 12px; }
 .chev { flex: none; color: #8b9cb3; transition: transform 0.15s; }
 .chev.open { transform: rotate(90deg); }
 .ev-body { margin-top: 6px; font-size: 13px; line-height: 1.6; white-space: pre-wrap; word-break: break-word; }
 .mono-sm { font-size: 12px; font-family: 'JetBrains Mono', ui-monospace, Consolas, monospace; }
-.ev-code { margin: 6px 0 0; background: #f4f8fd; color: #3d5470; border: 1px solid rgba(43, 108, 229, .18); border-radius: 6px; padding: 8px 10px; font-size: 12px; line-height: 1.5; overflow-x: auto; white-space: pre; }
+.ev-code { margin: 6px 0 0; background: var(--fw-surface-2); color: var(--fw-text-2); border: 1px solid color-mix(in srgb, var(--fw-brand) 18%, transparent); border-radius: 6px; padding: 8px 10px; font-size: 12px; line-height: 1.5; overflow-x: auto; white-space: pre; }
 .ev-thinking { border-left-color: #8b9cb3; }
-.ev-thinking .ev-label { color: #64748f; }
-.ev-thinking .ev-body { color: #64748f; font-style: italic; }
-.ev-text { border-left-color: #2b6ce5; }
-.ev-text .ev-label { color: #2b6ce5; }
+.ev-thinking .ev-label { color: var(--fw-text-3); }
+.ev-thinking .ev-body { color: var(--fw-text-3); font-style: italic; }
+.ev-text { border-left-color: var(--fw-brand); }
+.ev-text .ev-label { color: var(--fw-brand); }
 .ev-tool-call { border-left-color: #b45309; }
 .ev-tool-call .tool-name { color: #b45309; font-weight: 600; font-size: 12px; }
 .ev-tool-result { border-left-color: #16a34a; }
@@ -676,17 +676,17 @@ onUnmounted(() => {
 .ev-error .ev-label { color: #dc2626; }
 .ev-marker { display: flex; align-items: center; gap: 6px; color: #16a34a; font-size: 12px; padding: 2px 4px; margin-bottom: 8px; }
 .ev-marker-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ev-usage { display: flex; align-items: center; gap: 6px; justify-content: flex-end; color: #64748f; font-size: 11px; margin-bottom: 8px; padding: 0 4px; }
+.ev-usage { display: flex; align-items: center; gap: 6px; justify-content: flex-end; color: var(--fw-text-3); font-size: 11px; margin-bottom: 8px; padding: 0 4px; }
 
 /* findings */
 .finding-detail { padding: 4px 16px; font-size: 13px; }
 .finding-detail p { margin: 4px 0; }
 .finding-detail ul { margin: 4px 0; padding-left: 20px; }
 .errata-box { margin-top: 6px; padding: 8px 10px; background: rgba(180, 83, 9, .09); border: 1px solid rgba(180, 83, 9, .35); border-radius: 6px; color: #b45309; }
-.oq-box { margin-top: 6px; padding: 8px 10px; background: rgba(43, 108, 229, .07); border: 1px solid rgba(43, 108, 229, .2); border-radius: 6px; color: #3d5470; }
+.oq-box { margin-top: 6px; padding: 8px 10px; background: color-mix(in srgb, var(--fw-brand) 07%, transparent); border: 1px solid color-mix(in srgb, var(--fw-brand) 2%, transparent); border-radius: 6px; color: var(--fw-text-2); }
 .cwe-tag { margin-left: 6px; }
 .review-tag { margin-right: 6px; }
-.struck { text-decoration: line-through; color: #64748f; }
+.struck { text-decoration: line-through; color: var(--fw-text-3); }
 .rel-tag { margin-right: 6px; font-family: 'JetBrains Mono', ui-monospace, Consolas, monospace; }
 .report { max-height: 60vh; overflow: auto; white-space: pre-wrap; font-size: 12px; }
 
@@ -694,20 +694,20 @@ onUnmounted(() => {
 .mode-switch { display: inline-flex; gap: 6px; margin: 0 8px; }
 .mode-btn {
   padding: 5px 14px; border-radius: 6px; cursor: pointer; font-size: 13px;
-  background: #ffffff; border: 1px solid rgba(43, 108, 229, .22); color: #3d5470;
+  background: var(--fw-surface); border: 1px solid color-mix(in srgb, var(--fw-brand) 22%, transparent); color: var(--fw-text-2);
   transition: box-shadow .2s, border-color .2s, color .2s;
 }
-.mode-btn:hover { border-color: rgba(43, 108, 229, .55); }
+.mode-btn:hover { border-color: color-mix(in srgb, var(--fw-brand) 55%, transparent); }
 .mode-btn.on {
-  border-color: #2b6ce5; color: #2b6ce5;
-  box-shadow: 0 0 10px rgba(43, 108, 229, .3), inset 0 0 6px rgba(43, 108, 229, .08);
+  border-color: var(--fw-brand); color: var(--fw-brand);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--fw-brand) 3%, transparent), inset 0 0 6px color-mix(in srgb, var(--fw-brand) 08%, transparent);
 }
 .mode-tag {
   float: right; margin-left: 6px; padding: 0 6px; border-radius: 4px;
-  font-size: 11px; line-height: 18px; border: 1px solid rgba(43, 108, 229, .35);
-  color: #64748f;
+  font-size: 11px; line-height: 18px; border: 1px solid color-mix(in srgb, var(--fw-brand) 35%, transparent);
+  color: var(--fw-text-3);
 }
-.mode-tag.dynamic { color: #2b6ce5; border-color: rgba(43, 108, 229, .5); }
+.mode-tag.dynamic { color: var(--fw-brand); border-color: color-mix(in srgb, var(--fw-brand) 5%, transparent); }
 
 /* ===== 流式事件动效 ===== */
 /* 事件流容器：自动滚动平滑推进，不再瞬跳 */
@@ -725,12 +725,12 @@ onUnmounted(() => {
 
 /* 脉冲青色小圆点：LIVE 徽标与流式卡片共用 */
 .live-dot {
-  width: 7px; height: 7px; border-radius: 50%; background: #2b6ce5; flex: none;
+  width: 7px; height: 7px; border-radius: 50%; background: var(--fw-brand); flex: none;
   display: inline-block; animation: live-pulse 1.2s ease-in-out infinite;
 }
 @keyframes live-pulse {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(43, 108, 229, .5); opacity: 1; }
-  50% { box-shadow: 0 0 0 5px rgba(43, 108, 229, 0); opacity: .55; }
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--fw-brand) 5%, transparent); opacity: 1; }
+  50% { box-shadow: 0 0 0 5px color-mix(in srgb, var(--fw-brand) 0%, transparent); opacity: .55; }
 }
 
 /* 面板头部 LIVE 徽标 */
@@ -749,16 +749,16 @@ onUnmounted(() => {
 
 /* 流式进行中的卡片：呼吸辉光边框 */
 .ev-card.is-live {
-  border-left-color: #2b6ce5;
+  border-left-color: var(--fw-brand);
   animation: ev-in .18s ease-out, live-glow 1.6s ease-in-out infinite;
 }
 @keyframes live-glow {
-  0%, 100% { box-shadow: 0 0 4px rgba(43, 108, 229, .12); }
-  50% { box-shadow: 0 0 14px rgba(43, 108, 229, .4); }
+  0%, 100% { box-shadow: 0 0 4px color-mix(in srgb, var(--fw-brand) 12%, transparent); }
+  50% { box-shadow: 0 0 14px color-mix(in srgb, var(--fw-brand) 4%, transparent); }
 }
 
 /* 流式文本光标 */
-.stream-cursor { color: #2b6ce5; animation: blink .8s step-end infinite; }
+.stream-cursor { color: var(--fw-brand); animation: blink .8s step-end infinite; }
 /* 流式文本体：内容增长时柔和平滑（透明度/位移过渡） */
 .ev-body, .ev-thinking-body, .ev-text-body, .ev-pre {
   transition: opacity .22s ease;
@@ -795,11 +795,11 @@ onUnmounted(() => {
   display: flex; align-items: center; gap: 8px;
   margin: -10px -10px 8px; padding: 6px 10px;
   background: rgba(255, 255, 255, .94); backdrop-filter: blur(4px);
-  border-bottom: 1px solid rgba(43, 108, 229, .2);
-  border-radius: 8px 8px 0 0; font-size: 12px; color: #3d5470;
+  border-bottom: 1px solid color-mix(in srgb, var(--fw-brand) 2%, transparent);
+  border-radius: 8px 8px 0 0; font-size: 12px; color: var(--fw-text-2);
 }
-.usage-icon { color: #2b6ce5; flex: none; }
-.usage-num { font-family: 'JetBrains Mono', ui-monospace, Consolas, monospace; color: #2b6ce5; font-weight: 600; }
+.usage-icon { color: var(--fw-brand); flex: none; }
+.usage-num { font-family: 'JetBrains Mono', ui-monospace, Consolas, monospace; color: var(--fw-brand); font-weight: 600; }
 
 @media (max-width: 900px) {
   .cols { flex-direction: column; }

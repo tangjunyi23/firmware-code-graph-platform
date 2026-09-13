@@ -517,9 +517,36 @@ def _validate_finding(payload: dict) -> dict:
     return doc
 
 
+def _trace_digest(job_id: str, limit: int = 24) -> list[dict]:
+    """Newest traces for the session report (status/via/diff only)."""
+    if not job_id:
+        return []
+    root = _data_dir() / "traces" / job_id
+    if not root.is_dir():
+        return []
+    rows = []
+    files = sorted(root.glob("*/trace.json"),
+                   key=lambda p: p.stat().st_mtime, reverse=True)
+    for path in files[:limit]:
+        try:
+            doc = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        req = doc.get("request") or {}
+        diff = doc.get("diff") or {}
+        rows.append({
+            "trace_id": doc.get("trace_id") or path.parent.name,
+            "status": doc.get("status") or "",
+            "via": req.get("via") or "",
+            "port": req.get("port"),
+            "functions": diff.get("function_count"),
+            "error": (doc.get("error") or "")[:160],
+        })
+    return rows
+
+
 def _write_report(sdir: Path, state: dict) -> None:
-    """Standard Chinese vuln report for dsh-engine sessions (builtin writes
-    its own via Session.writeReport). Both mining modes produce it."""
+    """Always write a Chinese hunt report, even when nothing was recorded."""
     findings = []
     for fid in state.get("findings", []):
         f = VULNAGENT_HOME / "findings" / f"{fid}.json"
@@ -528,8 +555,6 @@ def _write_report(sdir: Path, state: dict) -> None:
                 findings.append(json.loads(f.read_text(encoding="utf-8")))
             except (OSError, json.JSONDecodeError):
                 continue
-    if not findings:
-        return
     sev_label = {"critical": "严重", "high": "高危", "medium": "中危",
                  "low": "低危", "info": "提示"}
     rank = {s: i for i, s in enumerate(
@@ -540,49 +565,227 @@ def _write_report(sdir: Path, state: dict) -> None:
     for f in findings:
         counts[f.get("severity", "info")] = counts.get(
             f.get("severity", "info"), 0) + 1
-    lines = ["# 漏洞挖掘报告", "", "## 一、任务信息", "",
-             f"- 会话：{state.get('session_id', sdir.name)}",
-             f"- 任务：{state.get('task', '')}",
-             f"- 引擎：dsh（模式：{state.get('mode', 'dynamic')}）",
-             f"- 固件任务：{state.get('job_id', '')}",
-             f"- 报告时间：{state.get('updated_at', '')}", "",
-             "## 二、发现统计", "",
-             f"- 共 {len(findings)} 个漏洞：" + "，".join(
-                 f"{sev_label.get(k, k)} {v} 个" for k, v in counts.items()),
-             "", "## 三、漏洞详情", ""]
+    traces = _trace_digest(str(state.get("job_id") or ""))
+    with_diff = sum(1 for t in traces if (t.get("functions") or 0) > 0)
+
+    def cell(v):
+        return str(v if v is not None else "").replace("|", "\\|") \
+            .replace("\n", " ").strip() or "-"
+
+    sid = state.get("session_id", sdir.name)
+    job_id = state.get("job_id", "")
+    lines = [
+        "# 漏洞挖掘报告", "",
+        f"> 会话 `{cell(sid)}` · 固件任务 `{cell(job_id)}` · "
+        f"{cell(state.get('updated_at', ''))}",
+        "",
+        "## 一、任务信息", "",
+        "| 项 | 内容 |", "| --- | --- |",
+        f"| 任务目标 | {cell(state.get('task', ''))} |",
+        f"| 引擎 | dsh（模式：{cell(state.get('mode', 'dynamic'))}） |",
+        f"| 轮次 | {state.get('turns', 0)} / {state.get('max_turns', '')} |",
+        "",
+        "## 二、发现统计", "",
+    ]
+    if findings:
+        lines += ["| 危害等级 | 数量 |", "| --- | --- |"]
+        for k in ("critical", "high", "medium", "low", "info"):
+            if k in counts:
+                lines.append(f"| **{sev_label[k]}** | {counts[k]} |")
+        lines.append(f"| 合计 | {len(findings)} |")
+    else:
+        lines.append("- 本轮没有入库漏洞。空差分、连通、启动崩溃不是漏洞，未做投机记录。")
+    lines += ["", "## 三、动态验证", "",
+              f"- 摘录最近 {len(traces)} 条 trace，其中非空差分 {with_diff} 条。"]
+    if traces:
+        lines += ["",
+                  "| Trace | 状态 | 入口 | 差分函数 | 备注 |",
+                  "| --- | --- | --- | --- | --- |"]
+        for t in traces:
+            port = f":{t['port']}" if t.get("port") else ""
+            nfn = t.get("functions")
+            nfn_s = "-" if nfn is None else str(nfn)
+            via = f"{t.get('via') or '-'}{port}"
+            lines.append(
+                f"| `{cell(t.get('trace_id'))}` | {cell(t.get('status'))} "
+                f"| `{cell(via)}` | {nfn_s} | {cell(t.get('error'))} |")
+    else:
+        lines.append("- （还没有 trace 记录）")
+    lines += ["", "## 四、漏洞详情", ""]
+    if not findings:
+        lines += ["（无入库条目）", ""]
     for i, f in enumerate(findings, 1):
-        lines += [f"### 漏洞 {i}：{f.get('title')}（{f.get('id')}）", "",
-                  f"- **漏洞类型**：{f.get('vuln_class', '')}"
-                  + (f"（{f['cwe']}）" if f.get("cwe") else ""),
-                  f"- **危害等级**：{sev_label.get(f.get('severity'), f.get('severity'))}"
-                  f"（置信度 {f.get('confidence')}）",
-                  f"- **影响组件**：{f.get('binary_path') or f.get('binary_md5')}"
-                  f"（md5: {f.get('binary_md5')}）",
-                  f"- **漏洞位置**：{f.get('function_name') or '?'} @ {f.get('function_addr')}",
-                  f"- **可达性**：{f.get('reachability', 'static-only')}",
-                  f"- **漏洞描述**：{f.get('summary', '')}"]
+        cwe = f.get("cwe") or ""
+        addr = f.get("function_addr") or ""
+        md5 = f.get("binary_md5") or ""
+        sev = sev_label.get(f.get("severity"), f.get("severity"))
+        lines += [
+            f"### 漏洞 {i}：{f.get('title')}（`{f.get('id')}`）", "",
+            "| 字段 | 内容 |", "| --- | --- |",
+            f"| 漏洞类型 | {cell(f.get('vuln_class', ''))}"
+            + (f" `{cell(cwe)}`" if cwe else "") + " |",
+            f"| 危害等级 | **{cell(sev)}**"
+            f"（置信度 {cell(f.get('confidence'))}） |",
+            f"| 影响组件 | `{cell(f.get('binary_path') or md5)}` |",
+            f"| 二进制指纹 | `{cell(md5)}` |",
+            f"| 漏洞位置 | `{cell(f.get('function_name') or '?')}` @ "
+            f"`{cell(addr)}` |",
+            f"| 可达性 | {cell(f.get('reachability', 'static-only'))} |",
+            "",
+            f"**漏洞描述**：{f.get('summary', '')}",
+            "",
+        ]
         if f.get("sanitization"):
-            lines.append(f"- **消毒与防护现状**：{f['sanitization']}")
-        lines.append("- **漏洞证据**：")
-        for j, e in enumerate(f.get("evidence", []), 1):
-            lines.append(f"  {j}. {e}")
+            lines += [f"**消毒与防护现状**：{f['sanitization']}", ""]
+        evid = f.get("evidence") or []
+        if evid:
+            lines.append("**漏洞证据**：")
+            lines.append("")
+            for j, e in enumerate(evid, 1):
+                lines.append(f"{j}. {e}")
+            lines.append("")
         chain = (f.get("call_chain") or "").strip()
         if not chain:
             src = (f.get("source_summary") or "").strip()
             sink = (f.get("sink_function") or "").strip()
             if src or sink:
                 chain = f"{src or '入口未知'} → {sink or 'sink 未知'}"
-        lines += ["", "**调用链**：", "", chain or "（未给出调用链）", ""]
+        lines += ["**调用链**：", ""]
+        if chain:
+            lines += ["```", chain.replace("```", "'''"), "```", ""]
+        else:
+            lines += ["（未给出调用链）", ""]
         poc = (f.get("poc") or f.get("exploit_sketch") or "").strip()
         lines += ["**漏洞 PoC**：", ""]
         if poc:
-            lines += ["```", poc, "```", ""]
+            lines += ["```", poc.replace("```", "'''"), "```", ""]
         else:
             lines += ["（未给出可复现 PoC）", ""]
         if f.get("remediation"):
-            lines.append(f"- **修复建议**：{f['remediation']}")
+            lines += [f"**修复建议**：{f['remediation']}", ""]
         lines.append("")
     (sdir / "report.md").write_text(chr(10).join(lines), encoding="utf-8")
+
+
+def _parse_sse_file(path: Path) -> list[tuple[str, dict]]:
+    """Parse vulnagent events.sse into (type, data) pairs."""
+    if not path.is_file():
+        return []
+    out: list[tuple[str, dict]] = []
+    ev = None
+    buf: list[str] = []
+
+    def flush():
+        nonlocal ev, buf
+        if ev is None:
+            buf = []
+            return
+        raw = "\n".join(buf).strip()
+        buf = []
+        typ, ev = ev, None
+        if not raw:
+            return
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError:
+            return
+        if isinstance(data, dict):
+            out.append((typ, data))
+
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return []
+    for line in text.splitlines():
+        if line.startswith("event:"):
+            flush()
+            ev = line[6:].strip()
+        elif line.startswith("data:"):
+            buf.append(line[5:].lstrip())
+        elif not line.strip():
+            flush()
+    flush()
+    return out
+
+
+def _history_from_sse(sdir: Path, payload: dict | None = None) -> dict:
+    """Replay events.sse as harness session.history, without booting dsh.
+
+    stream:true 中间帧丢掉，只留 block 终态，打开已结束会话不必等宿主。
+    """
+    payload = payload or {}
+    try:
+        cap = int(payload.get("maxMessages") or 160)
+    except (TypeError, ValueError):
+        cap = 160
+    cap = max(20, min(cap, 800))
+    harness: list[dict] = []
+
+    def add(typ: str, data: dict, seq=None):
+        harness.append({
+            "event": {"type": typ, "seq": len(harness) + 1, "data": data},
+        })
+
+    for typ, data in _parse_sse_file(sdir / "events.sse"):
+        seq = data.get("seq")
+        if typ == "session_start":
+            task = str(data.get("task") or "").strip()
+            if task:
+                add("user/message",
+                    {"content": task, "source": {"kind": "user"}}, seq)
+        elif typ in ("thinking", "text"):
+            if data.get("stream") is True:
+                continue
+            text = str(data.get("text") or "")
+            if not text:
+                continue
+            kind = "reasoning" if typ == "thinking" else "text"
+            turn = int(seq or len(harness) + 1)
+            add("assistant/chunk", {
+                "turn": turn, "step": 0,
+                "chunk": {"type": "block-start", "index": 0, "blockType": kind},
+            }, seq)
+            delta = "reasoning-delta" if kind == "reasoning" else "text-delta"
+            add("assistant/chunk", {
+                "turn": turn, "step": 0,
+                "chunk": {"type": delta, "index": 0, "text": text},
+            }, seq)
+            add("assistant/chunk", {
+                "turn": turn, "step": 0,
+                "chunk": {"type": "block-end", "index": 0},
+            }, seq)
+        elif typ == "tool_call":
+            args = data.get("input")
+            if not isinstance(args, str):
+                try:
+                    args = json.dumps(args or {}, ensure_ascii=False)
+                except (TypeError, ValueError):
+                    args = "{}"
+            add("tool/call", {
+                "callId": data.get("id"),
+                "name": data.get("name") or "",
+                "arguments": args,
+            }, seq)
+        elif typ == "tool_result":
+            add("tool/result", {
+                "callId": data.get("id"),
+                "name": data.get("name") or "",
+                "message": {
+                    "toolCallId": data.get("id"),
+                    "content": data.get("preview") or "",
+                    "isError": bool(data.get("is_error")),
+                },
+            }, seq)
+        elif typ == "session_end":
+            add("turn/end", {"reason": data.get("reason") or "completed"}, seq)
+    has_more = False
+    if len(harness) > cap:
+        head = []
+        if harness and harness[0]["event"]["type"] == "user/message":
+            head = harness[:1]
+        harness = head + harness[-(cap - len(head)):]
+        has_more = True
+    return {"events": harness, "hasMore": has_more, "source": "sse"}
 
 
 def _vulnagent_env() -> dict:
@@ -1098,6 +1301,10 @@ def setup(app: FastAPI, require_token) -> None:
                     detail=_cap_detail(int(state.get("turns") or 0),
                                        int(state.get("max_turns") or 80)))
             state = _charge_turn(sdir, state)
+        if method == "session.history":
+            mgr = _dsh_manager
+            if mgr is None or not mgr.is_live(sid):
+                return _history_from_sse(sdir, payload or {})
         try:
             value = _manager().rpc(sid, sdir, state, method, payload or {})
         except _dsh_host.DshHostError as exc:
@@ -1117,6 +1324,15 @@ def setup(app: FastAPI, require_token) -> None:
         sdir = _session_dir(sid)
         _require_session_access(sdir, principal)
         state = _read_state(sdir)
+        running = str(state.get("status") or "") == "running"
+        mgr = _dsh_manager
+        if not running and (mgr is None or not mgr.is_live(sid)):
+            async def _idle():
+                yield ": idle\n\n"
+            return StreamingResponse(
+                _idle(), media_type="text/event-stream",
+                headers={"Cache-Control": "no-cache",
+                         "X-Accel-Buffering": "no"})
         return StreamingResponse(_manager().mux_sse(sid, sdir, state),
                                  media_type="text/event-stream",
                                  headers={"Cache-Control": "no-cache",
@@ -1140,9 +1356,13 @@ def setup(app: FastAPI, require_token) -> None:
         sdir = _session_dir(sid)
         _require_session_access(sdir, principal)
         report = sdir / "report.md"
+        state = _read_state(sdir) or {}
+        try:
+            _write_report(sdir, state)
+        except Exception:
+            pass
         if not report.is_file():
-            raise HTTPException(status_code=404,
-                                detail="no report (no findings recorded yet)")
+            raise HTTPException(status_code=404, detail="报告尚未生成")
         return PlainTextResponse(report.read_text(encoding="utf-8",
                                                   errors="replace"))
 

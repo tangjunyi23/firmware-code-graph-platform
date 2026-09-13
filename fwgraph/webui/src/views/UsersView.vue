@@ -1,15 +1,17 @@
 <template>
   <div>
-    <el-card shadow="never" class="block">
-      <template #header>
-        <div class="row-between">
-          <span>用户管理</span>
-          <div>
-            <el-button size="small" :loading="loading" @click="loadUsers">刷新</el-button>
-            <el-button size="small" type="primary" @click="openCreate">新建用户</el-button>
-          </div>
+    <header class="ins-head">
+      <div class="ins-head-row">
+        <h1 class="ins-title"><span class="ins-ico"><component :is="NAV_ICONS.User" :size="18" /></span>用户管理</h1>
+        <div class="ins-actions">
+          <el-button :icon="RefreshCw" :loading="loading" @click="loadUsers">刷新</el-button>
+          <el-button type="primary" @click="openCreate">新建用户</el-button>
         </div>
-      </template>
+      </div>
+      <p class="ins-sub">平台账号与角色权限管理。</p>
+    </header>
+
+    <el-card shadow="never" class="block">
       <el-table :data="users" size="small" v-loading="loading">
         <el-table-column prop="username" label="用户名" min-width="140" />
         <el-table-column label="角色" width="110">
@@ -95,6 +97,7 @@
 </template>
 
 <script setup>
+import { NAV_ICONS } from '../workbench/icons.js'
 import { onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { api } from '../api'

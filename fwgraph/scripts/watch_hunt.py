@@ -23,7 +23,7 @@ CTX = ssl._create_unverified_context()
 HOME = Path(os.environ.get("VULNAGENT_HOME", Path.home() / "firmware-graph" / "vulnagent"))
 SNAP = Path(os.environ.get("HUNT_WATCH_SNAP", "/tmp/hunt-watch.json"))
 LOG = Path(os.environ.get("HUNT_WATCH_LOG", "/tmp/hunt-watch.log"))
-BASE = os.environ.get("FWGRAPH_BASE_URL", "https://127.0.0.1:8000")
+BASE = os.environ.get("FWGRAPH_BASE_URL", "http://127.0.0.1:8000")
 def _load_token() -> str:
     tok = os.environ.get("ORCH_TOKEN") or os.environ.get("FWGRAPH_TOKEN") or ""
     if tok:
@@ -161,10 +161,13 @@ def snapshot(sid: str) -> dict:
     dyn_names = [x["name"] for x in ev["dyn"]]
     status = sess.get("status") or "unknown"
     wrap_up = any(m in (ev.get("last_text") or "") for m in _WRAP_MARKERS)
-    polling = (ev.get("last_tool") in ("fw_get_trace", "fw_get_fuzz_run", "fw_get_qemu_exec")
-               or "轮询" in (ev.get("last_text") or ""))
-    # fuzz/trace poll gaps of ~1–2 min are not a stall
-    if polling and age is not None and age < 180:
+    in_flight = ev.get("last_ev") == "tool_call" or ev.get("last_tool") in (
+        "fw_get_trace", "fw_get_fuzz_run", "fw_get_qemu_exec",
+        "fw_request_trace", "fw_request_fuzz", "fw_request_frida", "fw_qemu_exec",
+    )
+    polling = in_flight or "轮询" in (ev.get("last_text") or "")
+    # A live trace/fuzz start can stay quiet for several minutes (TRACE_LOCK).
+    if polling and age is not None and age < 600:
         stuck = False
     else:
         stuck = (

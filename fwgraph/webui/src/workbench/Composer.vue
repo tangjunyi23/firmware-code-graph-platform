@@ -18,6 +18,7 @@
       class="card"
       :class="{ trigger: workspaceTrigger }"
       data-composer-card
+      data-tour="wb-composer"
       @click="workspaceTrigger && $emit('request-workspace')"
     >
       <div v-if="file" class="attach-rail">
@@ -41,6 +42,17 @@
           @input="onInput"
           @keydown="onKeyDown"
         />
+      </div>
+
+      <div v-if="showSuggestions" class="suggest-row" @click.stop>
+        <button
+          v-for="s in SUGGESTIONS"
+          :key="s"
+          type="button"
+          class="suggest-chip"
+          @mousedown.prevent="keepFocus"
+          @click="applySuggestion(s)"
+        >{{ s }}</button>
       </div>
 
       <div class="row">
@@ -166,6 +178,21 @@ const inputRef = ref(null)
 const scrollRef = ref(null)
 const fileInput = ref(null)
 const composing = ref(false)
+
+// 示例目标：空输入且已选任务时展示，点一下填入
+const SUGGESTIONS = [
+  '优先挖预认证 RCE',
+  '查命令注入，给调用链和 PoC',
+  '重点看 HTTP 管理面的内存破坏',
+  '沿 strcpy/sprintf 找溢出'
+]
+const showSuggestions = computed(() =>
+  !workspaceTrigger.value && !props.locked && !running.value && !props.draft.trim()
+)
+function applySuggestion (text) {
+  emit('update:draft', text)
+  nextTick(() => { inputRef.value?.focus({ preventScroll: true }); resize() })
+}
 
 function keepFocus () {
   inputRef.value?.focus({ preventScroll: true })
@@ -310,7 +337,10 @@ onUnmounted(() => {
   border: 1px solid var(--dsw-alias-border-l2-darkmode-thin);
   border-radius: 22px;
   background: var(--dsw-specific-input-major);
-  box-shadow: var(--dsw-shadow-lv2);
+  box-shadow:
+    var(--dsw-shadow-lv2),
+    0 0 0 1px rgba(19, 76, 255, .04),
+    0 18px 40px rgba(19, 76, 255, .06);
   font-size: 15px;
   line-height: 24px;
   letter-spacing: -0.011em;
@@ -362,6 +392,30 @@ onUnmounted(() => {
 }
 
 .scroll { max-height: var(--dsh-composer-text-max-height); overflow-y: auto; }
+
+.suggest-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0 12px 0 16px;
+}
+.suggest-chip {
+  height: 26px;
+  padding: 0 12px;
+  border: 1px solid var(--dsw-alias-border-l2-darkmode-thin);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  line-height: 24px;
+  cursor: pointer;
+  font-family: inherit;
+}
+.suggest-chip:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+  border-color: var(--dsw-alias-border-l4, transparent);
+}
 .input {
   display: block;
   box-sizing: border-box;
@@ -469,18 +523,22 @@ onUnmounted(() => {
   display: grid;
   place-items: center;
   flex: none;
-  width: 34px;
-  height: 34px;
+  width: 36px;
+  height: 36px;
   border: none;
   border-radius: 999px;
-  background: var(--dsw-alias-button-info-fill);
+  background: var(--fw-brand, #134cff);
   color: #fff;
   cursor: pointer;
-  transition: background-color 100ms ease;
-  transform: translateY(-2px);
+  box-shadow: 0 8px 18px rgba(19, 76, 255, .28);
+  transition: background-color 120ms ease, transform 120ms ease, box-shadow 120ms ease;
 }
-.primary:hover:not(:disabled) { background: var(--dsw-alias-button-info-hover); }
-.primary:disabled { opacity: 0.4; cursor: default; }
+.primary:hover:not(:disabled) {
+  background: var(--fw-brand-hover, #3363ff);
+  transform: translateY(-1px);
+  box-shadow: 0 10px 22px rgba(19, 76, 255, .34);
+}
+.primary:disabled { opacity: 0.4; cursor: default; box-shadow: none; transform: none; }
 
 .hidden { display: none; }
 

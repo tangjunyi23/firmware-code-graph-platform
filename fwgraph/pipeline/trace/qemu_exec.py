@@ -94,6 +94,11 @@ def _classify_rc(rc):
     return "error", None
 
 
+def _looks_like_segfault(text: str) -> bool:
+    return bool(re.search(
+        r"signal 11|SIGSEGV|Segmentation fault", text or "", re.I))
+
+
 def run_job(job_id, data_dir, binary_md5, argv=None, argv0=None,
             stdin=b"", input_path=None, seconds=8, run_id=None):
     """Run the guest once. Returns the exec.json summary."""
@@ -118,6 +123,7 @@ def run_job(job_id, data_dir, binary_md5, argv=None, argv0=None,
     out_dir = Path(tempfile.mkdtemp(prefix=f"fwgraph-exec-{run_id}-"))
     out_dir.chmod(0o777)
     qemu_cov.seed_guest_tmp(rootfs, out_dir)
+    qemu_cov.seed_sysv_shm()
     if stdin:
         (out_dir / "fwgraph-stdin").write_bytes(stdin)
     if input_path:
@@ -146,7 +152,8 @@ def run_job(job_id, data_dir, binary_md5, argv=None, argv0=None,
             cmd, image=sandbox.SANDBOX_IMAGE,
             name=f"fwgraph-exec-{run_id}",
             mounts=mounts, network="none", user="0",
-            cap_add=["SYS_CHROOT"], log_path=str(log_path),
+            cap_add=["SYS_CHROOT"], ipc="host",
+            log_path=str(log_path),
             timeout=seconds + 3)
         try:
             rc = proc.wait(timeout=seconds + 4)
@@ -173,13 +180,16 @@ def run_job(job_id, data_dir, binary_md5, argv=None, argv0=None,
         blob = log_path.read_bytes()[-_TAIL:]
     text = blob.decode("latin-1", "replace")
     kind, sig = _classify_rc(rc)
+    if kind == "timeout" and _looks_like_segfault(text):
+        kind, sig = "crash", 11
     fed = bool(stdin) or bool(input_path)
     crash_kind = None
     if kind == "crash":
         crash_kind = "payload" if fed else "startup"
     if kind == "crash" and crash_kind == "startup":
         nxt = ("启动即崩（未喂 payload）：qemu 环境，不是漏洞。"
-               "不要放弃该 ELF，立刻 fw_request_trace（带 port 或 via=stdin）。")
+               "不要放弃该 ELF。平台已预置 SysV shm；立刻再 fw_qemu_exec 空输入一次，"
+               "然后 fw_request_trace via=net 带 port（不要 input_path）。")
     elif kind == "crash":
         nxt = ("payload 触发崩溃：returncode/signal/output_tail 是动态证据；"
                "读函数后 record_finding，不要跳过。")

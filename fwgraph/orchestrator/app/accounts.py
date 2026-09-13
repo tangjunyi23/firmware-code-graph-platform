@@ -49,9 +49,9 @@ WEAK_PASSWORDS = frozenset({
 
 # Per-job daily trigger quotas: kind -> (env var with the limit, default).
 _QUOTA_LIMITS = {
-    "trace": ("TRACE_DAILY_PER_JOB", 24),
+    "trace": ("TRACE_DAILY_PER_JOB", 96),
     "fuzz": ("FUZZ_DAILY_PER_JOB", 12),
-    "exec": ("EXEC_DAILY_PER_JOB", 24),
+    "exec": ("EXEC_DAILY_PER_JOB", 48),
     "frida": ("FRIDA_DAILY_PER_JOB", 6),
     "protofuzz": ("PROTOFUZZ_DAILY", 8),
     "attack_ai": ("ATTACK_AI_DAILY_PER_JOB", 8),

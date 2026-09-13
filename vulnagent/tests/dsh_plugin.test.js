@@ -11,7 +11,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { apply, browseFirmware, compactTrace, huntNextFromTrace, summarizeTraceList, huntNextFromExec } from "../dsh/plugin/src/index.js";
+import { apply, browseFirmware, compactTrace, huntNextFromTrace, summarizeTraceList, huntNextFromExec, normalizeAddr, resolveMd5, asJson, cbmTraceDirection } from "../dsh/plugin/src/index.js";
 
 function mockCtx() {
   const tools = [];
@@ -44,6 +44,7 @@ test("registers the fw_* series incl. fw_browse_firmware; static mode drops dyna
     "fw_request_trace", "fw_request_fuzz", "fw_request_frida",
     "fw_qemu_exec", "fw_get_qemu_exec", "fw_list_binaries",
     "fw_get_fuzz_run", "fw_get_cfg", "fw_get_ast",
+    "fw_vulnlib_search", "fw_vulnlib_nday",
     "record_finding",
   ]) {
     assert.ok(names.includes(required), `missing ${required}`);
@@ -58,6 +59,14 @@ test("registers the fw_* series incl. fw_browse_firmware; static mode drops dyna
     assert.ok(!snames.includes(dyn), `${dyn} must not register in static mode`);
   }
   assert.ok(snames.includes("fw_browse_firmware"));
+});
+
+test("cbmTraceDirection maps in/out to inbound/outbound", () => {
+  assert.equal(cbmTraceDirection("in"), "inbound");
+  assert.equal(cbmTraceDirection("out"), "outbound");
+  assert.equal(cbmTraceDirection("inbound"), "inbound");
+  assert.equal(cbmTraceDirection("BOTH"), "both");
+  assert.equal(cbmTraceDirection(undefined), "both");
 });
 
 test("global guard denies web/subagent; sandbox bash/write stay allowed", () => {
@@ -171,7 +180,57 @@ test("dsh record_finding surfaces 422 detail verbatim; local precheck rejects ba
   }
 });
 
+test("fw_vulnlib_search GETs /vulnlib with filters", async () => {
+  const ctx = mockCtx();
+  apply(ctx, { ...BASE_CFG });
+  const def = ctx._tools.find((t) => t.name === "fw_vulnlib_search");
+  const m = mockFetch(async () => resp(200, {
+    total: 1,
+    items: [{
+      id: "CVE-2017-13772", source: "cve", title: "Archer overflow",
+      severity: "high", cwes: ["CWE-121"], vendors: ["TP-Link"],
+      products: ["Archer C7"], summary: "stack", aliases: [],
+    }],
+  }));
+  try {
+    const out = await def.execute({ q: "archer", source: "cve", limit: 10 });
+    assert.equal(out.total, 1);
+    assert.equal(out.items[0].id, "CVE-2017-13772");
+    const { url } = m.calls[0];
+    assert.match(url, /\/vulnlib\?/);
+    assert.match(url, /q=archer/);
+    assert.match(url, /source=cve/);
+  } finally {
+    m.restore();
+  }
+});
+
+test("fw_vulnlib_nday uses job_id and keeps hunt_next", async () => {
+  const ctx = mockCtx();
+  apply(ctx, { ...BASE_CFG });
+  const def = ctx._tools.find((t) => t.name === "fw_vulnlib_nday");
+  const m = mockFetch(async () => resp(200, {
+    total: 1, jobs_considered: 1,
+    items: [{
+      id: "CVE-2017-13772", source: "cve", title: "x", severity: "high",
+      match_score: 90,
+      matches: [{ job_id: "job123", firmware: "ArcherC7.bin", score: 90, reasons: ["产品"] }],
+    }],
+  }));
+  try {
+    const out = await def.execute({});
+    assert.equal(out.total, 1);
+    assert.match(out.hunt_next, /候选/);
+    const { url } = m.calls[0];
+    assert.match(url, /\/vulnlib\/nday\?/);
+    assert.match(url, /job_id=job123/);
+  } finally {
+    m.restore();
+  }
+});
+
 // ---------- fw_browse_firmware ----------
+
 
 function makeExtractedRoot() {
   const root = mkdtempSync(path.join(tmpdir(), "va-extracted-"));
@@ -335,14 +394,15 @@ test("fw_get_trace compact return has hunt_next and sink flags", async () => {
   }
 });
 
-test("empty-diff net trace hunt_next retries via=stdin", () => {
+test("empty-diff net trace hunt_next does not repeat the same probe", () => {
   const next = huntNextFromTrace({
     trace_id: "aaaaaaaaaaaa", status: "ok_empty_diff",
     request: { via: "net", port: 80 },
     diff: { function_count: 0, functions: [] },
   });
-  assert.match(next, /via=stdin/);
-  assert.match(next, /禁止向用户/);
+  assert.match(next, /不要再打|换入口/);
+  assert.match(next, /禁止 record_finding/);
+  assert.doesNotMatch(next, /立刻对同一 binary_md5 再 fw_request_trace/);
 });
 
 test("fw_list_traces with diffs points hunt_next at those ids", async () => {
@@ -407,7 +467,30 @@ test("compactTrace drops rootfs and keeps hunt_next", () => {
     rootfs: "/x", linker: {},
   });
   assert.equal(out.rootfs, undefined);
-  assert.match(out.hunt_next, /空差分不是漏洞/);
+  assert.match(out.hunt_next, /不是漏洞/);
+});
+
+test("compactTrace with error=null is lossless JSON", () => {
+  const out = compactTrace({
+    trace_id: "155f02a4904c",
+    status: "ok_empty_diff",
+    error: null,
+    argv: [],
+    argv0: null,
+    request: { via: "net", port: 1900, input_path: null },
+    trigger: { trigger_result: { kind: "udp_payload", port: 1900, sent: 119, recv: 0 } },
+    diff: { function_count: 0, functions: [] },
+    binary: { md5: "3e3258c907b4b461c90472e1fcd6cddb" },
+  });
+  const walk = (v) => {
+    if (v === undefined) return false;
+    if (v && typeof v === "object") return Object.keys(v).every((k) => walk(v[k]));
+    return true;
+  };
+  assert.equal(walk(out), true);
+  assert.equal(out.error, undefined);
+  assert.deepEqual(out, asJson(out));
+  assert.match(out.hunt_next, /via=net 不要带 input_path/);
 });
 
 test("summarizeTraceList empty keeps fw_request_trace hint", () => {
@@ -430,6 +513,49 @@ test("payload qemu crash hunt_next records the finding", () => {
     status: "crash", signal: 11, crash_kind: "payload", stdin_bytes: 4,
   });
   assert.match(next, /record_finding/);
+});
+
+test("fw_browse_firmware resolves guest paths under squashfs-root", async () => {
+  const extractedRoot = makeExtractedRoot();
+  const job = path.join(extractedRoot, "job123");
+  const guest = path.join(job, "firmware", "binwalk_extracted", "squashfs-root");
+  mkdirSync(path.join(guest, "usr", "sbin"), { recursive: true });
+  writeFileSync(path.join(guest, "usr", "sbin", "httpd"), "elf-placeholder\n", "utf8");
+  const listing = await browseFirmware({ ...BASE_CFG, extractedRoot }, { path: "usr/sbin" });
+  assert.ok(listing.entries.some((e) => e.name === "httpd"));
+});
+
+test("fw_request_trace returns busy on HTTP 409 instead of retrying", async () => {
+  const ctx = mockCtx();
+  apply(ctx, { ...BASE_CFG });
+  const def = ctx._tools.find((t) => t.name === "fw_request_trace");
+  assert.equal(def.timeoutMs, 180_000);
+  const m = mockFetch(async () => resp(409, { detail: "another trace is running" }));
+  try {
+    const t0 = Date.now();
+    const out = await def.execute({ binary_md5: "a".repeat(32), via: "stdin" });
+    assert.ok(Date.now() - t0 < 2000, "must not sleep-retry 409");
+    assert.equal(out.status, "busy");
+    assert.match(out.hunt_next, /fw_get_trace|fw_list_traces/);
+    assert.equal(m.calls.length, 1);
+  } finally {
+    m.restore();
+  }
+});
+
+test("fw_request_trace returns quota on HTTP 429", async () => {
+  const ctx = mockCtx();
+  apply(ctx, { ...BASE_CFG });
+  const def = ctx._tools.find((t) => t.name === "fw_request_trace");
+  const m = mockFetch(async () => resp(429, { detail: "当日已用 24/24" }));
+  try {
+    const out = await def.execute({ binary_md5: "a".repeat(32), via: "net", port: 80 });
+    assert.equal(out.status, "quota");
+    assert.match(out.hunt_next, /不要再打/);
+    assert.match(out.hunt_next, /不是固定 24/);
+  } finally {
+    m.restore();
+  }
 });
 
 test("fw_request_trace forwards via=stdin", async () => {
@@ -461,6 +587,33 @@ test("fw_request_trace forwards payloads_hex", async () => {
     });
     const body = JSON.parse(m.calls[0].opts.body);
     assert.deepEqual(body.payloads_hex, ["5353480d0a", "6b6578"]);
+  } finally {
+    m.restore();
+  }
+});
+
+test("normalizeAddr accepts 0x and bare hex", () => {
+  assert.equal(normalizeAddr("7590c"), "0x7590c");
+  assert.equal(normalizeAddr("0x5308CC"), "0x5308cc");
+  assert.throws(() => normalizeAddr("not-hex"), /hex/);
+});
+
+test("fw_get_function_source accepts binary_md5 alias and bare addr", async () => {
+  const ctx = mockCtx();
+  apply(ctx, { ...BASE_CFG });
+  const def = ctx._tools.find((t) => t.name === "fw_get_function_source");
+  const md5 = "9582aa23b0bc2de099b9997b09457d01";
+  const m = mockFetch(async (url) => {
+    if (url.includes("/manifest")) {
+      return resp(200, { binaries: [{ md5 }, { md5: "d61e67ed20163b7fee8bd3c606fb0331" }] });
+    }
+    return resp(200, "int execFormatCmd() { return 0; }");
+  });
+  try {
+    const out = await def.execute({ binary_md5: "9582aa23", addr: "5308cc" });
+    assert.ok(String(out.source).includes("execFormatCmd"));
+    const srcCall = m.calls.find((c) => String(c.url).includes("/source"));
+    assert.match(srcCall.url, new RegExp(`/functions/${md5}/0x5308cc/source`));
   } finally {
     m.restore();
   }

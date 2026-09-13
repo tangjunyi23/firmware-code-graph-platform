@@ -396,7 +396,77 @@ class TestSpaHosting:
         events = (webui_src / "views" / "EventsView.vue").read_text(
             encoding="utf-8")
         assert "WorkbenchView" in jobs
+        assert "cyber" in jobs
+        wb_src = (webui_src / "workbench" / "WorkbenchView.vue").read_text(
+            encoding="utf-8")
+        assert "wb-root cyber" in wb_src
+        tour = (webui_src / "components" / "OnboardingTour.vue").read_text(
+            encoding="utf-8")
+        assert "fwgraph_onboard_v2" in tour
+        assert "固件解密" in tour
+        assert "协议逆向" in tour
+        assert "九步看板" in tour
+        assert "许愿模式" in tour
+        assert "协议挖掘" not in tour
+        assert "ops-home" in app
+        assert "ParticleField" in app
+        assert "SplashOverlay" in app
+        assert 'class="dark"' in (webui_src.parent / "index.html").read_text(
+            encoding="utf-8")
+        theme = (webui_src / "theme.css").read_text(encoding="utf-8")
+        assert "--fw-bg:" in theme
+        assert "--fw-brand:" in theme
+        assert "html.dark" in theme
+        dash = (webui_src / "views" / "DashboardView.vue").read_text(
+            encoding="utf-8")
+        assert "DonutChart" in dash
+        assert "CountUp" in dash
+        assert "LineChart" in dash
+        assert "BarChart" in dash
+        assert "findings_by_severity" in dash
+        assert "危害等级" in dash
+        assert "威胁雷达" in dash
+        assert "hit_rate" in dash
+        assert "厂商漏洞排行" in dash
+        assert "实时扫描日志" in dash
+        assert "ProtocolView" in app
+        assert "{ index: 'protocol', title: '协议逆向'" in app
+        assert "page === 'protocol'" in app
+        assert "{ index: 'protofuzz', title: '协议挖掘'" not in app
+        assert "DecryptView" in app
+        assert "{ index: 'decrypt', title: '固件解密'" in app
+        assert "page === 'decrypt'" in app
+        dec = (webui_src / "views" / "DecryptView.vue").read_text(
+            encoding="utf-8")
+        assert "固件解密" in dec
+        assert "/decrypt" in dec
+        assert "正在解密" in dec or "解密进行中" in dec
+        proto = (webui_src / "views" / "ProtocolView.vue").read_text(
+            encoding="utf-8")
+        assert "协议标识" in proto
+        assert "加密算法识别" in proto
+        assert "加密算法深度分析" in proto
+        assert "算法逆向" in proto
+        assert "流量实时解码" in proto
+        assert "攻击面评估" in proto
+        assert "/protocol/decode" in proto
+        assert "/protocol-reverse" in proto
         assert "PrepareView" in app
+        assert "WishView" in app
+        assert "许愿模式" in app
+        assert "专家模式" in app
+        assert "mode-switch" in app
+        wish = (webui_src / "views" / "WishView.vue").read_text(encoding="utf-8")
+        assert "buildWishTask" in wish
+        assert "uploadFirmware" in wish
+        assert "/vulnagent/sessions" in wish
+        assert "ProgressRing" in wish
+        assert "overallPct" in wish
+        assert "inspect" in wish
+        pipe = (webui_src / "workbench" / "pipeline.js").read_text(encoding="utf-8")
+        assert "WISH_OPTIONS" in pipe
+        assert "buildWishTask" in pipe
+        assert "pipeProgress" in pipe
         assert "prepare" in app
         assert ":size=\"isNarrow ? '96%' : '58%'\"" in functions
         assert "(max-width: 720px)" in helper
@@ -408,6 +478,17 @@ class TestSpaHosting:
             encoding="utf-8")
         assert "uploadFirmware" in prepare
         assert "gear-btn" not in prepare
+        assert "announceSteps" in prepare
+        assert "ProgressRing" in (
+            webui_src / "workbench" / "PipelineCard.vue").read_text(
+            encoding="utf-8")
+        card = (webui_src / "workbench" / "PipelineCard.vue").read_text(
+            encoding="utf-8")
+        assert "进度播报" in card
+        assert "stepPct" in card
+        assert "固件解密" in pipe
+        assert "STEP_TALK" in pipe
+        assert "announceSteps" in pipe
         wb = (webui_src / "workbench" / "WorkbenchView.vue").read_text(
             encoding="utf-8")
         dsh = (webui_src / "workbench" / "dshClient.js").read_text(
@@ -426,14 +507,45 @@ class TestSpaHosting:
         assert "blk-${turn}-${step}-${idx}" in dsh
         assert "_seenSeq" in dsh
         assert "feedText" in dsh
+        assert "openMux()" in dsh
+        assert "Date.now() + 60000" not in dsh
+        assert "for (let i = 0; i < 10; i++)" not in dsh
+        assert "flushType" in dsh
+        assert "typeCaughtUp" in dsh
+        assert "document.hidden" in dsh
+        assert "TYPE_MS" not in dsh
+        assert "job.rest[0]" not in dsh
+        assert "markRaw" in dsh
+        assert "bindStreamEl" in dsh
+        assert "highlightText" in dsh
+        assert "lastLine" in dsh
         assert "think-${turn}" in dsh
         assert "expectRunning" in dsh
         ml = (webui_src / "workbench" / "MessageList.vue").read_text(
             encoding="utf-8")
         assert "Deep diving" not in ml
-        assert "Thinking" in ml
+        assert "思考中" in ml
         assert "thinkPreview" in ml
         assert "think-preview" in ml
+        assert "think-dock" in ml
+        assert "think-glow" in ml
+        assert "fx-dot" in ml
+        assert "highlightText" in ml
+        assert "liveThink" in ml
+        assert "bindStreamEl" in ml
+        assert "content-visibility: auto" not in ml
+        assert "WINDOW" in ml
+        assert "显示更早" in ml
+        hl = (webui_src / "highlight.js").read_text(encoding="utf-8")
+        assert "highlightText" in hl
+        assert "renderMarkdown" in hl
+        assert "hl-num" in hl
+        mdv = (webui_src / "workbench" / "MarkdownText.vue").read_text(
+            encoding="utf-8")
+        assert "renderMarkdown" in mdv
+        reports = (webui_src / "views" / "ReportsView.vue").read_text(
+            encoding="utf-8")
+        assert "renderMarkdown" in reports
         assert "DeepAgent" not in ml
         assert "deepagent" not in ml.lower()
         assert ml.count("composer-seat") == 0
@@ -445,6 +557,17 @@ class TestSpaHosting:
         assert "isInjectedHuntHint" in qd
         assert "scroll-wrap" in wb
         assert "expectRunning: true" in wb
+        assert "silent: true" in wb
+        assert "20000" in wb
+        catalog_js = (webui_src / "workbench" / "catalog.js").read_text(
+            encoding="utf-8")
+        assert "sameRows" in catalog_js
+        assert "silent = false" in catalog_js
+        persona = (
+            Path(__file__).parents[3] / "vulnagent" / "dsh" / "cordis.patch.yml"
+        ).read_text(encoding="utf-8")
+        assert "简体中文" in persona
+        assert "一次最多并行 2 个工具" in persona
         assert "onStopCurrent" in wb
         assert "onInterruptCurrent" in wb
         assert '@stop="onInterruptCurrent"' in wb
@@ -476,5 +599,56 @@ class TestSpaHosting:
         assert "respond('allowed-once')" in ap
         assert "chat-home" in app
         assert "/jobs/${jobId.value}/logs" in events or "/jobs/" in events
+        assert "parseLogLine" in events
+        assert "viewLines" in events
+        assert "word-break: break-all" not in events
         assert "挖掘事件" not in events
         assert "goto', 'vuln'" not in app
+        assert "VulnlibView" in app
+        assert "{ index: 'vulnlib', title: '漏洞库'" in app
+        assert "page === 'vulnlib'" in app
+        assert "'vulnlib'" in app
+
+
+
+class TestCleanLogLines:
+    def test_strips_ansi_and_progress_cr(self):
+        raw = (
+            "\x1bc\x1b[1m[\x1b[0;32m+\x1b[0m] hello\x1b[0m\n"
+            "progress 1\rprogress 2\n"
+            "a" * 64 + "\n"
+        )
+        hid = "ab" * 32
+        raw += f"id {hid} done\n"
+        out = main._clean_log_lines(raw)
+        assert out[0] == "[+] hello"
+        assert "progress 2" in out
+        assert "progress 1" not in out
+        assert "\x1b" not in "".join(out)
+        assert any(line.startswith("id abababababab…") for line in out)
+
+    def test_drops_emba_todo_list(self):
+        raw = (
+            "keep-before\n"
+            "-----------------------------------------------------------------\n"
+            "Current state of your personal todo list:\n"
+            "    [✓] Installed EMBA\n"
+            "    [-] Spread the word\n"
+            "-----------------------------------------------------------------\n"
+            "keep-after\n"
+        )
+        out = main._clean_log_lines(raw)
+        assert "keep-before" in out
+        assert "keep-after" in out
+        assert not any("Installed EMBA" in x for x in out)
+        assert not any("todo list" in x.lower() for x in out)
+
+    def test_collapses_blacklisted_modules(self):
+        raw = (
+            "keep\n"
+            "    Blacklisted module: S10_binaries_basic_check\n"
+            "    Blacklisted module: S12_binary_protection\n"
+            "after\n"
+        )
+        out = main._clean_log_lines(raw)
+        assert out == ["keep", "[*] 已按策略跳过 2 个模块", "after"]

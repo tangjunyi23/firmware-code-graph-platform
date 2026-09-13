@@ -1,13 +1,15 @@
 <template>
   <div class="jobs-chat">
-    <WorkbenchView />
+    <WorkbenchView
+      @open-functions="$emit('open-functions', $event)"
+    />
   </div>
 </template>
 
 <script setup>
 import WorkbenchView from '../workbench/WorkbenchView.vue'
 
-defineEmits(['open-functions', 'goto'])
+defineEmits(['open-functions'])
 </script>
 
 <style scoped>

@@ -158,18 +158,35 @@ def _load_frida_runs(job_id: str, data_dir: Path) -> list:
     return runs
 
 
-def _collect_findings(job_id: str):
+def _job_md5s(job_id: str, data_dir: Path) -> set:
+    man = _read_json(data_dir / "extracted" / job_id / "manifest.json") or {}
+    return {b.get("md5") for b in (man.get("binaries") or []) if b.get("md5")}
+
+
+def _finding_matches_job(doc: dict, job_id: str, md5s: set) -> bool:
+    """Same job id, or a GitHub/other-clone finding for the same ELF."""
+    if doc.get("job_id") == job_id:
+        return True
+    md5 = doc.get("binary_md5")
+    return bool(md5 and md5 in md5s)
+
+
+def _collect_findings(job_id: str, data_dir=None):
     """(findings for this job, findings with no job association)."""
+    data_dir = Path(data_dir) if data_dir else Path(
+        os.getenv("FWGRAPH_DATA", str(FWGRAPH_ROOT / "data")))
+    md5s = _job_md5s(job_id, data_dir)
     home = _vulnagent_home()
     findings_dir = home / "findings"
-    related, unrelated, seen = [], [], set()
+    related, leftover, seen = [], [], set()
     if findings_dir.is_dir():
         for f in sorted(findings_dir.glob("F-*.json")):
             doc = _read_json(f)
             if not doc or doc.get("status") == "retracted":
                 continue
             seen.add(doc.get("id"))
-            (related if doc.get("job_id") == job_id else unrelated).append(doc)
+            (related if _finding_matches_job(doc, job_id, md5s)
+             else leftover).append(doc)
     sessions_dir = home / "sessions"
     if sessions_dir.is_dir():
         for sdir in sorted(sessions_dir.iterdir()):
@@ -185,7 +202,9 @@ def _collect_findings(job_id: str):
                 if doc and doc.get("status") != "retracted":
                     seen.add(fid)
                     related.append(doc)
-    unrelated = [f for f in unrelated if not f.get("job_id")]
+    # Only job-less leftovers go to the appendix; other-job findings that
+    # did not match this firmware stay out of this report entirely.
+    unrelated = [f for f in leftover if not f.get("job_id")]
     related.sort(key=lambda f: (_sev_rank(f.get("severity")), -_conf(f)))
     return related, unrelated
 
@@ -537,9 +556,12 @@ def format_finding_poc_and_chain(f: dict) -> list[str]:
         if src or sink:
             chain = f"{src or '入口未知'} → {sink or 'sink 未知'}"
     poc = str(f.get("poc") or f.get("exploit_sketch") or "").strip()
-    out = ["**调用链**：", "",
-           _esc(chain) if chain else "（未给出调用链）", "",
-           "**漏洞 PoC**：", ""]
+    out = ["**调用链**：", ""]
+    if chain:
+        out += ["```", _esc(chain).replace("```", "'''"), "```", ""]
+    else:
+        out += ["（未给出调用链）", ""]
+    out += ["**漏洞 PoC**：", ""]
     if poc:
         out += ["```", _fclip(poc.replace("```", "'''"), 800, fid), "```", ""]
     else:
@@ -557,15 +579,18 @@ def _finding_block(f: dict, index: int, lines: list):
     if f.get("vuln_class"):
         meta.append(f"漏洞类型：{_esc(f['vuln_class'], in_table=True)}")
     if f.get("cwe"):
-        meta.append(f"CWE：{_esc(f['cwe'], in_table=True)}")
+        meta.append(f"CWE：`{_esc(f['cwe'], in_table=True)}`")
     lines.append("- " + "；".join(meta))
     comp = _base(f.get("binary_path") or "")
     func = f.get("function_name") or ""
     addr = f.get("function_addr") or ""
     if comp or func:
-        lines.append(f"- 受影响组件：{_esc(comp, in_table=True)}"
-                     f"{f' @ {_esc(func, in_table=True)}' if func else ''}"
-                     f"{f'（{addr}）' if addr else ''}")
+        loc = _esc(comp, in_table=True)
+        if func:
+            loc += f" @ `{_esc(func, in_table=True)}`"
+        if addr:
+            loc += f"（`{addr}`）"
+        lines.append(f"- 受影响组件：{loc}")
     extra = []
     if f.get("engine"):
         extra.append(f"引擎：{_esc(f['engine'], in_table=True)}")
@@ -593,7 +618,7 @@ def _finding_block(f: dict, index: int, lines: list):
 
 def _findings_section(job_id: str, data_dir: Path, lines: list) -> list:
     lines += ["## 二、漏洞（调用链与 PoC）", ""]
-    related, unrelated = _collect_findings(job_id)
+    related, unrelated = _collect_findings(job_id, data_dir)
     if not related and not unrelated:
         lines += ["（尚无挖掘发现。在工作台选中该前置任务并发送提示词后开始挖掘。）", ""]
         return []
@@ -762,7 +787,7 @@ def generate_job_report(job_id: str, data_dir) -> Path:
     """
     data_dir = Path(data_dir)
     lines: list = []
-    findings, unrelated = _collect_findings(job_id)
+    findings, unrelated = _collect_findings(job_id, data_dir)
     _summary_section(job_id, data_dir, findings, lines)
     _findings_section(job_id, data_dir, lines)
     _appendix_section(job_id, data_dir, unrelated, lines)

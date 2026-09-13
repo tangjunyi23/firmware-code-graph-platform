@@ -668,6 +668,20 @@ class TestTriggerTrace:
         assert tracer.decode_payload(None, "0x5353") == b"SS"
         assert tracer.decode_payload(None, "A") == b"\n"
 
+    def test_resolve_job_md5_accepts_unique_prefix(self, client):
+        from orchestrator.app import main
+        got = main._resolve_job_md5(JOB, MD5[:12])
+        assert got == MD5
+
+    def test_resolve_via_net_not_overridden_by_input_path(self):
+        assert tracer.resolve_via("net", input_path="/tmp/m.conf",
+                                  payload=b"x", port=80) == "net"
+        assert tracer.resolve_via("stdin", input_path="/tmp/m.conf",
+                                  payload=b"x") == "stdin"
+        assert tracer.resolve_via(None, input_path="/tmp/m.conf") == "file"
+        assert tracer.resolve_via(None, payload=b"x", port=None) == "stdin"
+        assert tracer.resolve_via(None, port=80) == "net"
+
     def test_via_stdin_is_forwarded(self, client, monkeypatch):
         http, _ = client
         seen = {}

@@ -10,7 +10,18 @@ HOST="${ORCH_HOST:-0.0.0.0}"
 PORT="${ORCH_PORT:-8000}"
 cd "$FWGRAPH_ROOT"
 
-mkdir -p "$DATA"
+mkdir -p "$DATA" "$DATA/vulnagent/sessions" "$DATA/vulnagent/findings"
+
+# 数据卷里的 .env（迁移镜像 seed 写入）补充 LLM key；不覆盖已注入的容器路径
+if [[ -f "$DATA/.env" ]]; then
+  set -a
+  # shellcheck disable=SC1091
+  . "$DATA/.env"
+  set +a
+  export FWGRAPH_ROOT="${FWGRAPH_ROOT:-/app/fwgraph}"
+  export FWGRAPH_DATA="${DATA}"
+  export VULNAGENT_HOME="${VULNAGENT_HOME:-/data/vulnagent}"
+fi
 
 # TLS（ORCH_SSL=0 回退明文 HTTP）。证书放 /data/certs 随数据卷持久化，
 # 重启不重签；CN/SAN 由 ORCH_CERT_CN/ORCH_CERT_SANS 控制（同宿主脚本）。
@@ -56,6 +67,44 @@ if [[ -n "$CBM_BIN" && -x "$CBM_BIN" ]]; then
   fi
 else
   echo "[entrypoint] 警告：未找到 codebase-memory-mcp（构建时未传 cbmbin 上下文），/cbmui 不可用" >&2
+fi
+
+IDA_RESOLVED="$(python - <<'PY'
+from orchestrator.app import config
+p = config.ida_dir()
+print(p if p else "")
+PY
+)"
+if [[ -n "$IDA_RESOLVED" ]]; then
+  export IDA_DIR="$IDA_RESOLVED"
+  echo "[entrypoint] 识别到 IDA：$IDA_DIR"
+else
+  unset IDA_DIR
+  echo "[entrypoint] 投放目录 /opt/ida-drop 尚无 IDA；ELF 反编译走内置 rootfs_elf"
+fi
+if [[ -f "${ROOTFS_ELF_WORKER:-/app/tools/ida-no-mcp/rootfs_elf/ida_worker.py}" ]]; then
+  echo "[entrypoint] rootfs_elf worker: ${ROOTFS_ELF_WORKER:-/app/tools/ida-no-mcp/rootfs_elf/ida_worker.py}"
+else
+  echo "[entrypoint] 警告：rootfs_elf worker 缺失，反编译不可用" >&2
+fi
+
+EMBA_IMAGE="${EMBA_IMAGE:-embeddedanalyzer/emba:2.0.3a}"
+if docker image inspect "$EMBA_IMAGE" >/dev/null 2>&1; then
+  echo "[entrypoint] EMBA image ready: $EMBA_IMAGE"
+else
+  echo "[entrypoint] 警告：未找到 $EMBA_IMAGE，解包不可用。先执行：" >&2
+  echo "[entrypoint]   docker compose -f deploy/docker/docker-compose.yml --profile tools pull" >&2
+fi
+
+HOST_PREFIX="$(python - <<'PY'
+from pipeline.sandbox.docker_backend import resolved_host_data_prefix
+print(resolved_host_data_prefix() or "")
+PY
+)"
+if [[ -n "$HOST_PREFIX" ]]; then
+  echo "[entrypoint] sandbox host data prefix (auto): $HOST_PREFIX"
+else
+  echo "[entrypoint] sandbox host data prefix: unset (host paths used as-is)"
 fi
 
 echo "[entrypoint] starting orchestrator on $SCHEME://$HOST:$PORT"

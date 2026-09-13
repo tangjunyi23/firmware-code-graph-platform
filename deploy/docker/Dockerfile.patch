@@ -1,0 +1,7 @@
+# 在已有 fwgraph-orchestrator:local 上叠最新源码（离线，不拉 dockerfile frontend）。
+# 仓库根：docker build -f deploy/docker/Dockerfile.patch -t fwgraph-orchestrator:local .
+FROM fwgraph-orchestrator:local
+COPY fwgraph/ /app/fwgraph/
+COPY vulnagent/ /app/vulnagent/
+COPY deploy/docker/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh

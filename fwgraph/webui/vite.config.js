@@ -26,6 +26,7 @@ export default defineConfig({
       '/logs': proxyTarget,
       '/reports': proxyTarget,
       '/protofuzz': proxyTarget,
+      '/vulnlib': proxyTarget,
       '/analysis-profiles': proxyTarget
     }
   }

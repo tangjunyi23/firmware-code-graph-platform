@@ -365,6 +365,20 @@ def _ingest_to_cbm(project: str, trace: dict) -> dict:
         return {"attempted": True, "error": f"{type(exc).__name__}: {exc}"}
 
 
+def resolve_via(via, input_path=None, payload=None, port=None) -> str:
+    """via=net stays net even if input_path is set (do not silently become file)."""
+    via_l = str(via or "").strip().lower()
+    if via_l == "net":
+        return "net"
+    if via_l == "stdin":
+        return "stdin"
+    if via_l == "file" or (input_path and via_l not in ("net", "stdin")):
+        return "file"
+    if via_l == "stdin" or (payload and not port):
+        return "stdin"
+    return "net"
+
+
 def run_trace(job_id: str, data_dir, binary_md5: str, argv,
               port: int | None = None, request_path: str | None = None,
               trace_id: str | None = None, cbm_project: str | None = None,
@@ -407,13 +421,7 @@ def run_trace(job_id: str, data_dir, binary_md5: str, argv,
         linker = qemu_cov.inspect_dynamic_linker(rootfs, path_in_rootfs)
         sysroot_prefix = linker.get("sysroot")
         guest_argv = [path_in_rootfs, *[str(a) for a in argv]]
-        via_l = str(via or "").strip().lower()
-        if input_path:
-            via_l = "file"
-        elif via_l == "stdin" or (payload and not port):
-            via_l = "stdin"
-        else:
-            via_l = "net"
+        via_l = resolve_via(via, input_path=input_path, payload=payload, port=port)
         trace["request"]["via"] = via_l
         blob = b"".join(_payload_chunks(payload))
 

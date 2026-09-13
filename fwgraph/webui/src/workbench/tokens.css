@@ -708,3 +708,9 @@
 .wb-root *::-webkit-scrollbar-corner {
   background: transparent;
 }
+
+/* 工作台浅色底板跟全站产品色对齐 */
+.wb-root[data-wb-theme="light"] {
+  --dsw-alias-bg-base: var(--fw-bg);
+  --dsw-specific-sidebar-fill: color-mix(in srgb, #ffffff 78%, transparent);
+}

@@ -65,7 +65,8 @@ const REQUIRED_FW = [
   'fw_get_identification', 'fw_list_surfaces', 'fw_get_surface',
   'fw_get_function_source', 'fw_attack_surface', 'fw_search', 'fw_call_trace',
   'fw_routes', 'fw_list_traces', 'fw_get_trace', 'fw_browse_firmware',
-  'fw_get_fuzz_run', 'fw_get_cfg', 'fw_get_ast', 'record_finding',
+  'fw_get_fuzz_run', 'fw_get_cfg', 'fw_get_ast',
+  'fw_vulnlib_search', 'fw_vulnlib_nday', 'record_finding',
 ]
 const REQUIRED_SANDBOX = ['bash', 'write']
 const DYNAMIC_ONLY = ['fw_request_trace', 'fw_request_fuzz', 'fw_request_frida', 'fw_qemu_exec']
