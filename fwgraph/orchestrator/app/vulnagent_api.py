@@ -1067,99 +1067,107 @@ def _autopilot(sid: str) -> None:
     rpc_failures = 0
     while True:
         time.sleep(AUTOPILOT_POLL)
-        state = _read_state(sdir)
-        if not state or state.get("status") != "running":
-            return  # 已收尾/出错/等待确认（continue 会重新拉起 autopilot）
-        events = _journal_tail(sdir)
-        turn_end = next((ev for ev in reversed(events)
-                         if ev.get("type") == "turn/end"), None)
-        if turn_end is None:
-            continue  # 首轮进行中或历史为空
-        reason = (turn_end.get("data") or {}).get("reason") or {}
-        err_msg = str((reason.get("error") or {}).get("message") or "")
-        if reason.get("kind") == "error":
-            # 引擎自愈让路：turn error 之后 journal 仍有新活动（llm/retry
-            # 或新 turn）说明引擎在自行恢复，autopilot 不介入（2026-09-22
-            # 实测：STREAM_CLOSED 后引擎 llm/retry 进行中被抢先置 error）。
-            _ets = turn_end.get("time") or 0
-            _recent = [e for e in events
-                       if (e.get("time") or 0) > _ets
-                       and e.get("type") in ("llm/retry", "turn/start",
-                                             "assistant/message")]
-            if _recent and time.time() * 1000 - max(
-                    e.get("time") or 0 for e in _recent) < 120_000:
-                continue
-            if retries >= AUTOPILOT_MAX_RETRIES or not _error_is_transient(err_msg):
-                if state.get("status") == "running":
-                    state["status"] = "error"
-                    state["error"] = f"turn error: {err_msg[:300]}"
-                    _save_state(sdir, state)
-                return
-            retries += 1
-            try:
-                _manager().rpc(sid, sdir, state, "session.prompt", {
-                    "mode": "queue",
-                    "content": [{"type": "text", "text":
-                                 "【编排】上一轮因引擎瞬时错误中断（"
-                                 + err_msg[:120]
-                                 + "）。运行环境已自动恢复，请从中断处继续"
-                                   "当前任务，不要重复已完成的分析。"}]})
-            except Exception:  # noqa: BLE001 - 注入失败下轮再试
-                pass
-            time.sleep(AUTOPILOT_POLL)
-            continue
-        if reason.get("kind") in ("completed", "interrupted"):
-            ts = turn_end.get("time") or 0
-            idle_s = (time.time() * 1000 - ts) / 1000 if ts else 0
-            # 只认真正的新 turn；host 已死时队列消息永远不会被消费
-            has_newer = any(isinstance(ev, dict)
-                            and ev.get("type") == "turn/start"
-                            and (ev.get("time") or 0) > ts for ev in events)
-            host_alive = False
-            try:
-                _pid = int((sdir / "runner.pid").read_text().strip())
-                open(f"/proc/{_pid}/cmdline").read()
-                host_alive = True
-            except (OSError, ValueError):
-                pass
-            # 已询问模拟的会话：turn 结束后 5s 即转等待（用户实测卡片
-            # 迟到数分钟体验差）；普通收尾仍用 120s 空闲阈值。
-            _idle_gate = 5 if (state.get("emulation_offered")
-                               and not state.get("emulation_replied")
-                               ) else AUTOPILOT_IDLE_DONE
-            if idle_s > _idle_gate and (not has_newer
-                                        or not host_alive):
-                if (state.get("emulation_offered")
-                        and not state.get("emulation_replied")):
-                    # 已向用户询问模拟、尚未答复：转 awaiting_continue
-                    # 等待（不收尾；continue 会拉起新 turn 与 autopilot）。
-                    state["status"] = "awaiting_continue"
-                    state["await_note"] = ("挖掘完成，等待用户确认是否"
-                                           "进行固件模拟真实测试")
-                    _save_state(sdir, state)
-                    try:
-                        with open(sdir / "events.sse", "a",
-                                  encoding="utf-8") as fh:
-                            fh.write("event: session_state\ndata: "
-                                     + json.dumps({
-                                         "status": "awaiting_continue",
-                                         "note": state["await_note"],
-                                         "ts": _now()}) + "\n\n")
-                    except OSError:
-                        pass
+        try:
+            state = _read_state(sdir)
+            if not state or state.get("status") != "running":
+                return  # 已收尾/出错/等待确认（continue 会重新拉起 autopilot）
+            events = _journal_tail(sdir)
+            turn_end = next((ev for ev in reversed(events)
+                             if ev.get("type") == "turn/end"), None)
+            if turn_end is None:
+                continue  # 首轮进行中或历史为空
+            reason = (turn_end.get("data") or {}).get("reason") or {}
+            err_msg = str((reason.get("error") or {}).get("message") or "")
+            if reason.get("kind") == "error":
+                # 引擎自愈让路：turn error 之后 journal 仍有新活动（llm/retry
+                # 或新 turn）说明引擎在自行恢复，autopilot 不介入（2026-09-22
+                # 实测：STREAM_CLOSED 后引擎 llm/retry 进行中被抢先置 error）。
+                _ets = turn_end.get("time") or 0
+                _recent = [e for e in events
+                           if (e.get("time") or 0) > _ets
+                           and e.get("type") in ("llm/retry", "turn/start",
+                                                 "assistant/message")]
+                if _recent and time.time() * 1000 - max(
+                        e.get("time") or 0 for e in _recent) < 120_000:
+                    continue
+                if retries >= AUTOPILOT_MAX_RETRIES or not _error_is_transient(err_msg):
+                    if state.get("status") == "running":
+                        state["status"] = "error"
+                        state["error"] = f"turn error: {err_msg[:300]}"
+                        _save_state(sdir, state)
                     return
+                retries += 1
                 try:
-                    if not _manager().stop(sid, sdir, state,
-                                           reason="auto-complete"):
-                        # host 已死且未注册：stop 返回 False 不走 finalize
-                        _dsh_finalize(sid, sdir, state, "auto-complete")
-                except Exception:  # noqa: BLE001
+                    _manager().rpc(sid, sdir, state, "session.prompt", {
+                        "mode": "queue",
+                        "content": [{"type": "text", "text":
+                                     "【编排】上一轮因引擎瞬时错误中断（"
+                                     + err_msg[:120]
+                                     + "）。运行环境已自动恢复，请从中断处继续"
+                                       "当前任务，不要重复已完成的分析。"}]})
+                except Exception:  # noqa: BLE001 - 注入失败下轮再试
+                    pass
+                time.sleep(AUTOPILOT_POLL)
+                continue
+            if reason.get("kind") in ("completed", "interrupted"):
+                ts = turn_end.get("time") or 0
+                idle_s = (time.time() * 1000 - ts) / 1000 if ts else 0
+                # 只认真正的新 turn；host 已死时队列消息永远不会被消费
+                has_newer = any(isinstance(ev, dict)
+                                and ev.get("type") == "turn/start"
+                                and (ev.get("time") or 0) > ts for ev in events)
+                host_alive = False
+                try:
+                    _pid = int((sdir / "runner.pid").read_text().strip())
+                    open(f"/proc/{_pid}/cmdline").read()
+                    host_alive = True
+                except (OSError, ValueError):
+                    pass
+                # 已询问模拟的会话：turn 结束后 5s 即转等待（用户实测卡片
+                # 迟到数分钟体验差）；普通收尾仍用 120s 空闲阈值。
+                _idle_gate = 5 if (state.get("emulation_offered")
+                                   and not state.get("emulation_replied")
+                                   ) else AUTOPILOT_IDLE_DONE
+                if idle_s > _idle_gate and (not has_newer
+                                            or not host_alive):
+                    if (state.get("emulation_offered")
+                            and not state.get("emulation_replied")):
+                        # 已向用户询问模拟、尚未答复：转 awaiting_continue
+                        # 等待（不收尾；continue 会拉起新 turn 与 autopilot）。
+                        state["status"] = "awaiting_continue"
+                        state["await_note"] = ("挖掘完成，等待用户确认是否"
+                                               "进行固件模拟真实测试")
+                        _save_state(sdir, state)
+                        try:
+                            with open(sdir / "events.sse", "a",
+                                      encoding="utf-8") as fh:
+                                fh.write("event: session_state\ndata: "
+                                         + json.dumps({
+                                             "status": "awaiting_continue",
+                                             "note": state["await_note"],
+                                             "ts": _now()}) + "\n\n")
+                        except OSError:
+                            pass
+                        return
                     try:
-                        _dsh_finalize(sid, sdir, state, "auto-complete")
+                        if not _manager().stop(sid, sdir, state,
+                                               reason="auto-complete"):
+                            # host 已死且未注册：stop 返回 False 不走 finalize
+                            _dsh_finalize(sid, sdir, state, "auto-complete")
                     except Exception:  # noqa: BLE001
-                        pass
-                return
-
+                        try:
+                            _dsh_finalize(sid, sdir, state, "auto-complete")
+                        except Exception:  # noqa: BLE001
+                            pass
+                    return
+        except Exception as exc:  # noqa: BLE001 - 单轮异常绝不杀线程
+            # 2026-09-23 实测：未捕获异常令线程静默死亡，offered 会话
+            # 停摆 running、终局卡片消失（NOPILOT 告警 7 分钟无人接管）。
+            try:
+                with open(sdir / "runner.log", "a", encoding="utf-8") as fh:
+                    fh.write(f"[autopilot] tick failed: {type(exc).__name__}: {exc}\n")
+            except OSError:
+                pass
 
 _dsh_manager: _dsh_host.DshHostManager | None = None
 
@@ -1497,27 +1505,31 @@ def setup(app: FastAPI, require_token) -> None:
                         fh.write(f"[vulnagent_api] first prompt failed: {exc}\n")
                 except OSError:
                     pass
-
-        threading.Thread(target=_boot_and_prompt, daemon=True,
-                         name=f"dsh-boot-{sid}").start()
-        _ensure_autopilot(sid)
-        accounts.audit(principal["username"], "session_start",
-                       f"{sid} engine=dsh-web job={gate_job} mode={mode}")
-        _bind_hunt_session(gate_job, sid)
-        return {"session_id": sid, "status": "running",
-                "engine": "dsh-web", "max_turns": max_turns}
-
     # 编排器重启后 running 会话的自动驾驶线程随进程丢失——启动时恢复，
     # 否则完成/错误无人接管（2026-09-22 实测：重启后 turn completed 停滞
     # 9 分钟无人收尾）。
-    try:
-        for sd in (VULNAGENT_HOME / "sessions").iterdir():
-            if sd.is_dir():
-                st = _read_state(sd)
-                if st and st.get("status") == "running":
-                    _ensure_autopilot(str(st.get("session_id") or sd.name))
-    except Exception:  # noqa: BLE001 - 恢复失败不阻塞启动
-        pass
+    def _startup_scan() -> None:
+        try:
+            for sd in (VULNAGENT_HOME / "sessions").iterdir():
+                if sd.is_dir():
+                    st = _read_state(sd)
+                    if st and st.get("status") == "running":
+                        _ensure_autopilot(str(st.get("session_id") or sd.name))
+        except Exception:  # noqa: BLE001 - 恢复失败不阻塞启动
+            pass
+
+    _startup_scan()
+
+    # 看门狗（2026-09-23）：autopilot 线程因未捕获异常静默死亡后，无人
+    # 接管 running 会话（NOPILOT 告警 7 分钟实测）。线程内已有 try 兜底
+    # 兜死亡，这里再加进程内周期自愈：60s 扫一次 running 会话补拉。
+    def _autopilot_watchdog() -> None:
+        while True:
+            time.sleep(60)
+            _startup_scan()
+
+    threading.Thread(target=_autopilot_watchdog, daemon=True,
+                     name="autopilot-watchdog").start()
 
     @app.get("/vulnagent/sessions")
     def list_sessions(principal: dict = Depends(require_token)):
