@@ -38,6 +38,8 @@ const session = inject('wbSession')
 const visible = computed(() => {
   const st = session?.state
   if (!st) return false
+  // 模拟询问等待由 EmulationOfferCard 接管，轮次面板让位（2026-09-23）
+  if (String(st.awaitNote || st.await_note || '').includes('固件模拟')) return false
   if (st.huntStatus === 'awaiting_continue') return true
   return st.huntStatus === 'done' && st.turns > 0 && st.turns >= (st.maxTurns || 0)
 })

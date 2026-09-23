@@ -224,6 +224,8 @@
               <DashboardView v-else-if="page === 'dashboard'" @goto="go" />
               <ProtocolView v-else-if="page === 'protocol'" @goto="go" />
               <DecryptView v-else-if="page === 'decrypt'" @goto="go" />
+              <BackdoorView v-else-if="page === 'backdoor'" />
+              <EmulView v-else-if="page === 'emul'" />
               <JobsView
                 v-else-if="page === 'jobs'"
                 @open-functions="openFunctions"
@@ -309,6 +311,8 @@ const WishView = defineAsyncComponent(() => import('./views/WishView.vue'))
 const DashboardView = defineAsyncComponent(() => import('./views/DashboardView.vue'))
 const ProtocolView = defineAsyncComponent(() => import('./views/ProtocolView.vue'))
 const DecryptView = defineAsyncComponent(() => import('./views/DecryptView.vue'))
+const BackdoorView = defineAsyncComponent(() => import('./views/BackdoorView.vue'))
+const EmulView = defineAsyncComponent(() => import('./views/EmulView.vue'))
 const JobsView = defineAsyncComponent(() => import('./views/JobsView.vue'))
 const PrepareView = defineAsyncComponent(() => import('./views/PrepareView.vue'))
 const FunctionsView = defineAsyncComponent(() => import('./views/FunctionsView.vue'))
@@ -342,14 +346,14 @@ if (qsToken) {
 }
 
 const ALL_PAGES = ['wish', 'jobs', 'prepare', 'decrypt', 'events', 'dashboard', 'functions', 'attack', 'inputs',
-  'graph', 'protocol', 'protofuzz', 'vulnlib', 'reports', 'users', 'logs', 'settings']
+  'graph', 'protocol', 'protofuzz', 'vulnlib', 'reports', 'users', 'logs', 'settings', 'backdoor', 'emul']
 const PAGE_TITLES = {
-  wish: '快速挖掘', jobs: '工作台', prepare: '分析任务', decrypt: '固件解密', events: '事件流', dashboard: '仪表盘', functions: '函数',
-  attack: '攻击面', inputs: '输入面', graph: '图谱', protocol: '协议逆向', protofuzz: '协议挖掘',
+  wish: '快速挖掘', jobs: '工作台', prepare: '分析任务', decrypt: '固件解密', events: '事件流', backdoor: '后门检测', emul: '固件模拟', dashboard: '仪表盘', functions: '函数',
+  attack: '攻击面', inputs: '输入面', graph: '图谱', protocol: '入口风险评估', protofuzz: '协议挖掘',
   vulnlib: '漏洞库', reports: '报告中心', users: '用户管理', logs: '日志审计', settings: '系统设置'
 }
 const USER_PAGES = ['wish', 'jobs', 'prepare', 'decrypt', 'events', 'dashboard', 'functions', 'attack', 'inputs',
-  'graph', 'protocol', 'protofuzz', 'vulnlib', 'reports']
+  'graph', 'protocol', 'protofuzz', 'vulnlib', 'reports', 'backdoor', 'emul']
 const ADMIN_PAGES = ['users', 'logs', 'settings']
 
 const qsMode = qs.get('mode')
@@ -376,6 +380,7 @@ const isOpsHome = computed(() => ['dashboard', 'wish', 'protocol', 'decrypt'].in
 
 const MENUS = {
   main: [
+    { index: 'dashboard', title: '仪表盘', icon: 'Odometer' },
     {
       group: 'chat', title: '新对话', icon: 'ChatDotRound', index: 'jobs',
       children: [
@@ -386,11 +391,12 @@ const MENUS = {
       group: 'tools', title: '固件工具', icon: 'Cpu',
       children: [
         { index: 'decrypt', title: '固件解密', icon: 'Unlock' },
-        { index: 'protocol', title: '协议逆向', icon: 'Share' },
+        { index: 'backdoor', title: '后门检测', icon: 'ScanSearch' },
+        { index: 'emul', title: '固件模拟', icon: 'Monitor' },
+        { index: 'protocol', title: '入口风险评估', icon: 'Aim' },
         { index: 'events', title: '事件流', icon: 'Tickets' }
       ]
     },
-    { index: 'dashboard', title: '仪表盘', icon: 'Odometer' },
     {
       group: 'analysis', title: '代码洞察', icon: 'Search',
       children: [
@@ -430,29 +436,15 @@ const menuItems = computed(() => {
 
 // ---- 命令面板 / 顶栏 ----
 const PAGE_ICONS = {
-  wish: 'Star', jobs: 'ChatDotRound', prepare: 'Upload', decrypt: 'Unlock', protocol: 'Share',
+  wish: 'Star', jobs: 'ChatDotRound', prepare: 'Upload', decrypt: 'Unlock', protocol: 'Share', backdoor: 'ScanSearch', emul: 'Monitor',
   events: 'Tickets', dashboard: 'Odometer', functions: 'Document', attack: 'Aim', inputs: 'Download',
   graph: 'Share', protofuzz: 'Share', vulnlib: 'Collection', reports: 'Notebook',
   users: 'User', logs: 'Tickets', settings: 'Setting'
 }
 const paletteOpen = ref(false)
 const wbNavSeq = ref(0)
-const PROTO_TABS = [
-  { id: 'ident', label: '协议标识', icon: 'Search', sub: '识别服务 / 端口 / 协议族' },
-  { id: 'algo', label: '加密算法识别', icon: 'Lock', sub: '扫描符号与字符串命中' },
-  { id: 'deep', label: '深度分析', icon: 'Cpu', sub: '运算模式与魔数常量' },
-  { id: 'rev', label: '算法逆向', icon: 'Document', sub: '定位伪 C 实现路径' },
-  { id: 'decode', label: '流量实时解码', icon: 'Download', sub: '粘贴报文即拆字段' },
-  { id: 'assess', label: '攻击面评估', icon: 'Aim', sub: '入口风险综合排序' }
-]
 const palettePages = computed(() => {
   const pages = allowedPages().map((index) => ({ index, title: PAGE_TITLES[index], icon: PAGE_ICONS[index] }))
-  // 协议逆向的六个能力做成面板直达项，省掉 分组→页面→能力 三层点击
-  if (allowedPages().includes('protocol')) {
-    for (const t of PROTO_TABS) {
-      pages.push({ index: 'protocol', protoTab: t.id, title: '协议逆向 · ' + t.label, sub: t.sub, icon: t.icon })
-    }
-  }
   return pages
 })
 function onPaletteNav ({ kind, page, protoTab, sid }) {
@@ -527,6 +519,11 @@ function toggleSideMini () {
 watch(page, (p) => {
   if (sideMiniManual) return
   sideMini.value = p === 'jobs'
+}, { immediate: true })
+
+// 笔记本等比缩放只作用于常规页面；仪表盘（态势大屏）有自己的断点适配
+watch(page, (p) => {
+  document.body.classList.toggle('fit', p !== 'dashboard')
 }, { immediate: true })
 function isGroupActive (item) {
   if (item.index && item.index === page.value) return true

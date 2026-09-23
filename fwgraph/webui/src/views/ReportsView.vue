@@ -7,6 +7,51 @@
       <p class="ins-sub">漏洞报告汇总、预览与导出。</p>
     </header>
 
+    <!-- 统计总览：KPI + 图表（2026-09-23 用户要求：报告中心要多统计图，
+         数据一眼可读） -->
+    <div class="stats-band">
+      <div class="kpi-row">
+        <div class="kpi">
+          <span class="kpi-num">{{ findingsTotal }}</span>
+          <span class="kpi-label">入库发现</span>
+        </div>
+        <div class="kpi hot">
+          <span class="kpi-num">{{ criticalCount }}</span>
+          <span class="kpi-label">严重 / 高危</span>
+        </div>
+        <div class="kpi">
+          <span class="kpi-num">{{ verifiedCount }}</span>
+          <span class="kpi-label">动态验证（observed+）</span>
+        </div>
+        <div class="kpi">
+          <span class="kpi-num">{{ fwCount }}</span>
+          <span class="kpi-label">涉及固件</span>
+        </div>
+        <div class="kpi">
+          <span class="kpi-num">{{ reports.length }}</span>
+          <span class="kpi-label">生成报告</span>
+        </div>
+      </div>
+      <div class="charts-row">
+        <div class="chart-card">
+          <h3>等级分布</h3>
+          <DonutChart :items="sevItems" title="等级分布" :size="180" />
+        </div>
+        <div class="chart-card">
+          <h3>可达性分布</h3>
+          <DonutChart :items="reachItems" title="可达性分布" :size="180" />
+        </div>
+        <div class="chart-card grow">
+          <h3>按固件发现数</h3>
+          <BarChart :items="fwItems" />
+        </div>
+        <div class="chart-card grow">
+          <h3>高频目标二进制 Top8</h3>
+          <BarChart :items="binItems" />
+        </div>
+      </div>
+    </div>
+
     <div class="lib-layout">
       <!-- 左列：筛选 + 报告列表（与漏洞库同范式） -->
       <div class="lib-card list-col">
@@ -48,9 +93,8 @@
               {{ fwLabel(r) }}
             </div>
             <div class="li-meta">
-              <template v-if="r.kind === 'job'">
-                <span v-if="r.vuln_count != null" class="ri-vuln">漏洞 <b>{{ r.vuln_count }}</b></span>
-                <span v-if="r.max_severity" class="ri-sev" :data-sev="r.max_severity">{{ r.max_severity }}</span>
+              <template v-if="r.max_severity">
+                <span class="ri-sev" :data-sev="r.max_severity">{{ r.max_severity }}</span>
                 ·
               </template>
               {{ fmtSize(r.size) }}
@@ -91,6 +135,74 @@ import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { api, getToken } from '../api'
 import { renderMarkdown } from '../highlight.js'
+import DonutChart from '../components/charts/DonutChart.vue'
+import BarChart from '../components/charts/BarChart.vue'
+
+const findings = ref([])
+async function loadFindings () {
+  try {
+    const list = await api('/vulnagent/findings')
+    findings.value = Array.isArray(list) ? list : (list?.items || [])
+  } catch { /* 图表降级为空态 */ }
+}
+// ---------------- 统计聚合（findings 库直读） ----------------
+const SEV_META = {
+  critical: { label: '严重', color: '#e11d48' },
+  high: { label: '高危', color: '#ea580c' },
+  medium: { label: '中危', color: '#d97706' },
+  low: { label: '低危', color: '#16a34a' }
+}
+const REACH_META = {
+  verified: { label: '已验证', color: '#16a34a' },
+  observed: { label: '观测到', color: '#2563eb' },
+  static: { label: '静态可达', color: '#94a3b8' }
+}
+const findingsTotal = computed(() => findings.value.length)
+const criticalCount = computed(() => findings.value.filter((f) =>
+  ['critical', '严重', 'high', '高危'].includes(String(f.severity || '').toLowerCase()) || ['critical', 'high'].includes(String(f.severity || ''))).length)
+const verifiedCount = computed(() => findings.value.filter((f) =>
+  ['observed', 'verified'].includes(String(f.reachability || '').toLowerCase())).length)
+const fwCount = computed(() => new Set(findings.value.map((f) => f.job_id).filter(Boolean)).size)
+const sevItems = computed(() => {
+  const by = {}
+  for (const f of findings.value) {
+    const key = String(f.severity || 'unknown').toLowerCase()
+    by[key] = (by[key] || 0) + 1
+  }
+  return Object.keys(SEV_META).map((k) => ({
+    key: k, value: by[k] || 0, label: SEV_META[k].label, color: SEV_META[k].color
+  })).filter((s) => s.value > 0)
+})
+const reachItems = computed(() => {
+  const by = {}
+  for (const f of findings.value) {
+    const key = String(f.reachability || 'static').toLowerCase()
+    by[key] = (by[key] || 0) + 1
+  }
+  return Object.keys(REACH_META).map((k) => ({
+    key: k, value: by[k] || 0, label: REACH_META[k].label, color: REACH_META[k].color
+  })).filter((s) => s.value > 0)
+})
+const fwItems = computed(() => {
+  const by = {}
+  for (const f of findings.value) {
+    const name = String(f.job_id || f.firmware || '未知').slice(0, 12)
+    by[name] = (by[name] || 0) + 1
+  }
+  return Object.entries(by).map(([label, value]) => ({
+    key: label, label, value, color: '#5b8cff'
+  })).sort((a, b) => b.value - a.value).slice(0, 8)
+})
+const binItems = computed(() => {
+  const by = {}
+  for (const f of findings.value) {
+    const name = String(f.binary_path || '').split('/').pop() || '未知'
+    by[name] = (by[name] || 0) + 1
+  }
+  return Object.entries(by).map(([label, value]) => ({
+    key: label, label, value, color: '#22c55e'
+  })).sort((a, b) => b.value - a.value).slice(0, 8)
+})
 
 const reports = ref([])
 const currentId = ref('')
@@ -228,9 +340,54 @@ async function exportFmt (fmt) {
   }
 }
 
-onMounted(loadReports)
+onMounted(() => { loadReports(); loadFindings() })
 </script>
 
+
+<style scoped>
+/* 统计总览带（2026-09-23） */
+.stats-band { margin: 0 0 14px; }
+.kpi-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.kpi {
+  background: var(--fw-surface, #fff);
+  border: 1px solid var(--fw-line, rgba(128, 128, 128, .2));
+  border-radius: 12px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.kpi-num { font-size: 24px; font-weight: 700; line-height: 1.1; }
+.kpi.hot .kpi-num { color: #e11d48; }
+.kpi-label { font-size: 12px; opacity: .65; }
+.charts-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 10px;
+}
+.chart-card {
+  background: var(--fw-surface, #fff);
+  border: 1px solid var(--fw-line, rgba(128, 128, 128, .2));
+  border-radius: 12px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.chart-card h3 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  opacity: .8;
+}
+.chart-card.grow { min-height: 180px; }
+</style>
 <style scoped>
 /* 列表列与详情列跟随 lib-page 范式（theme.css），这里只补报告页私有样式 */
 .list-col { position: sticky; top: 0; max-height: calc(100vh - 40px); }

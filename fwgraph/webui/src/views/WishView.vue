@@ -1,9 +1,9 @@
 <template>
-  <div class="wish wb-root" data-wb-theme="light">
+  <div class="wish wb-root" :data-wb-theme="themePref">
     <section v-if="!armed" class="hero">
       <p class="kicker">快速模式</p>
-      <h1>三步开始一次全自动挖掘</h1>
-      <p class="lead">选固件、选目标、确认出发。之后平台自动完成解密、解包、图谱、攻击面，再按你的方向全自动挖掘。</p>
+      <h1>三步发起自动化漏洞挖掘</h1>
+      <p class="lead">依次完成固件选择、目标设定与任务确认，平台自动执行解密、解包、代码图谱与攻击面分析，再按所选方向开展自动化挖掘。</p>
 
       <!-- 步骤卡片：一次只显示一步，选择后动画前进 -->
       <div class="wiz-card">
@@ -28,8 +28,8 @@
         <Transition :name="stepDir === 'back' ? 'wz-back' : 'wz-fwd'" mode="out-in">
           <!-- 第 1 步：选固件 -->
           <div v-if="step === 1" key="s1" class="wz-step">
-            <h2 class="wz-q">要挖哪个固件？</h2>
-            <p class="wz-sub">拖入镜像，或选择一个已完成分析的任务</p>
+            <h2 class="wz-q">选择目标固件</h2>
+            <p class="wz-sub">上传固件镜像，或复用已完成前置分析的任务</p>
             <div
               class="drop"
               :class="{ over: dragOver, ready: !!file }"
@@ -40,9 +40,9 @@
               @click="fileInput.click()"
             >
               <input ref="fileInput" type="file" class="hidden" :accept="FW_ACCEPT" @change="onPick" />
-              <strong>{{ file ? file.name : '把固件拖到这里，或点击选择' }}</strong>
+              <strong>{{ file ? file.name : '将固件镜像拖拽至此，或点击选择文件' }}</strong>
               <span v-if="uploadPct != null">正在上传 {{ uploadPct }}%</span>
-              <span v-else>{{ file ? fmtSize(file.size) : '支持 bin / img / tar / zip / trx 等常见镜像' }}</span>
+              <span v-else>{{ file ? fmtSize(file.size) : '支持 bin / img / tar / zip / trx 等常见固件格式' }}</span>
               <i v-if="uploadPct != null" class="drop-bar" :style="{ width: uploadPct + '%' }" />
             </div>
             <div v-if="file" class="picked-line">
@@ -50,7 +50,7 @@
               <button type="button" class="ghost" @click="file = null">重选</button>
             </div>
             <template v-if="readyJobs.length">
-              <p class="reuse-lead">或用已经分析完的任务</p>
+              <p class="reuse-lead">或复用已完成前置分析的任务</p>
               <div class="reuse">
                 <button
                   v-for="item in readyJobs"
@@ -65,8 +65,8 @@
 
           <!-- 第 2 步：选目标（单选，选中即前进） -->
           <div v-else-if="step === 2" key="s2" class="wz-step">
-            <h2 class="wz-q">希望挖到什么？</h2>
-            <p class="wz-sub">选一项，稍后在最后一步还能调整或补充</p>
+            <h2 class="wz-q">选择检测目标</h2>
+            <p class="wz-sub">选择重点漏洞类型，确认前可返回调整或补充说明</p>
             <div class="chips">
               <button
                 v-for="opt in WISH_OPTIONS"
@@ -89,8 +89,8 @@
 
           <!-- 第 3 步：确认出发 -->
           <div v-else key="s3" class="wz-step">
-            <h2 class="wz-q">确认出发</h2>
-            <p class="wz-sub">核对下面的选择，可以直接开始</p>
+            <h2 class="wz-q">确认并启动</h2>
+            <p class="wz-sub">请核对以下配置，确认无误后启动挖掘</p>
             <ul class="sum">
               <li @click="goStep(1)">
                 <span>固件</span>
@@ -104,14 +104,14 @@
               </li>
             </ul>
             <label class="extra">
-              <span>补充一句（可选）</span>
-              <textarea v-model="extra" rows="2" placeholder="例如：优先 HTTP 管理面，不要碰无关守护进程" />
+              <span>补充要求（可选）</span>
+              <textarea v-model="extra" rows="2" placeholder="例如：优先检测 HTTP 管理界面，跳过无关守护进程" />
             </label>
             <p v-if="notice" class="err">{{ notice }}</p>
             <div class="wz-nav">
               <button type="button" class="ghost" @click="goStep(2)">上一步</button>
               <button type="button" class="go" :disabled="!canStart || sending" @click="onStart">
-                {{ sending ? '正在启动…' : '开始挖掘' }}
+                {{ sending ? '正在启动…' : '启动挖掘' }}
               </button>
             </div>
           </div>
@@ -130,7 +130,7 @@
         </div>
         <div class="run-acts">
           <button v-if="sid && running" type="button" class="ghost" @click="onStop">停止</button>
-          <button type="button" class="ghost" @click="reset">新的愿望</button>
+          <button type="button" class="ghost" @click="reset">新建任务</button>
         </div>
       </header>
 
@@ -191,11 +191,11 @@
       <div class="workspace">
         <div class="chat">
           <header class="pane-h">
-            <h2>现场</h2>
-            <span>{{ sid ? '挖掘对话' : '等待前置完成后自动开挖' }}</span>
+            <h2>执行过程</h2>
+            <span>{{ sid ? '挖掘会话' : '前置分析完成后自动开始挖掘' }}</span>
           </header>
           <MessageList v-if="sid" :session="dsh" @inspect="onInspect" />
-          <p v-else class="empty">前置还在跑。完成后会自动出现思考、工具和结论。</p>
+          <p v-else class="empty">前置分析进行中，完成后将自动展示思考、工具调用与结论。</p>
         </div>
 
         <aside class="dock">
@@ -280,6 +280,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, provide, reactive, ref, watch } from 'vue'
 import { api, uploadFirmware } from '../api.js'
+import { themePref } from '../themePrefs'
 import MessageList from '../workbench/MessageList.vue'
 import ProgressRing from '../components/ProgressRing.vue'
 import CountUp from '../components/fx/CountUp.vue'
@@ -310,9 +311,9 @@ const selected = ref([])
 
 // 三步向导：1 固件 → 2 目标 → 3 确认；选择完成动画前进
 const WIZARD_STEPS = [
-  { id: 'fw', label: '选固件' },
-  { id: 'goal', label: '选目标' },
-  { id: 'go', label: '确认出发' }
+  { id: 'fw', label: '选择固件' },
+  { id: 'goal', label: '设定目标' },
+  { id: 'go', label: '确认启动' }
 ]
 const OPT_ICONS = {
   all: 'Star', cmdi: 'Share', mem: 'Cpu', auth: 'Lock',

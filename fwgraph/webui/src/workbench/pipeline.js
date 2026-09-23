@@ -55,29 +55,29 @@ export const DEFAULT_PREPARE_TASK = '完成解包、反编译、图谱和攻击�
 export const HUNT_TURNS = 80
 
 export const WISH_OPTIONS = [
-  { id: 'all', label: '尽量全挖', hint: '按高分路径自动覆盖' },
-  { id: 'cmdi', label: '命令注入', hint: 'system / popen / 未过滤拼接' },
-  { id: 'mem', label: '内存破坏', hint: '溢出、越界写、释放后使用' },
-  { id: 'auth', label: '认证绕过', hint: '口令、会话、默认凭据' },
-  { id: 'file', label: '任意文件读写', hint: '路径穿越、任意写' },
-  { id: 'info', label: '信息泄露', hint: '配置、密钥、敏感接口' },
-  { id: 'preauth', label: '预认证 RCE', hint: '未登录就能打到的远程执行' }
+  { id: 'all', label: '全面检测', hint: '按攻击路径风险评分自动覆盖全部类型' },
+  { id: 'cmdi', label: '命令注入', hint: 'system / popen 与未经校验的输入拼接' },
+  { id: 'mem', label: '内存破坏', hint: '缓冲区溢出、越界写入、释放后使用' },
+  { id: 'auth', label: '身份认证绕过', hint: '口令校验、会话管理、默认凭据' },
+  { id: 'file', label: '任意文件读写', hint: '路径穿越、任意文件写入' },
+  { id: 'info', label: '敏感信息泄露', hint: '配置暴露、硬编码密钥、调试接口' },
+  { id: 'preauth', label: '预认证远程代码执行', hint: '无需身份认证即可触发的远程执行' }
 ]
 
 export function buildWishTask (ids, extra) {
   const picked = new Set(Array.isArray(ids) ? ids : [])
   const labels = picked.has('all')
-    ? ['尽量覆盖高分路径上的真实漏洞']
+    ? ['对全部高置信攻击路径进行覆盖式检测']
     : WISH_OPTIONS.filter((item) => picked.has(item.id) && item.id !== 'all')
       .map((item) => item.label)
-  const focus = labels.length ? labels.join('、') : '尽量覆盖高分路径上的真实漏洞'
+  const focus = labels.length ? labels.join('、') : '对全部高置信攻击路径进行覆盖式检测'
   const note = String(extra || '').trim().slice(0, 800)
   return [
-    `用户希望挖到：${focus}。`,
+    `本次挖掘目标：${focus}。`,
     note ? `补充要求：${note}` : '',
-    '前置分析完成后立刻沿高分攻击路径做动静结合挖掘。',
-    '确认漏洞必须同时给出调用链和可复现 PoC。空差分、连通、启动崩溃不是漏洞。',
-    '对用户只说简体中文；一次最多两个工具，打完先交代结果。'
+    '前置分析完成后立即沿高置信攻击路径开展静态与动态相结合的挖掘。',
+    '确认漏洞必须同时提供完整调用链与可复现 PoC；空差分、端口连通、启动崩溃均不构成漏洞结论。',
+    '面向用户全程使用简体中文；单次至多并行两个工具，完成后先汇报结果再继续。'
   ].filter(Boolean).join('')
 }
 

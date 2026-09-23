@@ -1,0 +1,19 @@
+{
+  "session_id": "s-mu57eh1l-5eac",
+  "agent_id": "vuln-miner-fwgraph (dsh-web)",
+  "environment_id": "fwgraph-dsh-web",
+  "task": "\u7528 fw_get_identification \u76d8\u70b9\u5f53\u524d\u56fa\u4ef6\u7684\u516c\u7f51\u8f93\u5165\u6e05\u5355\uff0c\u7b80\u8ff0\u6bcf\u4e2a\u8f93\u5165\u7684\u5165\u53e3\u7c7b\u578b\u5373\u53ef",
+  "status": "done",
+  "turns": 1,
+  "usage": {},
+  "findings": [],
+  "created_at": "2026-09-17T07:24:03Z",
+  "updated_at": "2026-09-17T07:55:50Z",
+  "engine": "dsh-web",
+  "mode": "dynamic",
+  "job_id": "6df0ba4135c9",
+  "max_turns": 30,
+  "owner": "token-admin",
+  "approval_policy": "auto",
+  "dsh_session_id": "session-74d424c2-c048-4aa7-9dae-c64c2370242e"
+}

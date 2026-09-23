@@ -159,6 +159,95 @@
           </div>
         </footer>
       </section>
+
+      <section class="panel set-card">
+        <header class="set-card-head">
+          <h2>备用 LLM 网关</h2>
+          <span class="head-sub">主网关不可达时，新会话自动切到备用</span>
+        </header>
+        <div class="llm-status" :data-ok="llmStatus.primary_ok">
+          <b>当前主网关</b>
+          <code class="mono-val">{{ llmStatus.primary_base || '—' }}</code>
+          <b>状态</b>
+          <span>{{ llmStatus.primary_ok ? '在线' : '不可达' }}</span>
+          <b>生效通道</b>
+          <span>{{ llmStatus.active_label }}</span>
+        </div>
+        <el-form label-position="top" :disabled="!isAdmin" class="cfg-form">
+          <div class="field-grid">
+            <el-form-item label="备用 Base URL" class="field">
+              <el-input v-model="llmForm.base" class="mono-val" placeholder="https://ark.cn-beijing.volces.com/api/plan" />
+            </el-form-item>
+            <el-form-item label="备用模型名" class="field">
+              <el-input v-model="llmForm.model" class="mono-val" placeholder="deepseek-v4.1-flash" />
+            </el-form-item>
+          </div>
+          <el-form-item label="备用 API Key">
+            <el-input v-model="llmForm.key" type="password" show-password class="mono-val" placeholder="备用网关的 API Key" />
+          </el-form-item>
+        </el-form>
+        <footer v-if="isAdmin" class="save-bar">
+          <span class="save-hint" :class="{ show: llmDirty }">备用网关尚未保存</span>
+          <div class="save-actions">
+            <el-button type="primary" :loading="llmSaving" :disabled="!llmDirty" @click="saveLlm">保存备用网关</el-button>
+          </div>
+        </footer>
+      </section>
+
+      <section class="panel set-card">
+        <header class="set-card-head">
+          <h2>Token 消耗统计</h2>
+          <span class="head-sub">全部 AI 会话（漏洞挖掘 + 固件模拟）的 LLM 用量 · 60s 缓存</span>
+        </header>
+        <div v-if="usage" class="usage">
+          <div class="usage-kpis">
+            <div class="uk">
+              <b>{{ fmtTok(usage.total.input_tokens + usage.total.output_tokens) }}</b>
+              <span>总 Token</span>
+            </div>
+            <div class="uk">
+              <b>{{ fmtTok(usage.total.input_tokens) }}</b>
+              <span>输入</span>
+            </div>
+            <div class="uk">
+              <b>{{ fmtTok(usage.total.output_tokens) }}</b>
+              <span>输出</span>
+            </div>
+            <div class="uk">
+              <b>{{ usage.total.calls.toLocaleString() }}</b>
+              <span>LLM 调用</span>
+            </div>
+          </div>
+          <div class="usage-agents">
+            <div class="ua">
+              <span class="ua-name">漏洞挖掘</span>
+              <div class="ua-bar"><i :style="{ width: agentPct('mining') + '%' }" /></div>
+              <span class="ua-val mono-val">{{ fmtTok(agentTok('mining')) }} · {{ usage.by_agent.mining?.calls || 0 }} 次</span>
+            </div>
+            <div class="ua">
+              <span class="ua-name">固件模拟</span>
+              <div class="ua-bar alt"><i :style="{ width: agentPct('emul') + '%' }" /></div>
+              <span class="ua-val mono-val">{{ fmtTok(agentTok('emul')) }} · {{ usage.by_agent.emul?.calls || 0 }} 次</span>
+            </div>
+          </div>
+          <div v-if="dayRows.length" class="usage-days">
+            <div v-for="d in dayRows" :key="d.day" class="ud" :title="`${d.day}：${fmtTok(d.tok)}（输入 ${fmtTok(d.in)} / 输出 ${fmtTok(d.out)}）`">
+              <i :style="{ height: d.h + '%' }" />
+              <span class="ud-day">{{ d.day.slice(5) }}</span>
+            </div>
+          </div>
+          <div v-if="usage.top_sessions?.length" class="usage-top">
+            <span class="ut-cap">消耗最高的会话</span>
+            <div v-for="t in usage.top_sessions.slice(0, 5)" :key="t.session_id" class="ut-row">
+              <span class="mono-val">{{ t.session_id.slice(0, 14) }}</span>
+              <span class="ut-agent">{{ t.agent === 'emul' ? '模拟' : '挖掘' }}</span>
+              <span class="mono-val">{{ fmtTok(t.input_tokens + t.output_tokens) }}</span>
+            </div>
+          </div>
+        </div>
+        <p v-else-if="usageDenied" class="head-sub">Token 用量统计仅管理员可见。</p>
+        <p v-else class="head-sub">暂无用量数据（尚无 AI 会话完成过调用）。</p>
+      </section>
     </div>
   </div>
 </template>
@@ -227,6 +316,73 @@ const memPercent = computed(() => {
 
 // ---- 脏检查：和最近一次保存的快照对比，驱动保存按钮/提示 ----
 const savedSnapshot = ref('')
+const llmStatus = ref({ primary_base: '', primary_ok: null, active_label: '' })
+const llmForm = ref({ base: '', key: '', model: '' })
+const llmSaving = ref(false)
+const llmLoaded = ref('')
+const llmDirty = computed(() =>
+  llmLoaded.value && JSON.stringify(llmForm.value) !== llmLoaded.value)
+
+async function loadLlm () {
+  try {
+    const st = await api('/settings/llm')
+    llmStatus.value = st
+    const fb = st.fallback || {}
+    llmForm.value = { base: fb.base || '', key: '', model: fb.model || '' }
+    llmLoaded.value = JSON.stringify(llmForm.value)
+  } catch { /* 非管理员或接口失败时静默 */ }
+}
+
+// ---- token 消耗统计 ----
+const usage = ref(null)
+const usageDenied = ref(false)
+function fmtTok (n) {
+  const v = Number(n) || 0
+  if (v >= 1e8) return (v / 1e8).toFixed(2) + ' 亿'
+  if (v >= 1e4) return (v / 1e4).toFixed(1) + ' 万'
+  return v.toLocaleString()
+}
+function agentTok (k) {
+  const a = usage.value?.by_agent?.[k] || {}
+  return (a.input_tokens || 0) + (a.output_tokens || 0)
+}
+function agentPct (k) {
+  const tot = agentTok('mining') + agentTok('emul')
+  return tot ? Math.max(2, Math.round(agentTok(k) / tot * 100)) : 0
+}
+const dayRows = computed(() => {
+  const days = Object.entries(usage.value?.by_day || {})
+  if (!days.length) return []
+  const max = Math.max(...days.map(([, d]) => d.input_tokens + d.output_tokens)) || 1
+  return days.map(([day, d]) => {
+    const tok = d.input_tokens + d.output_tokens
+    return { day, tok, in: d.input_tokens, out: d.output_tokens,
+             h: Math.max(4, Math.round(tok / max * 100)) }
+  })
+})
+async function loadUsage () {
+  try {
+    usage.value = await api('/settings/token-usage')
+    usageDenied.value = false
+  } catch (e) {
+    usageDenied.value = e.status === 403
+  }
+}
+
+async function saveLlm () {
+  llmSaving.value = true
+  try {
+    const body = { ...llmForm.value }
+    if (!body.key) delete body.key
+    await api('/settings/llm', { method: 'PUT', body })
+    ElMessage.success('备用网关已保存；探活缓存已刷新')
+    await loadLlm()
+  } catch (e) {
+    ElMessage.error('保存失败: ' + e.message)
+  } finally {
+    llmSaving.value = false
+  }
+}
 function snapshot () {
   const auto = {}
   for (const { key } of autoRows) auto[key] = !!autoFlags[key]
@@ -353,6 +509,8 @@ async function save () {
 }
 
 onMounted(() => {
+  loadLlm()
+  loadUsage()
   loadInfo()
   loadConfig()
 })
@@ -360,6 +518,30 @@ onMounted(() => {
 
 <style scoped>
 .settings { padding: 20px 26px 40px; }
+
+/* ---- token 消耗统计 ---- */
+.usage { display: flex; flex-direction: column; gap: 16px; }
+.usage-kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+.uk { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; border: 1px solid var(--fw-line); border-radius: 10px; background: var(--fw-surface-2); }
+.uk b { font-size: 16px; font-variant-numeric: tabular-nums; color: var(--fw-text); }
+.uk span { font-size: 11.5px; color: var(--fw-text-3); }
+.usage-agents { display: flex; flex-direction: column; gap: 8px; }
+.ua { display: grid; grid-template-columns: 68px 1fr auto; gap: 10px; align-items: center; }
+.ua-name { font-size: 12.5px; color: var(--fw-text-2); }
+.ua-bar { height: 8px; border-radius: 99px; background: var(--fw-fill); overflow: hidden; }
+.ua-bar i { display: block; height: 100%; border-radius: 99px; background: var(--fw-brand); }
+.ua-bar.alt i { background: var(--fw-warn); }
+.ua-val { font-size: 11.5px; color: var(--fw-text-3); white-space: nowrap; }
+.usage-days { display: flex; align-items: flex-end; gap: 6px; height: 88px; padding: 4px 2px 0; }
+.ud { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; height: 100%; justify-content: flex-end; }
+.ud i { display: block; width: 100%; max-width: 26px; border-radius: 4px 4px 0 0; background: linear-gradient(180deg, var(--fw-accent), var(--fw-brand)); }
+.ud-day { font-size: 10px; color: var(--fw-text-3); font-variant-numeric: tabular-nums; }
+.usage-top { display: flex; flex-direction: column; gap: 4px; }
+.ut-cap { font-size: 11.5px; color: var(--fw-text-3); }
+.ut-row { display: grid; grid-template-columns: 1fr 44px 90px; gap: 10px; align-items: center; font-size: 12px; color: var(--fw-text-2); padding: 3px 0; border-bottom: 1px dashed var(--fw-line); }
+.ut-row:last-child { border-bottom: none; }
+.ut-agent { font-size: 11px; color: var(--fw-text-3); }
+.ut-row .mono-val { text-align: right; }
 
 /* ---- 顶部信息瓷片 ---- */
 .set-tiles {
@@ -702,4 +884,14 @@ code.env {
   .save-bar { flex-direction: column; align-items: stretch; }
   .save-actions { justify-content: flex-end; }
 }
+
+.llm-status {
+  display: grid; grid-template-columns: auto 1fr auto auto auto auto;
+  gap: 6px 10px; align-items: center;
+  padding: 10px 12px; border: 1px solid var(--fw-line);
+  border-radius: 10px; margin-bottom: 12px; font-size: 12px;
+}
+.llm-status b { color: var(--fw-text-3); font-weight: 500; }
+.llm-status[data-ok='false'] span { color: var(--fw-danger); }
+.llm-status[data-ok='true'] span { color: var(--fw-ok); }
 </style>

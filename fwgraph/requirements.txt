@@ -10,3 +10,6 @@ pytest>=8.0
 pyelftools>=0.31
 tree-sitter>=0.23
 tree-sitter-c>=0.23
+# 报告导出 DOCX/PDF（PDF 在无 LibreOffice 时用 reportlab 兜底）
+python-docx
+reportlab

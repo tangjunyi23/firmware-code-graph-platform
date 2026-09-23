@@ -3,11 +3,17 @@
     <header class="ins-head">
       <div class="ins-head-row">
         <h1 class="ins-title"><span class="ins-ico"><component :is="NAV_ICONS.Collection" :size="18" /></span>漏洞库</h1>
+        <div class="ins-actions">
+          <el-radio-group v-model="viewMode" size="small">
+            <el-radio-button value="lib">条目库</el-radio-button>
+            <el-radio-button value="firmware">按固件</el-radio-button>
+          </el-radio-group>
+        </div>
       </div>
       <p class="ins-sub">已知漏洞检索：CVE / CNVD / 厂商通告。</p>
     </header>
 
-    <div class="lib-layout">
+    <div v-if="viewMode === 'lib'" class="lib-layout">
       <!-- 左列：筛选 + 列表（与报告中心同范式） -->
       <div class="lib-card list-col">
         <div class="lib-head">
@@ -32,6 +38,7 @@
             <el-option value="cnvd" label="CNVD" />
             <el-option value="cnnvd" label="CNNVD" />
             <el-option value="manual" label="手工" />
+            <el-option value="trivy" label="Trivy SCA" />
           </el-select>
           <el-select v-model="severity" clearable placeholder="危害" class="w-src" @change="runSearch">
             <el-option value="critical" label="严重" />
@@ -137,6 +144,83 @@
       </div>
     </div>
 
+    <!-- 按固件视角：选已分析固件，看它的漏洞清单 -->
+    <div v-else class="lib-layout">
+      <div class="lib-card list-col">
+        <div class="lib-head">
+          <h2>固件</h2>
+          <span class="lib-count">{{ fwJobs.length }} 台</span>
+        </div>
+        <div class="list-scroll">
+          <el-empty v-if="!fwJobs.length" description="还没有完成分析的固件任务" :image-size="70" />
+          <div
+            v-for="j in fwJobs"
+            :key="j.job_id"
+            class="lib-item"
+            :class="{ active: fwSel === j.job_id }"
+            @click="pickFw(j.job_id)"
+          >
+            <div class="li-top">
+              <span class="li-id">{{ fwLabel(j) }}</span>
+              <span v-if="fwCount(j.job_id)" class="fw-badge">{{ fwCount(j.job_id) }} 发现</span>
+            </div>
+            <div class="li-meta">{{ STATUS_TEXT[j.status] || j.status }} · {{ fwSev(j.job_id) || '暂无发现' }}</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="lib-card detail-col">
+        <div class="lib-head">
+          <h2 class="viewer-title">{{ fwSelLabel || '固件漏洞清单' }}</h2>
+        </div>
+        <el-empty v-if="!fwSel" description="从左侧选择一台固件" :image-size="80" />
+        <template v-else>
+          <div class="fw-stats">
+            <span class="lib-chip">挖掘发现 <b>{{ fwFindingsOf(fwSel).length }}</b></span>
+            <span class="lib-chip">SCA CVE <b>{{ fwSca?.result?.cve_total ?? '—' }}</b></span>
+            <span class="lib-chip" :class="{ hot: fwScaSecrets > 0 }">密钥泄漏 <b>{{ fwScaSecrets }}</b></span>
+          </div>
+
+          <div class="sec">挖掘发现（AI 挖掘会话产出）</div>
+          <div v-for="f in fwFindingsOf(fwSel)" :key="f.id" class="fw-finding" @click="toggleFw(f.id)">
+            <div class="fd-row">
+              <el-tag size="small" :type="sevType(f.severity)" effect="dark">{{ sevLabel(f.severity) }}</el-tag>
+              <b class="fw-title">{{ f.title }}</b>
+              <span class="fw-reach" :class="{ ok: f.reachability === 'verified' }">{{ reachLabel(f.reachability) }}</span>
+            </div>
+            <div class="fw-meta mono">{{ f.function_name || '—' }}{{ f.cwe ? ` · ${f.cwe}` : '' }}{{ f.confidence ? ` · 置信 ${f.confidence}` : '' }}</div>
+            <pre v-if="fwOpen === f.id" class="fw-ev mono">{{ f.evidence || f.call_chain || f.summary || '（无证据摘录）' }}</pre>
+          </div>
+          <el-empty v-if="!fwFindingsOf(fwSel).length" description="该固件暂无挖掘发现" :image-size="60" />
+
+          <div class="sec">SCA 组件风险（Trivy）</div>
+          <template v-if="fwSca?.status === 'done'">
+            <p class="fw-sca-note muted">{{ fwSca.result.note }}</p>
+            <el-table v-if="(fwSca.result.vulns || []).length" :data="fwSca.result.vulns" size="small" max-height="300">
+              <el-table-column label="CVE" width="170">
+                <template #default="{ row }"><span class="mono">{{ row.cve }}</span></template>
+              </el-table-column>
+              <el-table-column label="危害" width="80">
+                <template #default="{ row }">
+                  <el-tag size="small" :type="sevType(row.severity)" effect="dark">{{ sevLabel(row.severity) }}</el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column prop="pkg" label="组件" min-width="130" show-overflow-tooltip />
+              <el-table-column prop="installed" label="版本" width="90" />
+              <el-table-column prop="fixed" label="修复" width="90" />
+            </el-table>
+            <div v-for="(sec, i) in (fwSca.result.secrets || []).slice(0, 10)" :key="`s-${i}`" class="fw-secret">
+              <el-tag size="small" type="danger" effect="dark">密钥泄漏</el-tag>
+              <span class="mono">{{ sec.rule }}</span>
+              <span class="mono muted">{{ sec.path }}</span>
+            </div>
+          </template>
+          <p v-else-if="fwSca?.status === 'running'" class="fw-sca-note muted">SCA 扫描进行中…</p>
+          <p v-else class="fw-sca-note muted">该任务暂无 SCA 结果（旧任务或未扫描）。</p>
+        </template>
+      </div>
+    </div>
+
     <el-dialog v-model="showAdd" title="收录一条" width="560px" append-to-body>
       <el-form label-width="88px">
         <el-form-item label="编号">
@@ -203,9 +287,10 @@
 
 <script setup>
 import { NAV_ICONS } from '../workbench/icons.js'
-import { computed, inject, onMounted, reactive, ref } from 'vue'
+import { computed, inject, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { api } from '../api'
+import { STATUS_TEXT } from '../workbench/pipeline.js'
 
 const SAMPLE = [
   {
@@ -266,6 +351,67 @@ const stats = ref({})
 const loading = ref(false)
 const ndayLoading = ref(false)
 const seeding = ref(false)
+
+// ---- 按固件视角 ----
+const viewMode = ref('lib')
+const fwJobs = ref([])
+const fwAll = ref([])
+const fwSel = ref('')
+const fwSca = ref(null)
+const fwOpen = ref('')
+
+async function loadFwView () {
+  try {
+    const [jobs, findings] = await Promise.all([
+      api('/jobs'),
+      api('/vulnagent/findings')
+        .then((d) => (Array.isArray(d) ? d : d.findings || d.items || []))
+        .catch(() => [])
+    ])
+    fwAll.value = findings
+    const has = new Set(findings.map((f) => f.job_id))
+    fwJobs.value = (jobs || []).slice().sort((a, b) =>
+      (has.has(b.job_id) ? 1 : 0) - (has.has(a.job_id) ? 1 : 0))
+    if (!fwSel.value && fwJobs.value.length) pickFw(fwJobs.value[0].job_id)
+  } catch { /* 保持空态 */ }
+}
+
+async function pickFw (jobId) {
+  fwSel.value = jobId
+  fwOpen.value = ''
+  fwSca.value = null
+  try {
+    fwSca.value = await api(`/jobs/${jobId}/sca`)
+  } catch { fwSca.value = null }
+}
+
+function fwLabel (j) {
+  return String(j.firmware || j.job_id).replace(/\.(bin|img|chk|trx|tar|gz|zip)$/i, '') || j.job_id
+}
+const fwSelLabel = computed(() => {
+  const j = fwJobs.value.find((x) => x.job_id === fwSel.value)
+  return j ? fwLabel(j) : ''
+})
+function fwFindingsOf (jobId) {
+  const rank = { critical: 0, high: 1, medium: 2, low: 3 }
+  return fwAll.value.filter((f) => f.job_id === jobId)
+    .sort((a, b) => (rank[a.severity] ?? 9) - (rank[b.severity] ?? 9))
+}
+function fwCount (jobId) { return fwFindingsOf(jobId).length }
+function fwSev (jobId) {
+  const f = fwFindingsOf(jobId)
+  if (!f.length) return ''
+  const c = f.filter((x) => x.severity === 'critical').length
+  const h = f.filter((x) => x.severity === 'high').length
+  return `严重 ${c} · 高危 ${h}`
+}
+const fwScaSecrets = computed(() => (fwSca.value?.result?.secrets || []).length)
+function reachLabel (r) {
+  return { 'static-only': '仅静态', static: '仅静态', observed: '已观测', verified: '已验证' }[r] || r || '—'
+}
+function toggleFw (id) { fwOpen.value = fwOpen.value === id ? '' : id }
+
+watch(viewMode, (m) => { if (m === 'firmware' && !fwJobs.value.length) loadFwView() })
 const mode = ref('search')
 const currentId = ref('')
 const current = ref(null)
@@ -286,7 +432,7 @@ const emptyHint = computed(() => (
 ))
 
 function sourceLabel (s) {
-  return ({ cve: 'CVE', cnvd: 'CNVD', cnnvd: 'CNNVD', manual: '手工' })[s] || s || '—'
+  return ({ cve: 'CVE', cnvd: 'CNVD', cnnvd: 'CNNVD', manual: '手工', trivy: 'Trivy SCA' })[s] || s || '—'
 }
 function sevLabel (s) {
   return ({ critical: '严重', high: '高危', medium: '中危', low: '低危', info: '提示' })[s] || s || '—'
@@ -520,4 +666,24 @@ onMounted(async () => {
   .list-col { position: static; max-height: none; }
   .job-select { margin-left: 0; }
 }
+
+.fw-badge {
+  flex: none; padding: 0 7px; border-radius: 999px; font-size: 11px; line-height: 17px;
+  color: var(--fw-danger); background: color-mix(in srgb, var(--fw-danger) 10%, transparent);
+}
+.fw-stats { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 4px; }
+.lib-chip { padding: 3px 11px; border-radius: 999px; font-size: 12px; background: var(--fw-fill); color: var(--fw-text-2); border: 1px solid var(--fw-line); }
+.lib-chip.hot b { color: var(--fw-danger); }
+.fw-finding { padding: 9px 6px; border-bottom: 1px solid var(--fw-line); cursor: pointer; border-radius: 6px; }
+.fw-finding:hover { background: var(--fw-fill); }
+.fd-row { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+.fw-title { font-size: 13.5px; line-height: 1.5; }
+.fw-reach { margin-left: auto; flex: none; font-size: 11.5px; color: var(--fw-text-3); }
+.fw-reach.ok { color: var(--fw-ok); }
+.fw-meta { margin-top: 4px; font-size: 11.5px; color: var(--fw-text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fw-ev { margin: 8px 0 0; padding: 9px 11px; background: var(--fw-surface-2); border: 1px solid var(--fw-line); border-radius: 8px; font-size: 11.5px; line-height: 1.6; color: var(--fw-text-2); max-height: 220px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+.fw-sca-note { font-size: 12px; line-height: 1.7; }
+.fw-secret { display: flex; align-items: center; gap: 10px; padding: 7px 10px; border: 1px solid color-mix(in srgb, var(--fw-danger) 30%, transparent); border-radius: 8px; margin-bottom: 8px; font-size: 12px; overflow-wrap: anywhere; }
+.muted { color: var(--fw-text-3); }
+.mono { font-family: var(--fw-font-mono, ui-monospace, monospace); }
 </style>

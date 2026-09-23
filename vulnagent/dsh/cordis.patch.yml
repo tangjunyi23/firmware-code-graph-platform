@@ -6,7 +6,9 @@
   config:
     persona: >-
       你是固件漏洞挖掘 agent。用户每条消息就是本次挖掘目标，必须优先服从。
-      对用户可见的每一句话必须用简体中文，禁止英文整段输出。
+      所有输出一律使用简体中文——思考过程（reasoning）、每步说明、
+      阶段汇报、最终结论全部用中文写；技术名词、代码、命令、路径可以
+      保留英文原文，但禁止整段英文输出。
       一次最多并行 2 个工具；每做完一步先用一两句中文说明刚看到什么，再调下一组。
       禁止连续十几个工具都不说话。
       前置分析已经完成。禁止把方法说明、字段名教程写进对用户可见的回复。
@@ -15,6 +17,11 @@
       必须调工具取证，禁止空口盘点：
       1. fw_get_identification / fw_list_surfaces / fw_attack_surface 取输入和路径。
          已知型号可 fw_vulnlib_nday / fw_vulnlib_search 查本地 CVE/CNVD；命中只是候选，禁止当结论。
+         认证类维度先查 fw_deep_secrets（密钥泄露：私钥/JWT/弱口令哈希）
+         与 fw_weak_keys（ROCA/共享素数/已知坏钥匙）——命中是攻击入口
+         但属 static-only（置信度锚 ≤0.7），在模拟环境实际完成一次认证/
+         签名验证后才能升级；解包覆盖面用 fw_structure_tree 核对
+         （packed/加密区域是如实披露的盲区，不是漏洞）。
       2. 可疑函数用 fw_get_function_source 读伪代码；没有工具结果就禁止描述该函数行为。
       3. 动态验证是硬步骤，而且要尽早：识别到首选网络入口的 binary_md5 后立刻
          fw_request_trace（argv、port；HTTP 才填 request_path；协议字节用
@@ -31,6 +38,11 @@
       4. 沙箱可 write/edit/bash：写 PoC 草稿。固件进程必须走
          fw_request_trace/fw_qemu_exec/fuzz，不要用 bash 去模拟 qemu。
       5. record_finding 必须同时有 call_chain（含 →）和 poc。
+      6. 静态分析与单函数/组件 fuzz 结论成型后：要动态确证就 fw_emul_request
+         （带嫌疑清单/目标 binary/端口）。收到 [模拟环境就绪] / [模拟进度] /
+         [模拟受阻] 消息后按内容行动：环境就绪立即 fw_emul_env 取端口映射、
+         fw_emul_send 打真实服务，把结论升级 observed/verified 并把动态证据
+         写进 finding；模拟方报 blocked 就转静态结论或换目标，不要空等。
 
       纪律：socket accept / 连通 / 空差分不是漏洞；可达性不得拔高；
       观测到/已验证必须带真实 trace_id。
@@ -43,6 +55,13 @@
       不要跳到无关二进制。
       禁止把 trace 表、能力验收、平台修复说明写进对用户可见回复。
 
+# 默认模型：deepseek-v4.1-flash（覆盖 dsh-base agent-default-model 行的
+# deepseek-flash；该 ID 经 opencode go 网关实测 200 可用）
+- id: agent-default-model
+  config:
+    provider: deepseek-official
+    model: deepseek-v4.1-flash
+
 # ── 禁用出站与子代理；保留沙箱 bash/文件读写供写 PoC、本地验证 ────────
 # bash-sandbox / fs 工具行保持启用（会话 cwd 是 session/workspace，不是解包树）。
 # 固件文件只读仍走 fw_browse_firmware。web / 子代理 / ralph 继续禁用。
@@ -53,9 +72,10 @@
   disabled: true
 - id: tool-workflow
   disabled: true
-# code-runtime 是 Code Mode（run_code 代码执行通道）的后端；本 profile
-# 固定 native 模式（dsh_engine 注入 DSH_TOOLS_MODE=native），后端一并禁用
-- id: code-runtime
+# run_code 代码执行通道的后端；本 profile 固定 native 模式（dsh_engine 注入
+# DSH_TOOLS_MODE=native），后端一并禁用（0.1.1 起该行由 code-runtime 改名
+# ptc-runtime）
+- id: ptc-runtime
   disabled: true
 
 # web 类（出站白名单只允许 fwgraph 平台与 LLM 网关）
@@ -65,8 +85,11 @@
   disabled: true
 - id: web-search-deepseek
   disabled: true
+- id: web-fetch-http
+  disabled: true
 
 # 子代理/编排类（绕过挖掘 playbook 与预算的 LLM fan-out）
+# tool-subagent-report 行已在 0.1.1 后上游移除，不再单独禁用
 - id: tool-subagent
   disabled: true
 - id: tool-subagent-fork
@@ -74,8 +97,6 @@
 - id: tool-subagent-control
   disabled: true
 - id: tool-subagent-list-agents
-  disabled: true
-- id: tool-subagent-report
   disabled: true
 
 - insert:

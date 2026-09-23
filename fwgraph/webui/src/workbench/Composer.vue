@@ -44,16 +44,6 @@
         />
       </div>
 
-      <div v-if="showSuggestions" class="suggest-row" @click.stop>
-        <button
-          v-for="s in SUGGESTIONS"
-          :key="s"
-          type="button"
-          class="suggest-chip"
-          @mousedown.prevent="keepFocus"
-          @click="applySuggestion(s)"
-        >{{ s }}</button>
-      </div>
 
       <div class="row">
         <div class="tools">
@@ -179,16 +169,7 @@ const scrollRef = ref(null)
 const fileInput = ref(null)
 const composing = ref(false)
 
-// 示例目标：空输入且已选任务时展示，点一下填入
-const SUGGESTIONS = [
-  '优先挖预认证 RCE',
-  '查命令注入，给调用链和 PoC',
-  '重点看 HTTP 管理面的内存破坏',
-  '沿 strcpy/sprintf 找溢出'
-]
-const showSuggestions = computed(() =>
-  !workspaceTrigger.value && !props.locked && !running.value && !props.draft.trim()
-)
+// 2026-09-23：示例建议 chips 移除（用户反馈堆积历史输入无法清理）
 function applySuggestion (text) {
   emit('update:draft', text)
   nextTick(() => { inputRef.value?.focus({ preventScroll: true }); resize() })

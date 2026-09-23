@@ -19,11 +19,21 @@
         <span v-if="surfSummary" class="stat-chip">攻击面 <b>{{ surfSummary.surfaces }}</b></span>
         <span v-if="surfSummary" class="stat-chip">授权链 <b>{{ surfSummary.auth_chains }}</b></span>
         <span v-if="surfSummary" class="stat-chip">仅静态 <b>{{ surfSummary.static_only }}</b></span>
+      <el-popover v-if="gateNotes.length" placement="bottom-start" :width="520" trigger="click">
+        <template #reference>
+          <button type="button" class="gate-chip" :class="{ err: hasGateErrors }">
+            <component :is="NAV_ICONS.Collection" :size="13" />
+            {{ gateNotes.length }} 条证据可信度提示
+            <span class="gate-chip-act">查看</span>
+          </button>
+        </template>
+        <div class="gate-note-list">
+          <p class="gate-note-title">以下攻击面文档的证据等级有限，结论需人工复核：</p>
+          <p v-for="(n, i) in gateNotes" :key="i" class="gate-note" :data-kind="n.kind">{{ n.text }}</p>
+        </div>
+      </el-popover>
       </div>
-      <el-alert v-for="(g, i) in surfSummary?.gate_errors || []" :key="`ge-${i}`"
-                type="error" :closable="false" :title="g" class="gate-alert" />
-      <el-alert v-for="(g, i) in surfSummary?.gate_warnings || []" :key="`gw-${i}`"
-                type="warning" :closable="false" :title="g" class="gate-alert" />
+
     </header>
 
     <div class="inputs-layout">
@@ -253,6 +263,26 @@ const meta = ref(null)
 const inputs = ref([])
 const identMissing = ref(false)
 const surfSummary = ref(null)
+
+// gate 提示改走摘要 chip，不再整屏堆 alert（内容被顶到看不见）
+const GATE_TEXT_CN = [
+  [/^(.+?):\s*carrier bindings are placeholder-grade \(no pseudo-C evidence\)$/, (m) => `${m[1]}：载体绑定证据不足（缺伪 C 证据）`],
+  [/^(.+?):\s*final_handler unresolved \(static-only\)$/, (m) => `${m[1]}：最终处理函数未解析（仅静态）`],
+  [/^(.+?):\s*no dispatcher identified$/, (m) => `${m[1]}：未识别出分发函数`]
+]
+const gateNotes = computed(() => {
+  const sum = surfSummary.value || {}
+  const conv = (list, kind) => (list || []).map((raw) => {
+    let text = String(raw)
+    for (const [re, fn] of GATE_TEXT_CN) {
+      const m = text.match(re)
+      if (m) { text = fn(m); break }
+    }
+    return { text, kind }
+  })
+  return [...conv(sum.gate_errors, 'err'), ...conv(sum.gate_warnings, 'warn')]
+})
+const hasGateErrors = computed(() => !!(surfSummary.value?.gate_errors || []).length)
 const surfaces = ref([]) // non-AUTH surface docs
 const surfMissing = ref(false)
 
@@ -405,7 +435,24 @@ async function rerunSurfaces () {
 .block { margin-bottom: 14px; }
 .toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 .summary { margin-top: 12px; }
-.gate-alert { margin-top: 10px; }
+.gate-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 26px; padding: 0 11px;
+  border: 1px solid color-mix(in srgb, var(--fw-warn) 40%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--fw-warn) 9%, transparent);
+  color: var(--fw-warn); font-size: 12px; cursor: pointer;
+}
+.gate-chip.err {
+  border-color: color-mix(in srgb, var(--fw-danger) 40%, transparent);
+  background: color-mix(in srgb, var(--fw-danger) 9%, transparent);
+  color: var(--fw-danger);
+}
+.gate-chip-act { opacity: .75; font-size: 11px; }
+.gate-note-list { max-height: 300px; overflow: auto; }
+.gate-note-title { margin: 2px 0 8px; font-size: 12.5px; color: var(--fw-text-3); }
+.gate-note { margin: 0 0 6px; font-size: 12.5px; color: var(--fw-text-2); }
+.gate-note[data-kind='err'] { color: var(--fw-danger); }
 .row-between { display: flex; justify-content: space-between; align-items: center; }
 .mono { font-family: 'JetBrains Mono', ui-monospace, Consolas, 'Courier New', monospace; }
 .muted { color: var(--fw-text-3); font-size: 12px; }

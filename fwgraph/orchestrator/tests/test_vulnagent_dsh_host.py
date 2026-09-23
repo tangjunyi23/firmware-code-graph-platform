@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 import uvicorn
-from fastapi import FastAPI, WebSocket
+from fastapi import FastAPI, Request, Response, WebSocket, WebSocketDisconnect
 from fastapi.testclient import TestClient
 
 from orchestrator.app import accounts, main, vulnagent_api
@@ -33,28 +33,59 @@ class _StubHost:
         self.responds = []       # POST /api/respond 原文
         self.mux_frames = []     # 连接后依次发出的 JSON 字符串
         self.session_counter = 0
+        # dsh 0.1.1+ 浏览器会话鉴权：launch token → GET / 换 cookie → RPC 带 cookie
+        self.token = "stub-launch-token-01"
+        self.cookie_pair = "dsh-auth-stub=signed"
         self.app = FastAPI()
         self.server: uvicorn.Server | None = None
         self.thread: threading.Thread | None = None
 
         stub = self
 
+        @self.app.get("/")
+        async def index(token: str = ""):
+            if token != stub.token:
+                return Response(status_code=401, content="unauthorized")
+            resp = Response(status_code=303)
+            resp.headers["location"] = "/"
+            resp.headers["set-cookie"] = (
+                f"{stub.cookie_pair}; Path=/; HttpOnly; SameSite=Lax")
+            return resp
+
+        @self.app.post("/api/$events/result")
+        async def events_result(body: dict, request: Request):
+            if stub.cookie_pair not in (request.headers.get("cookie") or ""):
+                return Response(status_code=401, content="unauthorized")
+            args = (body.get("payload") or {}).get("args") or {}
+            stub.responds.append(args)
+            return {"type": "server-response", "rpcId": body.get("rpcId"),
+                    "result": {"ok": True, "value": {"accepted": True}}}
+
         @self.app.post("/api/respond")
-        async def respond(body: dict):
+        async def respond(body: dict, request: Request):
+            if stub.cookie_pair not in (request.headers.get("cookie") or ""):
+                return Response(status_code=401, content="unauthorized")
             stub.responds.append(body)
             return {"accepted": True}
 
-        @self.app.post("/api/{method}")
-        async def rpc(method: str, body: dict):
-            if method == "respond":
+        @self.app.post("/api/{ns}/{method}")
+        async def rpc(ns: str, method: str, body: dict, request: Request):
+            if stub.cookie_pair not in (request.headers.get("cookie") or ""):
+                return Response(status_code=401, content="unauthorized")
+            endpoint = f"{ns}/{method}"
+            if endpoint == "respond":
                 stub.responds.append(body)
                 return {"accepted": True}
-            stub.calls.append((method, body.get("payload") or {}))
-            if method == "host.describe":
-                value = {"version": "stub", "model": "stub-model"}
-            elif method == "session.create":
+            args = (body.get("payload") or {}).get("args") or {}
+            req = args.get("request")
+            if not isinstance(req, dict):
+                req = args.get("_request") or {}
+            stub.calls.append((endpoint, req))
+            if endpoint == "session/list":
+                value = {"items": []}
+            elif endpoint == "session/create":
                 # resume：payload 带 sessionId 时原样返回；session-dead* 模拟丢失
-                sid = (body.get("payload") or {}).get("sessionId")
+                sid = req.get("sessionId")
                 if sid and str(sid).startswith("session-dead"):
                     return {
                         "type": "server-response",
@@ -83,9 +114,9 @@ class _StubHost:
                     stub.session_counter += 1
                     sid = f"session-stub-{stub.session_counter}"
                 value = {"sessionId": sid,
-                         "agentPreset": (body.get("payload") or {}).get("agentPreset")}
-            elif method == "session.history":
-                sid = (body.get("payload") or {}).get("sessionId")
+                         "agentPreset": req.get("agentPreset")}
+            elif endpoint == "session/page":
+                sid = (req.get("address") or {}).get("sessionId")
                 if sid and str(sid).startswith("session-badhist"):
                     return {
                         "type": "server-response",
@@ -100,24 +131,44 @@ class _StubHost:
                         }},
                     }
                 value = {}
-            elif method == "session.prompt":
+            elif endpoint == "session/prompt":
                 value = {"accepted": True}
-            elif method == "session.fork":
+            elif endpoint == "session/fork":
                 stub.session_counter += 1
                 value = {"sessionId": f"session-fork-{stub.session_counter}"}
-            elif method == "session.list":
-                value = {"items": []}
             else:
                 value = {}
             return {"type": "server-response", "rpcId": body.get("rpcId"),
                     "result": {"ok": True, "value": value}}
 
-        @self.app.websocket("/api/events.mux")
+        @self.app.websocket("/api/remote.mux")
         async def mux(ws: WebSocket):
             await ws.accept()
-            for frame in stub.mux_frames:
-                await ws.send_text(frame)
-            await ws.close()
+            # remote.mux 协议：先收 open 再推 item；$events 流回 ready 帧。
+            # 三条流都 open 过之后回放预置帧并主动关闭（桥在 ConnectionClosed
+            # 时返回，TestClient 需要 ASGI 任务完结才能交付流式响应）。
+            try:
+                while True:
+                    raw = await ws.receive_text()
+                    try:
+                        msg = json.loads(raw)
+                    except ValueError:
+                        continue
+                    if msg.get("type") == "open":
+                        sid_open = msg.get("streamId")
+                        if sid_open == "events":
+                            await ws.send_text(json.dumps({
+                                "type": "item", "streamId": "events",
+                                "value": {"type": "ready",
+                                          "clientId": "stub-client-1"}}))
+                        if sid_open == "follow":
+                            for frame in stub.mux_frames:
+                                await ws.send_text(frame)
+                        if sid_open == "events":
+                            await ws.close()
+                            return
+            except (WebSocketDisconnect, RuntimeError):
+                return
 
     def start(self, port: int):
         config = uvicorn.Config(self.app, host="127.0.0.1", port=port,
@@ -174,6 +225,12 @@ class _FakeSpawner:
         stub = _StubHost()
         stub.start(port)
         self.stubs.append(stub)
+        # 模拟 web-app boot 后打印官方就绪行（manager 靠它取 launch token）
+        if stdout is not None:
+            stdout.write(
+                f"dsh web: http://127.0.0.1:{port}/?token={stub.token}\n"
+                .encode())
+            stdout.flush()
         return _FakeProc(stub)
 
 
@@ -217,15 +274,15 @@ class TestManager:
                          "content": [{"type": "text", "text": "挖"}]})
         assert value == {"accepted": True}
         methods = [m for m, _ in spawner.stubs[0].calls]
-        assert methods[0] == "host.describe"          # 就绪探测
-        assert "session.create" in methods
+        assert methods[0] == "session/list"             # 就绪探测（host.describe 的替身）
+        assert "session/create" in methods
         prompt = [p for m, p in spawner.stubs[0].calls
-                  if m == "session.prompt"][0]
+                  if m == "session/prompt"][0]
         assert prompt["sessionId"] == "session-stub-1"
         mgr.rpc("s-test-0001", sdir, {"job_id": JOB, "dsh_session_id": dsh_sid},
                 "session.history", {"maxMessages": 200})
-        hist = [p for m, p in spawner.stubs[0].calls if m == "session.history"]
-        assert hist and hist[0]["sessionId"] == "session-stub-1"
+        hist = [p for m, p in spawner.stubs[0].calls if m == "session/page"]
+        assert hist and hist[0]["address"]["sessionId"] == "session-stub-1"
         assert hist[0]["maxMessages"] == 200
         # fwgraph preset + profile 到达命令行
         cmd = spawner.cmds[0]
@@ -244,7 +301,7 @@ class TestManager:
         state = {"job_id": JOB, "dsh_session_id": ""}
         hist = mgr.rpc("s-test-emptyid", sdir, state, "session.history",
                        {"maxMessages": 10})
-        assert hist == {}
+        assert hist == {"events": [], "hasMore": False}
         assert state["dsh_session_id"].startswith("session-stub-")
         assert persisted and persisted[-1] == state["dsh_session_id"]
 
@@ -259,8 +316,8 @@ class TestManager:
         mgr._hosts["s-test-hist"].dsh_session_id = ""
         mgr.rpc("s-test-hist", sdir, state, "session.history",
                 {"maxMessages": 10, "sessionId": None})
-        hist = [p for m, p in spawner.stubs[0].calls if m == "session.history"]
-        assert hist[-1]["sessionId"] == dsh_sid
+        hist = [p for m, p in spawner.stubs[0].calls if m == "session/page"]
+        assert hist[-1]["address"]["sessionId"] == dsh_sid
 
     def test_rpc_allowlist(self, tmp_path):
         spawner = _FakeSpawner()
@@ -298,7 +355,7 @@ class TestManager:
         mgr.ensure("s-test-0004", sdir, state)
         assert len(spawner.stubs) == 2
         creates = [p for m, p in spawner.stubs[1].calls
-                   if m == "session.create"]
+                   if m == "session/create"]
         assert creates and creates[0]["sessionId"] == dsh_sid
 
     def test_resume_missing_creates_and_persists(self, tmp_path):
@@ -318,10 +375,10 @@ class TestManager:
         assert persisted and persisted[-1] == state["dsh_session_id"]
         hist = mgr.rpc("s-test-gone", sdir, state, "session.history",
                        {"maxMessages": 10})
-        assert hist == {}
+        assert hist == {"events": [], "hasMore": False}
         payloads = [p for m, p in spawner.stubs[0].calls
-                    if m == "session.history"]
-        assert payloads and payloads[0]["sessionId"] == host.dsh_session_id
+                    if m == "session/page"]
+        assert payloads and payloads[0]["address"]["sessionId"] == host.dsh_session_id
 
     def test_resume_corrupt_mints_new_session(self, tmp_path):
         persisted = []
@@ -411,28 +468,33 @@ class TestManager:
         sdir.mkdir()
         state = {"job_id": JOB}
         mgr.create_session("s-test-0006", sdir, state)
-        frames = [
-            json.dumps({"type": "server-request", "rpcId": "x",
-                        "method": "session/event",
-                        "payload": {"sessionId": "session-stub-1"}}),
-            json.dumps({"type": "server-request", "rpcId": "y",
-                        "method": "session/queue",
-                        "payload": {"sessionId": "session-stub-1",
-                                    "items": []}}),
+        # remote.mux item 帧（follow/control 流）→ 桥翻成旧 0.1.0 method 帧
+        spawner.stubs[0].mux_frames = [
+            json.dumps({"type": "item", "streamId": "follow", "value": {
+                "type": "event",
+                "event": {"seq": 1, "type": "user/message",
+                          "data": {"text": "hi"}}}}),
+            json.dumps({"type": "item", "streamId": "control", "value": {
+                "type": "queue", "sessionId": "session-stub-1", "items": []}}),
         ]
-        spawner.stubs[0].mux_frames = frames
 
         async def collect():
             out = []
             async for chunk in mgr.mux_sse("s-test-0006", sdir, state):
                 out.append(chunk)
-                if len(out) >= 2:
+                if len(out) >= 3:
                     break
             return out
 
         got = asyncio.run(asyncio.wait_for(collect(), timeout=10))
-        assert got[0] == f"data: {frames[0]}\n\n"
-        assert got[1] == f"data: {frames[1]}\n\n"
+        first = json.loads(got[0][len("data: "):].strip())
+        assert first["method"] == "session/subscribed"
+        second = json.loads(got[1][len("data: "):].strip())
+        assert second["method"] == "session/event"
+        assert second["payload"]["event"]["type"] == "user/message"
+        third = json.loads(got[2][len("data: "):].strip())
+        assert third["method"] == "session/queue"
+        assert third["payload"]["items"] == []
 
     def test_discard_blocks_ensure(self, tmp_path):
         spawner = _FakeSpawner()
@@ -629,9 +691,11 @@ class TestSessionEndpoints:
     def test_mux_streams_sse(self, client):
         sid = _start(client)
         mgr = vulnagent_api._dsh_manager
-        frame = json.dumps({"type": "server-request", "rpcId": "f1",
-                            "method": "session/event",
-                            "payload": {"sessionId": "session-stub-1"}})
+        # 0.1.1+ remote.mux item 帧 → 桥翻成旧 session/event method 帧
+        frame = json.dumps({"type": "item", "streamId": "follow", "value": {
+            "type": "event",
+            "event": {"seq": 1, "type": "user/message",
+                      "data": {"text": "hi"}}}})
         mgr._hosts[sid]  # host 已注册
         # 找到该 sid 的 stub 并预置帧
         for stub in mgr._spawner.stubs:
@@ -643,7 +707,12 @@ class TestSessionEndpoints:
                 "text/event-stream")
             for line in resp.iter_lines():
                 if line.startswith("data: "):
-                    assert json.loads(line[6:])["method"] == "session/event"
+                    parsed = json.loads(line[6:])
+                    if parsed["method"] == "session/subscribed":
+                        continue
+                    assert parsed["method"] == "session/event"
+                    assert parsed["payload"]["event"]["type"] == \
+                        "user/message"
                     break
 
     def test_prompt_charges_turns_then_409_at_cap(self, client):
@@ -775,9 +844,8 @@ class TestSessionEndpoints:
         assert resp.json().get("accepted") is True
         stub = vulnagent_api._dsh_manager._spawner.stubs[-1]
         assert stub.responds
+        # 0.1.1+：转发到 /api/$events/result，args 携带 outcome
         got = stub.responds[-1]
-        assert got["type"] == "client-response"
-        assert got["rpcId"] == "rpc-approval-1"
-        assert got["result"]["ok"] is True
-        assert got["result"]["value"]["outcome"] == "allowed-once"
-        assert got["result"]["value"]["approvalId"] == "ap-1"
+        assert got["eventId"] == "rpc-approval-1"
+        assert got["outcome"]["kind"] == "result"
+        assert got["outcome"]["value"] == "allowed-once"

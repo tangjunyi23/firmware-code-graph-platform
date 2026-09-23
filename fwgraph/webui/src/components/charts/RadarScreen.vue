@@ -187,7 +187,8 @@ function draw (ts) {
       const lw = ctx.measureText(label).width
       let sx = cx + Math.cos(m) * (R + 24)
       sx = Math.max(lw / 2 + 6, Math.min(w - lw / 2 - 6, sx))
-      const sy = cy + Math.sin(m) * (R + 24) + 4
+      // 纵向同样钳制：正上/正下扇区的标签会越出画布被裁切
+      const sy = Math.max(14, Math.min(h - 8, cy + Math.sin(m) * (R + 24) + 4))
       ctx.fillText(label, sx, sy)
       reserved.push({ x: sx - lw / 2 - 3, y: sy - 9, w: lw + 6, h: 15 })
     }
@@ -327,6 +328,13 @@ function draw (ts) {
   } catch (e) { /* 单帧绘制异常，下一帧自动恢复 */ }
 }
 
+const emit = defineEmits(['select'])
+
+function onClick () {
+  // 命中检测与悬停一致：最近且在半径内的目标点
+  if (hover.value) emit('select', hover.value)
+}
+
 function onMove (e) {
   if (!cv.value) return
   const r = cv.value.getBoundingClientRect()
@@ -366,6 +374,7 @@ onMounted(() => {
   ro.observe(wrap.value)
   cv.value.addEventListener('mousemove', onMove)
   cv.value.addEventListener('mouseleave', onLeave)
+  cv.value.addEventListener('click', onClick)
   raf = requestAnimationFrame(draw)
 })
 onBeforeUnmount(() => {
@@ -374,6 +383,7 @@ onBeforeUnmount(() => {
   if (cv.value) {
     cv.value.removeEventListener('mousemove', onMove)
     cv.value.removeEventListener('mouseleave', onLeave)
+    cv.value.removeEventListener('click', onClick)
   }
 })
 </script>

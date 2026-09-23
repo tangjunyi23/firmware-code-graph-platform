@@ -62,3 +62,7 @@ emba/
 
 # Agent runtime memory (learned insights live on the analysis VM)
 vulnagent/memory/
+
+# Emulation session workspaces (GB-scale rootfs/qcow2, kept on VM only)
+vulnagent/emul-sessions/*/workspace/
+events.sse

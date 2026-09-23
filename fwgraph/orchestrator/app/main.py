@@ -47,12 +47,15 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 from fastapi import Body, Depends, FastAPI, File, Form, HTTPException, Query, Request, UploadFile
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 import httpx
 
 from . import accounts, admin_api, config, decompiler, extractor, protofuzz_api, vulnagent_api, vulnlib_api, webui
+from pipeline import backdoor as backdoor_scan
 from pipeline import evidence as ev
+from pipeline import sca as sca_scan
+from pipeline import vulnlib as vulnlib_store
 from pipeline import profiles as analysis_profiles
 from pipeline import report
 from pipeline.attack import runner as attack_runner
@@ -66,6 +69,8 @@ from pipeline.surfaces import runner as surfaces_runner
 from pipeline.routes import runner as route_runner
 from pipeline import fwdecrypt, protocol_reverse
 from pipeline.extract import px4 as px4_extractor
+from pipeline.extract import moria as moria_scan
+from pipeline.backdoor import find_rootfs
 from pipeline.trace import qemu_exec, tracer
 
 # 路径推导集中在 orchestrator.app.config（fwgraph/orchestrator/app/ -> fwgraph/）
@@ -306,7 +311,12 @@ def _manifest_summary(job_id: str):
         manifest = json.loads(manifest_file.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return None
-    return manifest.get("stats")
+    stats = dict(manifest.get("stats") or {})
+    packed = sum(1 for b in manifest.get("binaries") or []
+                 if b.get("packed"))
+    if packed:
+        stats["packed_binaries"] = packed
+    return stats
 
 
 # M6 concurrency gates: every decompile job spawns IDA_WORKERS idat
@@ -441,6 +451,117 @@ def _should_mark_unpack_done(job: dict) -> bool:
     return os.getenv("AUTO_DECOMPILE", "1") == "0"
 
 
+def _moria_tree(log_dir) -> dict | None:
+    try:
+        return json.loads((Path(log_dir) / "moria-tree.json")
+                          .read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def _save_moria_tree(log_dir, tree) -> None:
+    """落盘 moria 结构树；必须在提取器返回后调用。
+
+    EMBA 启动时会清空 log_dir（"Delete content of log directory"），
+    提前写入的文件会被删掉，故 identify 的结果先留在内存。
+    """
+    if not tree:
+        return
+    try:
+        Path(log_dir).mkdir(parents=True, exist_ok=True)
+        (Path(log_dir) / "moria-tree.json").write_text(
+            json.dumps(tree, ensure_ascii=False, indent=1),
+            encoding="utf-8")
+    except Exception as exc:  # noqa: BLE001
+        print(f"[orchestrator] moria tree save failed: {exc}", flush=True)
+
+def _extract_ubifs_residuals(job_id: str, log_dir) -> int:
+    """binwalk 切出但未解包的 UBIFS 镜像（*_ubifs.raw）→ ubireader 解包
+    并入主 rootfs（2026-09-23：R15A1 模拟实测，/var/config 的 csman 配置
+    库 pre4/pre7/reset.dat 全在未解包 UBIFS 里——httpd/csmanttp HNAP 分发
+    在缺 mib 时 501/Bus error，模拟链路断在数据缺失而非代码）。
+    主 rootfs 已有的文件不覆盖（squashfs 优先，UBIFS 是增量配置/数据）。
+    """
+    import shutil as _sh
+    import subprocess as _sp
+    log_dir = Path(log_dir)
+    ubir = _sh.which("ubireader_extract_files")
+    if not ubir:
+        venv_ubir = Path(__file__).resolve().parents[2] / ".venv" / "bin" \
+            / "ubireader_extract_files"
+        ubir = str(venv_ubir) if venv_ubir.is_file() else None
+    if not ubir:
+        print("[orchestrator] ubifs residuals: ubi_reader 未安装，跳过",
+              flush=True)
+        return 0
+    rootfs = find_rootfs(log_dir)
+    if not rootfs:
+        return 0
+    merged = 0
+    for raw in log_dir.rglob("*_ubifs.raw"):
+        try:
+            if raw.stat().st_size < 256 * 1024:
+                continue
+        except OSError:
+            continue
+        out = log_dir / "ubifs-residual" / raw.stem
+        if not (out / ".done").is_file():
+            try:
+                _sp.run([ubir, "-k", "-o", str(out), str(raw)],
+                        capture_output=True, timeout=600)
+                (out / ".done").write_text("", encoding="utf-8")
+            except Exception as exc:  # noqa: BLE001
+                print(f"[orchestrator] ubifs residual {raw.name} 解包失败:"
+                      f" {exc}", flush=True)
+                continue
+        for src in out.rglob("*"):
+            if not src.is_file() or src.name == ".done":
+                continue
+            rel = src.relative_to(out)
+            dst = Path(rootfs) / rel
+            if dst.exists():
+                continue
+            try:
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                _sh.copy2(src, dst)
+                merged += 1
+            except OSError:
+                continue
+    if merged:
+        print(f"[orchestrator] ubifs residuals: {merged} 个文件并入主 "
+              f"rootfs（配置/数据分区）", flush=True)
+    return merged
+
+
+def _moria_degraded_manifest(job_id: str, job: dict, log_dir) -> dict:
+    """降级模式：moria 产物直接构建 manifest（无 EMBA p99 CSV）。"""
+    out_dir = Path(log_dir) / "moria_extracted"
+    from pipeline.extract.checksec import checksec
+    binaries = []
+    for p in sorted(out_dir.rglob("*")) if out_dir.is_dir() else []:
+        if not p.is_file() or p.is_symlink():
+            continue
+        with open(p, "rb") as fh:
+            if fh.read(4) != b"\x7fELF":
+                continue
+        rec = moria_scan._binrec(p, out_dir)
+        if rec:
+            binaries.append(rec)
+    manifest = {
+        "firmware": job.get("firmware") or "",
+        "job_id": job_id,
+        "unpack_mode": "moria-degraded",
+        "binaries": binaries,
+        "stats": {"total_binaries": len(binaries),
+                  "extracted_files": sum(
+                      len(f) for _, _, f in os.walk(out_dir)),
+                  "by_arch": {}},
+    }
+    (Path(log_dir) / "manifest.json").write_text(
+        json.dumps(manifest, indent=1), encoding="utf-8")
+    return manifest
+
+
 def _extract_worker(job_id: str):
     job = _jobs[job_id]
     fw_path = FIRMWARE_DIR / job_id / "firmware.bin"
@@ -457,6 +578,15 @@ def _extract_worker(job_id: str):
                 fw_path = Path(out)
         except Exception:  # noqa: BLE001 - decrypt must not abort extract
             pass
+        # moria 结构快诊（纯识别，秒级）：加密/炸弹结构在这里提前暴露；
+        # 结果暂存内存，提取器返回后再落盘（EMBA 启动会清空 log_dir）。
+        moria_tree = None
+        if moria_scan.enabled():
+            try:
+                moria_tree = moria_scan.identify(fw_path)
+            except Exception as exc:  # noqa: BLE001
+                print(f"[orchestrator] moria quick-scan failed: {exc}",
+                      flush=True)
         _set_status(job, "extracting")
         if px4_extractor.looks_like_px4(fw_path, job["firmware"]):
             _set_status(job, "parsing")
@@ -468,14 +598,63 @@ def _extract_worker(job_id: str):
             )
         else:
             rc, timed_out = extractor.run_emba(fw_path, log_dir, emba_log)
-            if timed_out:
+            _save_moria_tree(log_dir, moria_tree)
+            rescued = False
+            if (timed_out or rc != 0) and moria_scan.enabled():
+                # EMBA 失败/超时 → moria 全量降级解包（degraded_unpack）
+                try:
+                    tree = _moria_tree(log_dir)
+                    rr = moria_scan.rescue_extract(fw_path, log_dir, tree)
+                    if rr["done"] and rr["binaries"]:
+                        rescued = True
+                        job["unpack_mode"] = "moria-degraded"
+                        print(f"[orchestrator] moria 降级解包："
+                              f"{len(rr['binaries'])} 个二进制", flush=True)
+                except Exception as exc:  # noqa: BLE001
+                    print(f"[orchestrator] moria rescue failed: {exc}",
+                          flush=True)
+            if timed_out and not rescued:
                 _set_status(job, "failed", f"EMBA timeout after {extractor._cfg('EMBA_TIMEOUT', '7200')}s")
                 return
-            if rc != 0:
+            if rc != 0 and not rescued:
                 _set_status(job, "failed", f"EMBA exited with code {rc} (see {emba_log.name})")
                 return
             _set_status(job, "parsing")
-            extractor.build_manifest(job_id, job["firmware"], log_dir)
+            if rescued:
+                _moria_degraded_manifest(job_id, job, log_dir)
+            else:
+                extractor.build_manifest(job_id, job["firmware"], log_dir)
+            # moria 目录扫描：UPX 加壳 ELF 打 packed 标记（反编译盲区显式化）
+            # + 对账补刀：快诊树里有文件系统结构、EMBA 却没解出产物时定点提取
+            if moria_scan.enabled():
+                try:
+                    rootfs = find_rootfs(log_dir)
+                    if rootfs:
+                        marked = moria_scan.annotate_manifest(
+                            log_dir / "manifest.json", Path(rootfs))
+                        if marked:
+                            print(f"[orchestrator] moria: {marked} 个加壳"
+                                  f"二进制已标记 packed", flush=True)
+                    uncovered = moria_scan.fs_findings_uncovered(
+                        _moria_tree(log_dir), log_dir)
+                    if uncovered:
+                        rr = moria_scan.rescue_extract(fw_path, log_dir)
+                        if rr["done"]:
+                            added = moria_scan.merge_into_manifest(
+                                log_dir / "manifest.json", rr["binaries"])
+                            if added:
+                                print(f"[orchestrator] moria 对账补刀："
+                                      f"{added} 个二进制并入", flush=True)
+                except Exception as exc:  # noqa: BLE001
+                    print(f"[orchestrator] moria post-scan failed: {exc}",
+                          flush=True)
+        # UBIFS 残留分区（/var 配置数据）并入主 rootfs——mib/NVRAM 数据源，
+        # 模拟环境 csman/httpd 依赖（2026-09-23 R15A1 HNAP 链修复）
+        try:
+            _extract_ubifs_residuals(job_id, log_dir)
+        except Exception as exc:  # noqa: BLE001
+            print(f"[orchestrator] ubifs residual pass failed: {exc}",
+                  flush=True)
         manifest_file = log_dir / "manifest.json"
         binaries = []
         if manifest_file.is_file():
@@ -499,6 +678,19 @@ def _extract_worker(job_id: str):
     if os.getenv("AUTO_INPUTS", "1") != "0":
         try:
             inputs_runner.run_job(job_id, DATA_DIR)
+        except Exception:  # noqa: BLE001
+            pass
+    # SCA（Trivy 0.74.0）：解包完成即自动扫描（best-effort——缺 trivy/失败
+    # 都不影响主链，结果落 data/sca/<job>.json，漏洞库页查看）
+    if os.getenv("AUTO_SCA", "1") != "0":
+        try:
+            _bin, _sca_err = sca_scan.check_trivy()
+            if not _sca_err:
+                _start_analysis("sca", job_id, sca_scan.scan_sca,
+                                job.get("owner") or "admin")
+            else:
+                print(f"[orchestrator] AUTO_SCA skipped for {job_id}: "
+                      f"{_sca_err}", flush=True)
         except Exception:  # noqa: BLE001
             pass
     if os.getenv("AUTO_DECOMPILE", "1") != "0":
@@ -1251,6 +1443,160 @@ def get_frida(job_id: str, run_id: str):
 # ---------------------------------------------------------------------------
 
 _GRAPHEXT_LOCK = threading.Lock()
+
+
+# ---- 固件后门专项检测 & SCA（Trivy） --------------------------------------
+
+BACKDOOR_DIR = DATA_DIR / "backdoor"
+SCA_DIR = DATA_DIR / "sca"
+_ANALYSIS_JOBS: dict[str, dict] = {}
+_analysis_lock = threading.Lock()
+
+
+def _analysis_path(kind: str, job_id: str) -> Path:
+    d = BACKDOOR_DIR if kind == "backdoor" else SCA_DIR
+    return d / f"{job_id}.json"
+
+
+def _analysis_state(kind: str, job_id: str) -> dict | None:
+    path = _analysis_path(kind, job_id)
+    if not path.is_file():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def _run_analysis(kind: str, job_id: str, fn, principal: str):
+    path = _analysis_path(kind, job_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    state = {"kind": kind, "job_id": job_id, "status": "running",
+             "started_at": _now(), "error": None, "result": None}
+    path.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
+    try:
+        result = fn(job_id, DATA_DIR)
+        if kind == "sca":
+            # SCA 发现自动入漏洞库（统一严重度体系；失败不影响扫描结果）
+            try:
+                if result.get("cve_total"):
+                    job = _jobs.get(job_id) or {}
+                    result["vulnlib_sync"] = vulnlib_store.upsert_sca_findings(
+                        job_id, job.get("firmware") or "", result, principal)
+            except Exception as exc:  # noqa: BLE001
+                print(f"[orchestrator] sca->vulnlib {job_id} failed: {exc}",
+                      flush=True)
+            # mithril CVE（版本区间+EPSS/KEV）同样入库
+            try:
+                mcves = ((result.get("mithril") or {}).get("cves")) or []
+                if mcves:
+                    job = _jobs.get(job_id) or {}
+                    result["mithril_sync"] = vulnlib_store.upsert_mithril_findings(
+                        job_id, job.get("firmware") or "", mcves, principal)
+            except Exception as exc:  # noqa: BLE001
+                print(f"[orchestrator] mithril->vulnlib {job_id} failed: {exc}",
+                      flush=True)
+        state.update(status="done", finished_at=_now(), result=result)
+        accounts.audit(principal, f"{kind}_done", job_id)
+    except BaseException as exc:  # noqa: BLE001 - 状态必须落盘
+        state.update(status="failed", finished_at=_now(),
+                     error=f"{type(exc).__name__}: {exc}")
+        print(f"[orchestrator] {kind} {job_id} failed: {exc}", flush=True)
+    finally:
+        path.write_text(json.dumps(state, ensure_ascii=False, indent=1),
+                        encoding="utf-8")
+        with _analysis_lock:
+            _ANALYSIS_JOBS.pop(f"{kind}:{job_id}", None)
+
+
+def _start_analysis(kind: str, job_id: str, fn, principal: str):
+    key = f"{kind}:{job_id}"
+    with _analysis_lock:
+        if key in _ANALYSIS_JOBS:
+            raise HTTPException(
+                409, detail=f"{kind} 扫描正在运行，请稍候")
+        _ANALYSIS_JOBS[key] = True
+    threading.Thread(target=_run_analysis,
+                     args=(kind, job_id, fn, principal),
+                     daemon=True).start()
+
+
+def _require_extracted(job_id: str):
+    if not (EXTRACTED_DIR / job_id / "manifest.json").is_file():
+        raise HTTPException(
+            409, detail="该任务尚未完成解包（正在排队或失败），请稍后再试")
+
+
+@app.post("/jobs/{job_id}/backdoor", status_code=202,
+          dependencies=[Depends(require_token), Depends(job_guard)])
+def trigger_backdoor(job_id: str,
+                     principal: dict = Depends(require_token)):
+    if _jobs.get(job_id) is None:
+        raise HTTPException(404, detail="job not found")
+    _require_extracted(job_id)
+    _start_analysis("backdoor", job_id, backdoor_scan.scan_backdoor,
+                    principal.get("username") or "admin")
+    return {"job_id": job_id, "status": "running"}
+
+
+@app.get("/jobs/{job_id}/backdoor",
+         dependencies=[Depends(require_token), Depends(job_guard)])
+def get_backdoor(job_id: str):
+    state = _analysis_state("backdoor", job_id)
+    if state is None:
+        return {"status": "never"}
+    return state
+
+
+@app.post("/jobs/{job_id}/sca", status_code=202,
+          dependencies=[Depends(require_token), Depends(job_guard)])
+def trigger_sca(job_id: str,
+                principal: dict = Depends(require_token)):
+    if _jobs.get(job_id) is None:
+        raise HTTPException(404, detail="job not found")
+    _require_extracted(job_id)
+    binpath, err = sca_scan.check_trivy()
+    if err:
+        raise HTTPException(503, detail=err)
+    _start_analysis("sca", job_id, sca_scan.scan_sca,
+                    principal.get("username") or "admin")
+    return {"job_id": job_id, "status": "running"}
+
+
+@app.get("/jobs/{job_id}/sca",
+         dependencies=[Depends(require_token), Depends(job_guard)])
+def get_sca(job_id: str):
+    state = _analysis_state("sca", job_id)
+    if state is None:
+        return {"status": "never"}
+    return state
+
+
+@app.get("/jobs/{job_id}/moria-tree",
+         dependencies=[Depends(require_token), Depends(job_guard)])
+def get_moria_tree(job_id: str):
+    """moria 结构快诊树（上传时生成；旧任务无此文件返回 404 语义的空态）。"""
+    path = EXTRACTED_DIR / job_id / "moria-tree.json"
+    if not path.is_file():
+        return {"findings": [], "unidentified": [],
+                "note": "该任务早于结构快诊上线或快诊被禁用"}
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {"findings": [], "unidentified": [], "note": "快诊结果损坏"}
+
+
+@app.get("/jobs/{job_id}/sbom/{fmt}",
+         dependencies=[Depends(require_token), Depends(job_guard)])
+def get_sbom(job_id: str, fmt: str):
+    """SBOM 下载（CycloneDX/SPDX，mithril 产出，SCA 完成后可下载）。"""
+    if fmt not in ("cdx", "spdx"):
+        raise HTTPException(status_code=400, detail="fmt 需为 cdx 或 spdx")
+    name = "sbom.cdx.json" if fmt == "cdx" else "sbom.spdx.json"
+    path = DATA_DIR / "sbom" / job_id / name
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="SBOM 尚未生成（先跑 SCA）")
+    return JSONResponse(json.loads(path.read_text(encoding="utf-8")))
 
 
 @app.post("/jobs/{job_id}/graphext", status_code=202,
@@ -2192,6 +2538,270 @@ def get_function_brief(job_id: str, md5: str, addr: str):
         "head": head, "dangerous_calls": dangerous, "callees": callees,
     }
 
+# ---------------- 单二进制补挖能力（2026-09-23） ----------------
+# 挖掘 agent 实测报告：未进代码图的产线 daemon（AX_UDPserver、csmanuds
+# 等，ingest 截断预算挤出）无法静态分析；HNAP 动作表 off_4ED9B0 每项 +4
+# 的鉴权字节在 .data 段，工具链读不到——"是否预认证"这个决定性字段只能
+# 靠模拟环境碰运气。两个端点补齐：按 vaddr 直读任意段字节 + radare2
+# 单二进制反编译（不打回全量 ingest，函数级按需拉取）。
+
+_ELF_PHDR_CACHE: dict = {}
+
+
+def _elf_loadable_segments(bin_path: Path):
+    """ELF32/64 PT_LOAD 段表 [(vaddr, filesz, offset)]，进程内缓存。"""
+    key = str(bin_path)
+    segs = _ELF_PHDR_CACHE.get(key)
+    if segs is not None:
+        return segs
+    segs = []
+    try:
+        import struct as _st
+        head = bin_path.read_bytes()[:64]
+        if len(head) < 52 or head[:4] != b"\x7fELF":
+            raise ValueError("not ELF")
+        is64, little = head[4] == 2, head[5] == 1
+        end = "<" if little else ">"
+        with open(bin_path, "rb") as fh:
+            if is64:
+                e_phoff = _st.unpack_from(end + "Q", head, 32)[0]
+                e_phentsize = _st.unpack_from(end + "H", head, 54)[0]
+                e_phnum = _st.unpack_from(end + "H", head, 56)[0]
+            else:
+                e_phoff = _st.unpack_from(end + "I", head, 28)[0]
+                e_phentsize = _st.unpack_from(end + "H", head, 42)[0]
+                e_phnum = _st.unpack_from(end + "H", head, 44)[0]
+            fh.seek(e_phoff)
+            raw = fh.read(e_phentsize * max(e_phnum, 0))
+        for i in range(e_phnum):
+            off = i * e_phentsize
+            if is64:
+                p_type = _st.unpack_from(end + "I", raw, off)[0]
+                p_offset, p_vaddr = _st.unpack_from(end + "QQ", raw, off + 8)[:2]
+                p_filesz = _st.unpack_from(end + "Q", raw, off + 32)[0]
+            else:
+                p_type, p_offset, p_vaddr, _pa, p_filesz = _st.unpack_from(
+                    end + "IIIII", raw, off)
+            if p_type == 1:  # PT_LOAD
+                segs.append((p_vaddr, p_filesz, p_offset))
+    except (OSError, ValueError, _st.error):
+        segs = []
+    _ELF_PHDR_CACHE[key] = segs
+    return segs
+
+
+
+def _resolve_fw_binary(job_id: str, md5: str = "", rel_path: str = "") -> Path:
+    """md5 或固件内相对路径 → 解包树里的文件。两者都给时 md5 优先。
+
+    根是 extracted/<job_id>/（manifest 的 path 字段就相对它，如
+    firmware/binwalk_extracted/…/squashfs-root/bin/httpd）。"""
+    root = EXTRACTED_DIR / job_id
+    if md5 and _MD5_RE.match(md5):
+        mf = EXTRACTED_DIR / job_id / "manifest.json"
+        if mf.is_file():
+            try:
+                for b in json.loads(mf.read_text(encoding="utf-8")).get(
+                        "binaries", []):
+                    if b.get("md5") == md5:
+                        return root / str(b.get("path", "")).lstrip("/")
+            except (OSError, ValueError):
+                pass
+        raise HTTPException(status_code=404,
+                            detail=f"md5 {md5} not in manifest")
+    rp = str(rel_path or "").strip().lstrip("/")
+    if not rp or ".." in rp.split("/"):
+        raise HTTPException(status_code=400,
+                            detail="需要 binary_md5 或安全的相对路径")
+    return root / rp
+
+
+@app.get("/jobs/{job_id}/read-bytes",
+         dependencies=[Depends(require_token), Depends(job_guard)])
+def read_bytes(job_id: str, vaddr: str, length: int = 32,
+               binary_md5: str = "", path: str = ""):
+    """按虚拟地址直读 ELF 任意段（.data/.rodata/.got…）原始字节。
+
+    静态判定的最后一公里：鉴权开关、硬编码表项、动作函数指针等数据段
+    内容无法从反编译源可靠恢复，此处按 PT_LOAD 换算文件偏移后读原文。
+    返回 hex 与 ASCII 双视图。"""
+    if not _ADDR_RE.match(vaddr or ""):
+        raise HTTPException(status_code=400, detail="bad vaddr (0x…)")
+    length = max(1, min(int(length), 512))
+    bin_path = _resolve_fw_binary(job_id, binary_md5, path)
+    if not bin_path.is_file():
+        raise HTTPException(status_code=404,
+                            detail=f"binary not found: {bin_path.name}")
+    va = int(vaddr, 16)
+    seg = next(((v, s, o) for v, s, o in _elf_loadable_segments(bin_path)
+                if v <= va < v + s), None)
+    if seg is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"vaddr {vaddr} 不在任何 PT_LOAD 段（文件可能去段了）")
+    _v, _sz, off = seg
+    with open(bin_path, "rb") as fh:
+        fh.seek(off + (va - _v))
+        raw = fh.read(length)
+    return {
+        "job_id": job_id, "binary": bin_path.name,
+        "binary_md5": binary_md5 or "", "path": path or "",
+        "vaddr": vaddr, "length": len(raw),
+        "hex": raw.hex(),
+        "ascii": "".join(chr(c) if 32 <= c < 127 else "." for c in raw),
+    }
+
+
+_ASM_ADDR_RE = re.compile(r"^\s*([0-9a-f]+):\s", re.I)
+
+
+def _asm_addr(line: str):
+    """llvm-objdump 行地址（'  400b10:\taddiu …' → 0x400b10）。"""
+    m = _ASM_ADDR_RE.match(line)
+    try:
+        return int(m.group(1), 16) if m else None
+    except ValueError:
+        return None
+
+
+def _elf_entry(bin_path: Path) -> int:
+    import struct as _st
+    try:
+        head = bin_path.read_bytes()[:24]
+        if head[:4] != b"\x7fELF":
+            return 0
+        end = "<" if head[5] == 1 else ">"
+        return _st.unpack_from(end + "I", head, 24)[0]
+    except (OSError, _st.error):
+        return 0
+
+@app.post("/jobs/{job_id}/decompile-single",
+          dependencies=[Depends(require_token), Depends(job_guard)])
+def decompile_single(job_id: str, payload: dict = Body(...)):
+    """未进代码图的 ELF：radare2 单独分析（函数清单 / 单函数伪 C）。
+
+    不打回全量 ingest：无 function 参数返回函数清单（name/addr/size，
+    上限 400 条）；带 function="0x…" 返回该函数 r2 伪 C（上限 64KB）。
+    用于产线 daemon、被截断预算挤出图谱的二进制补挖。"""
+    import subprocess as _sp
+    bin_path = _resolve_fw_binary(
+        job_id, str(payload.get("binary_md5") or ""),
+        str(payload.get("path") or ""))
+    if not bin_path.is_file():
+        raise HTTPException(status_code=404,
+                            detail=f"binary not found: {bin_path.name}")
+    r2 = shutil.which("r2") or shutil.which("radare2")
+    if not r2:
+        raise HTTPException(status_code=503, detail="radare2 未安装")
+    func = str(payload.get("function") or "").strip()
+    if func and not _ADDR_RE.match(func):
+        raise HTTPException(status_code=400, detail="bad function addr")
+    cmd = [r2, "-q", "-e", "scr.color=0", "-e", "bin.relocs.apply=true",
+           "-c", (f"s {func}; pdc" if func else "aa; aflj"),
+           "--", str(bin_path)]
+    try:
+        proc = _sp.run(cmd, capture_output=True, text=True, timeout=90)
+    except _sp.TimeoutExpired:
+        raise HTTPException(status_code=504, detail="radare2 分析超时（90s）")
+    if proc.returncode != 0:
+        raise HTTPException(
+            status_code=502,
+            detail=f"radare2 失败: {proc.stderr.strip()[:300]}")
+    out = proc.stdout or ""
+    if func and out.strip():
+        if len(out) > 64 * 1024:
+            out = out[:64 * 1024] + "\n/* …truncated 64KB */"
+        return PlainTextResponse(out)
+    try:
+        fns = json.loads(out.strip() or "[]")
+    except ValueError:
+        fns = []
+    rows = [{"name": f.get("name") or f.get("realname") or "",
+             "addr": hex(int(f.get("offset", 0))),
+             "size": int(f.get("size", 0))} for f in fns if f.get("offset")]
+    if rows:
+        return {
+            "job_id": job_id, "binary": bin_path.name,
+            "path": payload.get("path"),
+            "binary_md5": payload.get("binary_md5"), "engine": "radare2",
+            "total": len(rows), "truncated": len(rows) > 400,
+            "functions": rows[:400],
+            "hint": "用 read-bytes 或 decompile-single(function=0x…) 深入。",
+        }
+    # r2 fallback（2026-09-23）：固件常见 no-section-header stripped ELF
+    # 上 r2 不建 io 映射、aa 识别 0 函数；llvm-objdump 对大端 MIPS 又
+    # 会把 ELF 头当指令扫出乱码。MIPS32 定长 4 字节无相位问题——
+    # capstone 按 PT_LOAD 段+正确字节序定点反汇编：jal/bal 目标聚类
+    # 出函数边界，产线 daemon 只有几 KB，asm 可直接读。
+    try:
+        import capstone as _cs
+    except ImportError:
+        return {
+            "job_id": job_id, "binary": bin_path.name,
+            "path": payload.get("path"),
+            "binary_md5": payload.get("binary_md5"), "engine": "none",
+            "total": 0, "truncated": False, "functions": [],
+            "hint": "r2 未识别函数且 venv 未装 capstone；试 function=入口",
+        }
+    data = bin_path.read_bytes()
+    head = data[:64]
+    little = head[5] == 1
+    md = _cs.Cs(_cs.CS_ARCH_MIPS,
+                _cs.CS_MODE_MIPS32
+                | (_cs.CS_MODE_LITTLE_ENDIAN if little
+                   else _cs.CS_MODE_BIG_ENDIAN))
+    segs = [s for s in _elf_loadable_segments(bin_path) if s[1] > 0]
+    starts: set = set()
+    entry = _elf_entry(bin_path)
+    if entry:
+        starts.add(entry)
+    for vaddr, filesz, offset in segs:
+        md.skipdata = True
+        _start_va = max(vaddr, entry) if entry >= vaddr else vaddr
+        _start_off = offset + (_start_va - vaddr)
+        for ins in md.disasm(data[_start_off:offset + filesz], _start_va):
+            mn = ins.mnemonic
+            if mn in ("jal", "bal", "jalr") or mn.startswith("jal"):
+                for op in ins.op_str.replace(",", " ").split():
+                    if op.startswith("0x"):
+                        try:
+                            starts.add(int(op, 16) & ~3)
+                        except ValueError:
+                            pass
+    ordered = sorted(a for a in starts
+                     if any(v <= a < v + s for v, s, _o in segs))
+    if func:
+        lo = int(func, 16) & ~3
+        lines = []
+        for vaddr, filesz, offset in segs:
+            if vaddr <= lo < vaddr + filesz:
+                fo = offset + (lo - vaddr)
+                for ins in md.disasm(data[fo:fo + 8192], lo):
+                    lines.append(f"{ins.address:x}:\t{ins.mnemonic}"
+                                 f"\t{ins.op_str}")
+                    if ins.mnemonic == "jr" and "$ra" in ins.op_str:
+                        break
+                    if len(lines) >= 400:
+                        break
+                break
+        return PlainTextResponse(
+            "\n".join(lines) or "; no decodable instructions at addr")
+    frows = []
+    for i, a in enumerate(ordered):
+        nxt = ordered[i + 1] if i + 1 < len(ordered) else a + 2048
+        frows.append({"name": f"sub_{a:x}", "addr": hex(a),
+                      "size": max(nxt - a, 16)})
+    return {
+        "job_id": job_id, "binary": bin_path.name,
+        "path": payload.get("path"),
+        "binary_md5": payload.get("binary_md5"), "engine": "capstone",
+        "total": len(frows), "truncated": len(frows) > 400,
+        "functions": frows[:400],
+        "hint": ("近似函数边界（调用目标+入口聚类，无符号剥离件）。"
+                 "function=0x… 取反汇编切片；数据段判定用 fw_read_bytes。"
+                 if frows else "未聚类出函数；直接 function=入口地址"),
+    }
+
 
 def _decrypt_view(job: dict, peek: bool = False) -> dict:
     job_id = job["job_id"]
@@ -2293,6 +2903,10 @@ def get_protocol_reverse_function(job_id: str, md5: str, addr: str):
 # Upstream vuln-mining agent API (Managed Agents harness in <repo>/vulnagent/).
 # Registered after the job/graph APIs, before the SPA catch-all.
 vulnagent_api.setup(app, require_token)
+from orchestrator.app import emulagent_api  # noqa: E402
+emulagent_api.setup(app, require_token)
+from orchestrator.app import llm_settings  # noqa: E402
+llm_settings.setup(app, require_token)
 
 # Admin console: auth/users/system/logs/dashboard/reports/auto-chain.
 # Also registered before the SPA catch-all.

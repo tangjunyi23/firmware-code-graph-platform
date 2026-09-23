@@ -116,8 +116,8 @@ const STEPS = [
     page: 'protocol',
     target: '[data-tour="nav-protocol"]',
     kicker: '协议',
-    title: '协议逆向',
-    body: '六块能力：协议标识、加密算法识别、深度分析、算法逆向、流量实时解码、攻击面评估。只分析你选中的固件和粘贴的报文。'
+    title: '入口风险评估',
+    body: '对固件对外服务入口（监听端口 / 协议 / 暴露面）做综合风险排序，快速定位最该优先处理的入口。'
   },
   {
     id: 'workspace',

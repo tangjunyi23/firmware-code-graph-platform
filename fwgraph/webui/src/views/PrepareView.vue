@@ -153,6 +153,14 @@ async function loadDetail (jobId) {
     if (!current.value || current.value.job_id !== jobId) return
     current.value = { ...current.value, ...detail }
     stats.value = detail.manifest_summary || {}
+    const packedN = detail.manifest_summary?.packed_binaries || 0
+    if (packedN && !feed.value.some((l) => l.text.includes('加壳'))) {
+      feed.value.push({
+        at: new Date().toISOString(),
+        kind: 'warn',
+        text: `检测到 ${packedN} 个 UPX 加壳二进制：反编译与攻击面分析未覆盖（moria 标记），如需分析请先脱壳后重跑`,
+      })
+    }
     if (detail.manifest_summary?.total_binaries && !feed.value.some((l) => l.text.includes('个二进制'))) {
       pushFeed(
         `解出 ${detail.manifest_summary.extracted_files ?? '—'} 个文件，其中 ${detail.manifest_summary.total_binaries} 个二进制`,

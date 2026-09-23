@@ -1,0 +1,26 @@
+diff --git a/packages/llm/llm-deepseek/src/protocols/chat-completions/adapter.ts b/packages/llm/llm-deepseek/src/protocols/chat-completions/adapter.ts
+index 3d2e50ea45..1443410e4d 100644
+--- a/packages/llm/llm-deepseek/src/protocols/chat-completions/adapter.ts
++++ b/packages/llm/llm-deepseek/src/protocols/chat-completions/adapter.ts
+@@ -260,6 +260,8 @@ export class ChatCompletionsAdapter extends LlmAdapter {
+       'accept': 'text/event-stream',
+       ...attributionHeaders(),
+       'x-deepseek-harness-user-id': String(userId),
++      // opencode go 网关要求 x-opencode-session 做路由（2026-09 起强制）
++      'x-opencode-session': `fwgraph-${options.sessionId === undefined ? 'default' : String(options.sessionId)}`,
+       ...options.sessionId !== undefined
+         ? { 'x-deepseek-harness-session-id': String(options.sessionId) }
+         : {},
+diff --git a/packages/llm/llm-deepseek/src/protocols/messages/adapter.ts b/packages/llm/llm-deepseek/src/protocols/messages/adapter.ts
+index fd3745f04d..f7f20a83b0 100644
+--- a/packages/llm/llm-deepseek/src/protocols/messages/adapter.ts
++++ b/packages/llm/llm-deepseek/src/protocols/messages/adapter.ts
+@@ -127,6 +127,8 @@ export class DeepSeekMessagesAdapter extends LlmAdapter {
+           'x-api-key': key, 'anthropic-version': '2023-06-01',
+           ...fileIds === undefined || fileIds.size === 0 ? {} : { 'anthropic-beta': MESSAGES_FILES_BETA },
+           'x-deepseek-harness-user-id': this.dependencies.userId(),
++          // opencode go 网关要求 x-opencode-session 做路由（2026-09 起强制）
++          'x-opencode-session': `fwgraph-${options.sessionId === undefined ? 'default' : String(options.sessionId)}`,
+           ...options.sessionId === undefined ? {} : { 'x-deepseek-harness-session-id': String(options.sessionId) },
+           ...options.purpose === 'compaction' ? { 'x-deepseek-harness-compact': '1' } : {},
+         },

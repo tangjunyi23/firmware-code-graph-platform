@@ -123,7 +123,7 @@ const results = computed(() => {
     .slice(0, 6)
     .map((s) => {
       let title = String(s.task || s.session_id).replace(/\s+/g, ' ')
-      const wish = title.match(/^用户希望挖到[:：]\s*(.+?)(?:。|$)/)
+      const wish = title.match(/^(?:本次挖掘目标|用户希望挖到)[:：]\s*(.+?)(?:。|$)/)
       if (wish) title = wish[1].trim()
       return { kind: 'session', key: 'ss-' + s.session_id, title, sub: s.session_id, icon: 'ChatDotRound', flatIndex: 0, sid: s.session_id }
     })

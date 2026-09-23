@@ -70,6 +70,8 @@ export class LLMClient {
             "x-api-key": this.apiKey,
             Authorization: `Bearer ${this.apiKey}`,
             "anthropic-version": "2023-06-01",
+            // opencode go 网关 2026-09 起强制要求该头做路由（缺失 400）
+            "x-opencode-session": process.env.LLM_SESSION_HEADER || "fwgraph-vulnagent",
           },
           body: JSON.stringify(body),
           signal: ctrl.signal,
@@ -201,6 +203,7 @@ export class LLMClient {
           headers: {
             "Content-Type": "application/json",
             Authorization: `Bearer ${this.apiKey}`,
+            "x-opencode-session": process.env.LLM_SESSION_HEADER || "fwgraph-vulnagent",
           },
           body: JSON.stringify(body),
           signal: ctrl.signal,

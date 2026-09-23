@@ -133,6 +133,44 @@ def _sanitize_source(text: str):
     return text, fixes
 
 
+# 图谱保险丝：CBM worker 的提取结果全程常驻内存（corpus 线性增长），
+# 超过机器可承载规模时 worker 被 SIGKILL（见 R15A1 121,432 文件 OOM）。
+# 在治本方案（结果分批落盘，docs/plan-cbm-streaming.md）落地前，按平台
+# 实测成功边界（39,609 文件 / 48.6MB corpus）的保守值截断超大 corpus，
+# 网络服务类 binary 优先保留（攻击面核心）。
+_SERVICE_HINTS = (
+    "httpd", "http", "web", "cgi", "upnp", "wan", "telnet", "sshd", "ssh",
+    "dropbear", "dns", "dnsmasq", "dhcp", "lighttpd", "uhttpd", "tr069",
+    "tr064", "cwmp", "soap", "xmlrpc", "samba", "smb", "ftp", "vsftpd",
+    "ntp", "avahi", "mdns", "mqtt", "mosquitto", "hostapd", "wps", "snmp",
+    "nginx", "haproxy", "rtsp", "onvif", "cloud", "alexa", "igd", "hnap",
+    "netatalk", "wsdd", "minissdp", "ssdp", "lldpd",
+)
+
+
+def _binary_tier(entry: dict) -> int:
+    """纳入优先级：0=网络服务名命中，1=普通程序，2=lib* 共享库。"""
+    name = Path(entry.get("path", "")).name.lower()
+    if any(h in name for h in _SERVICE_HINTS):
+        return 0
+    return 2 if name.startswith("lib") else 1
+
+
+def _selection_order(symbols: dict) -> list:
+    """[(md5, entry, n_ok)]，tier 升序 + 可反编译函数数降序（表面积大者优先）。"""
+    items = [(md5, entry,
+              sum(1 for f in entry.get("functions", []) if f.get("decompile_ok")))
+             for md5, entry in symbols.get("binaries", {}).items()]
+    return sorted((it for it in items if it[2]),
+                  key=lambda it: (_binary_tier(it[1]), -it[2]))
+
+
+def _tree_budget() -> tuple:
+    """(max_files, max_bytes)；0 = 不限。默认取实测成功边界的保守值。"""
+    return (max(0, int(_cfg("CBM_TREE_MAX_FILES", "40000"))),
+            max(0, int(_cfg("CBM_TREE_MAX_BYTES", str(45 * 1024 ** 2)))))
+
+
 _KEEP_TREE_FILES = frozenset({"graph_done.json"})
 
 
@@ -152,13 +190,20 @@ def build_tree(job_id: str, data_dir) -> dict:
              "skipped": 0, "sanitized": 0, "written": 0, "unchanged": 0,
              "deleted": 0}
     wanted = set()
-    for md5 in sorted(symbols.get("binaries", {})):
-        entry = symbols["binaries"][md5]
+    max_files, max_bytes = _tree_budget()
+    order = _selection_order(symbols)
+    tot_bins, tot_files = len(order), sum(n for _, _, n in order)
+    sel_bins = sel_files = sel_bytes = 0
+    for md5, entry, n_ok in order:
+        if sel_bins and (sel_files + n_ok > max_files
+                         or sel_bytes >= max_bytes):
+            continue  # 预算尽：装不下的跳过，更小的仍可纳入
         dirname = _binary_dirname(md5, entry)
         dest_dir = tree_root / dirname
         dest_dir.mkdir(parents=True, exist_ok=True)
         funcs_dir = pseudo_root / md5 / "functions"
         copied = 0
+        copied_bytes = 0
         for func in entry.get("functions", []):
             if not func.get("decompile_ok"):
                 stats["skipped"] += 1
@@ -182,9 +227,20 @@ def build_tree(job_id: str, data_dir) -> dict:
                 dest.write_text(text, encoding="utf-8")
                 stats["written"] += 1
             copied += 1
+            copied_bytes += len(text.encode("utf-8"))
         stats["binaries"][md5] = {"dir": dirname, "arch": entry.get("arch"),
                                   "files": copied}
         stats["files_copied"] += copied
+        sel_files += copied
+        sel_bytes += copied_bytes
+        sel_bins += 1
+    if sel_files < tot_files or sel_bins < tot_bins:
+        stats["truncated"] = {
+            "max_files": max_files, "max_bytes": max_bytes,
+            "selected_binaries": sel_bins, "total_binaries": tot_bins,
+            "selected_files": sel_files, "total_files": tot_files,
+            "selected_bytes": sel_bytes,
+        }
     if tree_root.is_dir():
         for path in tree_root.rglob("*"):
             if not path.is_file() or ".git" in path.parts:
@@ -396,6 +452,17 @@ def run_job(job_id: str, data_dir) -> dict:
     summary["tree"] = tree
     if tree["files_copied"] == 0:
         raise RuntimeError(f"no pseudocode files found for job {job_id}")
+    if tree.get("truncated"):
+        t = tree["truncated"]
+        summary["truncated"] = t
+        summary["warnings"].append(
+            "tree truncated: kept {}/{} files across {}/{} binaries "
+            "({:.1f}MB; CBM_TREE_MAX_FILES={}, CBM_TREE_MAX_BYTES={}); "
+            "network-service binaries preferred".format(
+                t["selected_files"], t["total_files"],
+                t["selected_binaries"], t["total_binaries"],
+                t["selected_bytes"] / 1024 / 1024,
+                t["max_files"], t["max_bytes"]))
     tree_root = Path(tree["tree_root"])
 
     # b. git init + commit (watcher/incremental support)

@@ -406,7 +406,7 @@ watch(jobId, () => {
 }
 .path-top { display: flex; align-items: center; gap: 10px; margin-bottom: 9px; font-size: 12.5px; }
 .path-rank { color: var(--fw-text-3); font-variant-numeric: tabular-nums; }
-.path-score { color: var(--fw-brand); font-weight: 600; }
+.path-score { color: var(--fw-text); font-weight: 650; }
 .path-chain { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .path-chain.flat { padding: 6px 2px; }
 .cp-node {
@@ -416,8 +416,8 @@ watch(jobId, () => {
   color: var(--fw-text-2); max-width: 260px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.cp-node.src { border-color: color-mix(in srgb, var(--fw-ok) 45%, transparent); color: var(--fw-ok); }
-.cp-node.snk { border-color: color-mix(in srgb, var(--fw-danger) 45%, transparent); color: var(--fw-danger); }
+.cp-node.src { border-color: color-mix(in srgb, var(--fw-brand) 45%, transparent); color: var(--fw-brand); }
+.cp-node.snk { border-color: color-mix(in srgb, #d946ef 50%, transparent); color: #d946ef; font-weight: 600; }
 .cp-arrow { color: var(--fw-text-3); font-size: 12px; }
 
 .result {

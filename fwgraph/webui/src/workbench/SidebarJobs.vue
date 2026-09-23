@@ -47,8 +47,10 @@
               class="session-main"
               @click="$emit('select', { sid: sess.session_id, jobId: folder.job.job_id })"
             >
-              <span class="dot" :data-on="sess.status === 'running' || sess.status === 'awaiting_continue' || undefined" />
+              <span class="dot" :data-on="sess.status === 'running' || undefined" :data-wait="sess.status === 'awaiting_continue' || undefined" />
               <span class="title" :title="sess.task || sess.session_id">{{ sessTitle(sess) }}</span>
+              <span v-if="sess.status === 'running'" class="sess-badge run">进行中</span>
+              <span v-else-if="sess.status === 'awaiting_continue'" class="sess-badge wait">待确认</span>
               <span class="sess-time">{{ relTime(sess) }}</span>
             </button>
             <button
@@ -84,9 +86,11 @@
           class="session-main"
           @click="$emit('select', { sid: sess.session_id, jobId: sess.job_id || '' })"
         >
-          <span class="dot" :data-on="sess.status === 'running' || sess.status === 'awaiting_continue' || undefined" />
+          <span class="dot" :data-on="sess.status === 'running' || undefined" :data-wait="sess.status === 'awaiting_continue' || undefined" />
           <span class="title" :title="sess.task || sess.session_id">{{ sessTitle(sess) }}</span>
-              <span class="sess-time">{{ relTime(sess) }}</span>
+          <span v-if="sess.status === 'running'" class="sess-badge run">进行中</span>
+          <span v-else-if="sess.status === 'awaiting_continue'" class="sess-badge wait">待确认</span>
+          <span class="sess-time">{{ relTime(sess) }}</span>
         </button>
         <button
           type="button"
@@ -246,7 +250,8 @@ function firmwareLabel (job) {
 
 function sessTitle (sess) {
   let task = (sess.task || '').replace(/\s+/g, ' ').trim()
-  const wish = task.match(/^用户希望挖到[:：]\s*(.+?)(?:。|$)/)
+  // 新任务书前缀「本次挖掘目标」；旧会话仍是「用户希望挖到」
+  const wish = task.match(/^(?:本次挖掘目标|用户希望挖到)[:：]\s*(.+?)(?:。|$)/)
   if (wish) task = wish[1].trim()
   if (!task) return sess.session_id || '未命名对话'
   return task
@@ -504,7 +509,45 @@ html[data-fw-theme='light'] .rail {
   border-radius: 50%;
   background: var(--dsw-alias-label-tertiary);
 }
-.dot[data-on] { background: var(--fw-ok, #16a34a); }
+/* 2026-09-23：运行中会话强化标识——绿点脉冲 + 光晕，用户反馈"不点开
+   看不出哪个对话在进行中" */
+.dot[data-on] {
+  background: var(--fw-ok, #16a34a);
+  box-shadow: 0 0 0 0 rgba(22, 163, 74, .55);
+  animation: sb-pulse 1.8s ease-out infinite;
+}
+.dot[data-wait] { background: #f59e0b; }
+@keyframes sb-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(22, 163, 74, .55); }
+  70% { box-shadow: 0 0 0 6px rgba(22, 163, 74, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(22, 163, 74, 0); }
+}
+.sess-badge {
+  flex: none;
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  line-height: 16px;
+  font-weight: 600;
+  letter-spacing: .02em;
+}
+.sess-badge.run {
+  color: #4ade80;
+  background: rgba(34, 197, 94, .16);
+}
+.sess-badge.wait {
+  color: #fbbf24;
+  background: rgba(245, 158, 11, .16);
+}
+html[data-fw-theme='light'] .sess-badge.run {
+  color: #15803d;
+  background: rgba(34, 197, 94, .18);
+}
+html[data-fw-theme='light'] .sess-badge.wait {
+  color: #b45309;
+  background: rgba(245, 158, 11, .18);
+}
 .project-row:hover,
 .session-row:hover { background: var(--dsw-alias-interactive-bg-hover); }
 /* 选中态与主导航激活样式同族：品牌色文字 + 浅底 + 左侧指示条 */

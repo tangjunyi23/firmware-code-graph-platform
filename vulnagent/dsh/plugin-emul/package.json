@@ -1,0 +1,9 @@
+{
+  "name": "@fwgraph/dsh-fwgraph-emul-tools",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "fwgraph firmware-emulation tools for the DeepSeek Harness emul agent (fwgraph-emul profile)",
+  "main": "src/index.js",
+  "license": "Apache-2.0"
+}

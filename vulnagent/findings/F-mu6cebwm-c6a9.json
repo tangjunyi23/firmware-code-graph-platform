@@ -1,0 +1,32 @@
+{
+  "job_id": "6df0ba4135c9",
+  "title": "TP-Link Archer C7 v2 httpd ipAddrDispose 栈缓冲区溢出（ping_addr 参数）",
+  "severity": "high",
+  "confidence": 0.6,
+  "vuln_class": "栈缓冲区溢出",
+  "cwe": "CWE-121",
+  "binary_md5": "9582aa23b0bc2de099b9997b09457d01",
+  "binary_path": "firmware/binwalk_extracted/firmware.extracted/100000/squashfs-root/usr/bin/httpd",
+  "reachability": "static-only",
+  "summary": "httpd（/usr/bin/httpd, md5 9582aa23b0bc2de099b9997b09457d01）的 ipAddrDispose(0x4b57d0) 在解析诊断页参数 ping_addr 时，先把去掉空格的输入逐字节写入栈数组 char s[52]（memset 仅清 0x33=51 字节），循环内 s[v3++] 没有任何长度上限；随后再用 strcpy(a1, s) 把该栈内容回写到调用者缓冲区。ping_addr 取自 HTTP 请求（httpGetEnv(a1,\"ping_addr\")），由 /userRpm/PingIframeRpm.htm 的 httpPingIframeInit(0x48d770) 注册的 handler sub_48E0F4(0x48e0f4) 处理，因此在通过 HttpAccessPermit 授权检查后，提交长度 >51 的非空格字符串即可覆盖栈上相邻变量/返回地址，属于 httpd 管理面远程栈溢出。同一函数内的数字/IP 格式校验发生在越界写入之后，无法阻止溢出。",
+  "evidence": [
+    "httpd ipAddrDispose @0x4b57d0 反编译：char s[52]; memset(s,0,0x33u); while(...){ if(*v6!=32) s[v3++]=*v6; } strcpy(a1,s); —— s[v3++] 无上界，s 仅 52 字节，memset 只清 51 字节",
+    "PingIframeRpm handler sub_48E0F4 @0x48e0f4：Env = httpGetEnv(a1,\"ping_addr\"); ... v20 = ipAddrDispose(Env); 即网络输入直达 ipAddrDispose 首个参数",
+    "路由注册 httpPingIframeInit @0x48d770：httpRpmConfAdd(2, \"/userRpm/PingIframeRpm.htm\", (int)sub_48E0F4)，路由节点 __route__ANY__/userRpm/PingIframeRpm.htm 存在",
+    "调度链 sub_42DFC0 @0x42dfc0 → httpDispatcher @0x425d08（httpReqTrans 解析请求后按 RPM 表分发）",
+    "入口鉴权：sub_48E0F4 先 if(!HttpAccessPermit(a1)) return HttpDenyPage(a1); 故需要管理面会话/许可，但校验在溢出点之前完成，无法缓解"
+  ],
+  "session_id": "s-mu6cc22e-e8d5",
+  "function_name": "ipAddrDispose",
+  "preconditions": "httpd 80 端口可达；请求通过 HttpAccessPermit（管理面登录会话或 LAN 信任），随后以 GET/POST 提交 ping_addr 参数",
+  "exploit_sketch": "GET /userRpm/PingIframeRpm.htm?ping_addr=<52+ 个非空格字符>&doType=ping&isNew=new&sendNum=1&pSize=64&overTime=1 —— 长 ping_addr 在 ipAddrDispose 首次空格剔除循环中越界书写栈数组 s[52]，覆盖相邻栈变量与保存的返回地址（MIPS32 big-endian，无 canary 计数则直接可控 $ra）",
+  "remediation": "在 ipAddrDispose 空格剔除循环中按 sizeof(s)-1 限制下标（或改用 strncpy/snprintf 并保证 NUL 结尾），并在拷贝回 a1 前校验目标缓冲区剩余长度；同时把 ping_addr 的长度校验前移到任何拷贝之前，服务端限制为 IPv4/IPv6 字面量长度。",
+  "poc": "curl -s \"http://<router-ip>:80/userRpm/PingIframeRpm.htm?ping_addr=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA&doType=ping&isNew=new&sendNum=1&pSize=64&overTime=1\"",
+  "call_chain": "sub_42DFC0(0x42dfc0) → httpDispatcher(0x425d08) → sub_48E0F4(0x48e0f4, /userRpm/PingIframeRpm.htm 注册于 httpPingIframeInit 0x48d770) → httpGetEnv(\"ping_addr\") → ipAddrDispose(0x4b57d0) → s[v3++] 无界写 + strcpy(a1, s)",
+  "function_addr": "0x4b57d0",
+  "id": "F-mu6cebwm-c6a9",
+  "status": "draft",
+  "owner": "token-admin",
+  "recorded_at": "2026-09-18T02:31:41Z",
+  "history": []
+}

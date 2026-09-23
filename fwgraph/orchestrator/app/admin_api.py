@@ -881,6 +881,25 @@ def setup(app: FastAPI, require_token, require_admin) -> None:
 
     # --- reports -----------------------------------------------------------
 
+    @app.post("/mithril/fetch-db", status_code=202)
+    def mithril_fetch_db(principal: dict = Depends(require_admin)):
+        """下载/更新 mithril CVE 镜像（唯一联网点，admin 手动触发；
+        之后所有扫描全程离线。无库时 CVE 段自动跳过其余功能不受影响）。"""
+        from pipeline import mithril as mithril_scan
+        import subprocess as _sp
+        db = mithril_scan.db_dir()
+        db.mkdir(parents=True, exist_ok=True)
+        try:
+            out = _sp.run([mithril_scan.bin_path(), "--fetch-db"],
+                          capture_output=True, text=True, timeout=1800,
+                          env={**__import__("os").environ,
+                               "MITHRIL_DB": str(db)})
+            ok = out.returncode == 0
+            return {"ok": ok, "db_dir": str(db),
+                    "tail": (out.stdout + out.stderr)[-500:]}
+        except Exception as exc:  # noqa: BLE001
+            return {"ok": False, "db_dir": str(db), "error": str(exc)}
+
     @app.post("/jobs/{job_id}/report")
     def generate_report(job_id: str,
                         principal: dict = Depends(require_token)):

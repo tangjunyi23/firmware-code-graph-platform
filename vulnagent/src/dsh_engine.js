@@ -27,7 +27,8 @@ export async function runDshTask({ config, task, quiet = false, cwd, mode }) {
     ...process.env,
     // llm-deepseek adapter: any OpenAI chat-completions gateway
     DEEPSEEK_API_KEY: config.llm.apiKey,
-    DEEPSEEK_BASE_URL: config.llm.baseUrl,
+    // dsh llm-deepseek（messages 协议）自行拼 /v1/messages；LLM_BASE_URL 的尾部 /v1 剥掉
+    DEEPSEEK_BASE_URL: String(config.llm.baseUrl || "").replace(/\/+$/, "").replace(/\/v1$/, ""),
     FWGRAPH_BASE_URL: config.fwgraph.baseUrl,
     FWGRAPH_TOKEN: config.fwgraph.token,
     FWGRAPH_JOB_ID: config.fwgraph.defaultJobId ?? "",

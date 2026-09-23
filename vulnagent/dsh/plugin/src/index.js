@@ -219,7 +219,7 @@ export function compactDiffFns(fns, limit = 24) {
 /** 给模型的下一刀，不是给用户看的验收文案。 */
 export function huntNextFromTrace(t) {
   if (!t || typeof t !== 'object') {
-    return '立刻 fw_request_trace，不要向用户解释。'
+    return '立刻 fw_request_trace；先用一句中文向用户说明本轮要动态验证的假设。'
   }
   const status = String(t.status || '')
   const via = String((t.request || {}).via || '')
@@ -227,22 +227,22 @@ export function huntNextFromTrace(t) {
   const tid = t.trace_id || ''
   const md5 = (t.binary && t.binary.md5) || t.binary_md5 || ''
   if (status === 'running') {
-    return '仍在跑。继续 fw_get_trace 轮询，不要对用户说话。'
+    return '仍在跑。继续 fw_get_trace 轮询；同时用一句中文向用户说明当前在验证什么。'
   }
   if (status === 'failed' || t.error) {
-    return '本次失败。立刻换 via=stdin 或 input_path=/tmp/poc.bin 或换 payload，再 fw_request_trace。禁止向用户解释平台或写验收报告。'
+    return '本次失败。先用一句中文告诉用户失败点（日志/超时/环境），立刻换 via=stdin 或 input_path=/tmp/poc.bin 或换 payload 再 fw_request_trace。不写长篇验收报告。'
   }
   const fns = compactDiffFns((t.diff && t.diff.functions) || [])
   const sinks = fns.filter((f) => f.sink)
   if (fns.length) {
     const pick = (sinks.length ? sinks : fns).slice(0, 8)
     const list = pick.map((f) => `${f.name || '?'}@${f.addr || '?'}`).join(', ')
-    return `差分命中 ${fns.length} 个函数（优先 sink）：${list}。立刻 fw_get_function_source(kind=brief, md5=${md5 || '本 binary'}, addr=这些地址)。能到危险操作就 record_finding（reachability=observed, trace_id=${tid}，必须 call_chain+poc）。不要把差分表贴给用户。`
+    return `差分命中 ${fns.length} 个函数（优先 sink）：${list}。先用一两句中文向用户简报命中了什么（函数名+是否危险操作），然后立刻 fw_get_function_source(kind=brief, md5=${md5 || '本 binary'}, addr=这些地址)。能到危险操作就 record_finding（reachability=observed, trace_id=${tid}，必须 call_chain+poc）。`
   }
   if (via === 'net' || port) {
-    return '网络空差分：请求没进处理函数，不是漏洞。禁止 record_finding，禁止向用户写终态/能力验收。同一 port+payload 不要再打。via=net 不要带 input_path。启动未通则只允许空 fw_qemu_exec 后再 fw_request_trace via=net；否则换入口或等新目标。'
+    return '网络空差分：请求没进处理函数，不是漏洞。用一句中文向用户说明本入口未命中后换路：同一 port+payload 不要再打。via=net 不要带 input_path。启动未通则只允许空 fw_qemu_exec 后再 fw_request_trace via=net；否则换入口或等新目标。禁止 record_finding。'
   }
-  return 'stdin/文件空差分：payload 没打到解析分支，不是漏洞。禁止 record_finding 和终态汇报。换真实协议字节或换 ELF 最多再跑一次；不要重复同一条空差分。'
+  return 'stdin/文件空差分：payload 没打到解析分支，不是漏洞。用一句中文向用户说明后，换真实协议字节或换 ELF 最多再跑一次；不要重复同一条空差分。禁止 record_finding。'
 }
 
 export function compactTrace(t) {
@@ -277,7 +277,7 @@ export function compactTrace(t) {
 export function summarizeTraceList(out) {
   const traces = (out && Array.isArray(out.traces)) ? out.traces : []
   if (!traces.length) {
-    const hunt_next = '还没有 qemu 差分 trace。立刻 fw_request_trace，再用 fw_get_trace 轮询。空列表不是缺能力。禁止向用户写验收报告。'
+    const hunt_next = '还没有 qemu 差分 trace。先用一句中文向用户说明动态验证计划，再立刻 fw_request_trace，然后 fw_get_trace 轮询。空列表不是缺能力。'
     return asJson({
       job_id: (out && out.job_id) || '',
       traces: [],
@@ -301,8 +301,8 @@ export function summarizeTraceList(out) {
     binary_md5: t.binary_md5,
   }))
   const hunt_next = withDiff.length
-    ? `已有 ${withDiff.length} 条非空差分。立刻 fw_get_trace：${withDiff.slice(0, 8).map((t) => t.trace_id).join(', ')}，按返回的 hunt_next 读函数并 record_finding。不要向用户列能力表。`
-    : '现有 trace 都是空差分或失败。不要重复同一条，不要 record_finding，不要向用户写终态。via=net 不要带 input_path。换入口或等新目标。'
+    ? `已有 ${withDiff.length} 条非空差分。先用一句中文向用户简报 trace 战果，再立刻 fw_get_trace：${withDiff.slice(0, 8).map((t) => t.trace_id).join(', ')}，按返回的 hunt_next 读函数并 record_finding。`
+    : '现有 trace 都是空差分或失败。用一句中文向用户说明后换路：不要重复同一条，不要 record_finding。via=net 不要带 input_path。换入口或等新目标。'
   return asJson({
     job_id: out.job_id || '',
     total: out.total ?? traces.length,
@@ -320,15 +320,15 @@ export function summarizeTraceList(out) {
 
 export function huntNextFromExec(r) {
   if (!r || typeof r !== 'object' || r.status === 'running') {
-    return '仍在跑，fw_get_qemu_exec 轮询。不要对用户说话。'
+    return '仍在跑，fw_get_qemu_exec 轮询；用一句中文向用户说明正在验证什么。'
   }
   const fed = Number(r.stdin_bytes || 0) > 0 || Boolean(r.input_path)
   const startup = r.crash_kind === 'startup' || (r.status === 'crash' && !fed)
   if (r.status === 'crash' && startup) {
-    return `启动即崩（signal ${r.signal ?? r.returncode}，没喂 payload）。这是 qemu 环境，不是漏洞。禁止 record_finding，禁止放弃该 ELF。立刻 fw_request_trace（带 port 或 via=stdin）；还崩再换 argv/argv0，不要跳到别的二进制。`
+    return `启动即崩（signal ${r.signal ?? r.returncode}，没喂 payload）。这是 qemu 环境问题，不是漏洞。用一句中文向用户说明环境在调整，然后立刻 fw_request_trace（带 port 或 via=stdin）；还崩再换 argv/argv0，不要跳到别的二进制。禁止 record_finding，禁止放弃该 ELF。`
   }
   if (r.status === 'crash') {
-    return `payload 触发崩溃（signal ${r.signal ?? r.returncode}）。立刻 fw_get_function_source 读路径，record_finding（reachability=verified 或 observed，call_chain+poc，evidence 含本 run_id）。不要跳过。`
+    return `payload 触发崩溃（signal ${r.signal ?? r.returncode}）。先用中文向用户报告这个动态证据，立刻 fw_get_function_source 读路径，record_finding（reachability=verified 或 observed，call_chain+poc，evidence 含本 run_id）。不要跳过。`
   }
   if (r.status === 'timeout' && !fed) {
     return '没喂输入就超时：守护进程可能仍活着。不要放弃该 ELF。立刻 fw_request_trace 带 port。'
@@ -462,7 +462,7 @@ export function apply(ctx, config) {
   let sawDynamic = false
   let pendingHuntNext = ''
   const NUDGE_AFTER = 3
-  const DYN_HINT = '还没有 qemu 差分 trace。先对当前假设调用 fw_request_trace，再用 fw_get_trace。有差分就按 hunt_next 读函数并 record_finding，不要把结果写成给用户看的验收报告。'
+  const DYN_HINT = '还没有 qemu 差分 trace。先对当前假设调用 fw_request_trace，再用 fw_get_trace。有差分就按 hunt_next 读函数并 record_finding；给用户的是一两句中文简报，不是验收长文。'
 
   function attachHint(value, hint) {
     if (!hint) return value
@@ -817,7 +817,7 @@ export function apply(ctx, config) {
       sawDynamic = true
       return asJson({
         ...resp,
-        next: 'poll fw_get_trace until status is not running, then execute hunt_next. Do not write a capability report for the user.',
+        next: 'poll fw_get_trace until status is not running, then execute hunt_next. 先用一句中文向用户说明本轮验证已发起。',
       })
     },
   })
@@ -910,6 +910,69 @@ export function apply(ctx, config) {
   })
 
   register({
+    name: 'fw_read_bytes',
+    timeoutMs: 30_000,
+    description: 'Read raw bytes at a virtual address of any extracted ELF (.data/.rodata/.got/...): vaddr+length → hex + ascii. The last mile of static verdicts — auth-required flag bytes in action tables, hardcoded table entries, function pointer arrays that decompiled source cannot recover. Resolve the binary by binary_md5 (fw_list_binaries) or firmware-relative path.',
+    parameters: params({
+      ...JOB_ID_PROP,
+      binary_md5: { type: 'string' },
+      path: { type: 'string', description: 'Firmware-relative path (when not in the code graph, e.g. bin/csmanuds). md5 wins if both given.' },
+      vaddr: { type: 'string', description: 'Virtual address like 0x4ed9b0 (from decompiler cross-references, e.g. off_4ED9B0).' },
+      length: { type: 'integer', description: '1..512 bytes, default 32' },
+    }, ['vaddr']),
+    async execute(args) {
+      const md5 = args.binary_md5 ? await resolveMd5(config, { binary_md5: args.binary_md5, job_id: args.job_id }) : ''
+      const q = new URLSearchParams({ vaddr: String(args.vaddr || '') })
+      if (md5) q.set('binary_md5', md5)
+      if (args.path) q.set('path', String(args.path))
+      q.set('length', String(Math.min(Math.max(Number(args.length ?? 32), 1), 512)))
+      const raw = await fw(config, 'GET', `/jobs/${jobOf(config, args)}/read-bytes?${q}`)
+      return asJson({
+        ...raw,
+        hunt_next: raw?.hex
+          ? '拿到原始字节了。对照反编译里的结构布局（如动作表每项 +4 的鉴权字节）解读，并写进证据。'
+          : undefined,
+      })
+    },
+  })
+
+  register({
+    name: 'fw_decompile_single',
+    timeoutMs: 120_000,
+    description: 'Analyze ONE ELF that is not in the code graph (factory daemons like AX_UDPserver/csmanuds cut by the ingest budget) with radare2 — no full re-ingest. Without function: returns the function list (name/addr/size, cap 400). With function="0x…": returns r2 pseudo-C of that function (cap 64KB). Pair with fw_read_bytes for .data verdicts.',
+    parameters: params({
+      ...JOB_ID_PROP,
+      binary_md5: { type: 'string' },
+      path: { type: 'string', description: 'Firmware-relative path (e.g. bin/11N_UDPserver). md5 wins if both given.' },
+      function: { type: 'string', description: 'hex address like 0x408a0c — omit for the function list' },
+    }, []),
+    async execute(args) {
+      const body = {}
+      if (args.binary_md5) body.binary_md5 = await resolveMd5(config, { binary_md5: args.binary_md5, job_id: args.job_id })
+      if (args.path) body.path = String(args.path)
+      if (args.function) body.function = String(args.function)
+      const raw = await fw(config, 'POST', `/jobs/${jobOf(config, args)}/decompile-single`, body)
+      const hint = args.function
+        ? '读完伪 C 后：sink 位置用 fw_read_bytes 补数据段证据，能成链就 record_finding。'
+        : '挑可疑函数（名字含 cmd/handler/parse/recv 或入口表引用）传 function=0x… 拉伪 C。先用一句中文向用户简报这个二进制的规模与可疑点。'
+      if (raw && typeof raw === 'object' && !raw.functions) return asJson({ ...raw, hint })
+      return asJson({ ...(raw || {}), hint })
+    },
+  })
+
+  register({
+    name: 'fw_offer_emulation',
+    timeoutMs: 30_000,
+    description: 'END-OF-HUNT ONLY. Call this exactly once when static + dynamic verification is fully closed out (all findings recorded, every decisive byte read, PoCs prepared) — BEFORE your final message. It registers the hand-off and returns the closing instruction: report conclusions in Chinese, then ask the user 是否进行固件模拟进行真实测试. Do NOT call fw_emul_request yourself; after the user agrees the orchestrator auto-starts the emulation.',
+    parameters: params({ ...JOB_ID_PROP }),
+    async execute() {
+      const sid = String(config.sessionId || '')
+      if (!sid) throw new Error('session id not configured')
+      return asJson(await fw(config, 'POST', `/vulnagent/sessions/${sid}/emulation-offer`, {}))
+    },
+  })
+
+  register({
     name: 'fw_request_fuzz',
     timeoutMs: 180_000,
     description: `Request an AFL++ qemu fuzz run. Omit function for whole-binary mode (preferred on MIPS: qemu persistent handshake often fails). Pass function=0x… only for arm/x86 with a concrete hypothesis. Budgeted — max ${MAX_FUZZ_PER_SESSION} per session. Poll via fw_get_fuzz_run until status is ok/error (running is not wedged).`,
@@ -972,25 +1035,25 @@ export function apply(ctx, config) {
       if (r && typeof r === 'object' && r.status === 'running') {
         return {
           ...r,
-          hunt_next: '仍在跑，继续 fw_get_fuzz_run。不要对用户说话。',
+          hunt_next: '仍在跑，继续 fw_get_fuzz_run；用一句中文向用户说明 fuzz 进行中。',
         }
       }
       if (r && typeof r === 'object' && r.status === 'error') {
         return {
           ...r,
-          hunt_next: 'fuzz 失败。读 detail/stderr_tail；握手失败改整二进制。不要向用户解释平台。',
+          hunt_next: 'fuzz 失败。读 detail/stderr_tail；握手失败改整二进制。用一句中文向用户简报失败点后继续。',
         }
       }
       if (r && typeof r === 'object') {
         const crashes = Number(r.crashes || 0)
         if (crashes > 0) {
-          const hunt_next = `fuzz 有 ${crashes} 个 crash。立刻 fw_qemu_exec 复现，再 record_finding（call_chain+poc）。不要只把 crash 数贴给用户。`
+          const hunt_next = `fuzz 有 ${crashes} 个 crash。先用中文向用户报告动态证据，立刻 fw_qemu_exec 复现，再 record_finding（call_chain+poc）。`
           pendingHuntNext = hunt_next
           return { ...r, hunt_next }
         }
         return {
           ...r,
-          hunt_next: '无 crash。不要当漏洞。改 fw_request_trace（via=stdin）打解析器，或换入口。',
+          hunt_next: '无 crash。不要当漏洞。用一句中文向用户说明后，改 fw_request_trace（via=stdin）打解析器，或换入口。',
         }
       }
       return r
@@ -1089,6 +1152,165 @@ export function apply(ctx, config) {
           ? '库命中只是 N-day 候选。对每个 id 用 fw_search / fw_get_function_source 核函数，动态验证后再 record_finding，并在 evidence 写上 CVE/CNVD 编号。'
           : '本库没有与当前固件厂商/产品重叠的条目。不要编造 CVE；改走攻击面/trace 挖 0-day，或请用户导入该型号的 CVE/CNVD JSON。'),
       })
+    },
+  })
+
+  // ---------------- mithril 语义扫描 / moria 结构快诊（认证风险与解包盲区） ----------------
+
+  register({
+    name: 'fw_deep_secrets',
+    description: '深度密钥泄露扫描结果（三层校验：私钥/JWT/API key/弱口令哈希，' +
+      'mithril 产出，含路径/校验层级/置信度）。密钥泄露 → 认证绕过、固件伪造' +
+      '入口；此类发现为 static-only（置信度锚 ≤0.7），除非在模拟环境实际完成' +
+      '一次认证/签名验证后才可升级。',
+    parameters: params({
+      ...JOB_ID_PROP,
+      kind: { type: 'string', description: '按类型过滤（private-key/password-hash/jwt 等）' },
+      min_confidence: { type: 'integer', description: '最低置信度 0-100' },
+    }),
+    async execute(args) {
+      const out = await fw(config, 'GET', `/jobs/${args.job_id || config.jobId}/sca`)
+      const m = (out?.result?.mithril) || {}
+      let items = m.secrets || []
+      if (args.kind) items = items.filter((x) => String(x.type || '').includes(String(args.kind)))
+      if (args.min_confidence) items = items.filter((x) => (x.confidence || 0) >= Number(args.min_confidence))
+      return asJson({
+        total: items.length,
+        summary: m.summary || '',
+        items: items.slice(0, 60),
+        hunt_next: items.length
+          ? '对高价值命中（私钥/默认凭据）走两条路：静态上追使用该密钥的代码路径；动态上 fw_emul_request 拉起对应服务实际完成一次认证，验证通过才升级置信度。'
+          : '无深度密钥命中（或 SCA 未完成）。不要臆造泄露；改走攻击面/trace 主线。',
+      })
+    },
+  })
+
+  register({
+    name: 'fw_weak_keys',
+    description: '弱公钥检测结果（ROCA 指纹/共享素数/已知默认坏钥匙/Vagrant 不安全钥）' +
+      '与启动安全姿势（U-Boot/FIT/AVB/UEFI），mithril 产出。命中 → 签名伪造/' +
+      '中间人/默认凭据接管；static-only（置信度锚 ≤0.7）。',
+    parameters: params({
+      ...JOB_ID_PROP,
+    }),
+    async execute(args) {
+      const out = await fw(config, 'GET', `/jobs/${args.job_id || config.jobId}/sca`)
+      const m = (out?.result?.mithril) || {}
+      const items = m.weak_keys || []
+      return asJson({
+        total: items.length,
+        items: items.slice(0, 40),
+        boot_audit: (m.boot || []).slice(0, 20),
+        hunt_next: items.length
+          ? '弱钥命中可作攻击入口 record_finding（标注 static-only）；涉及签名验证链的，沿代码找 verify 调用点串完整攻击路径。'
+          : '无弱公钥命中；boot_audit 为启动安全姿势参考。',
+      })
+    },
+  })
+
+  register({
+    name: 'fw_structure_tree',
+    description: '固件结构快诊树（moria）：内嵌文件系统/归档/加密区域/UPX 加壳清单' +
+      '（偏移+置信度）。用于确认解包盲区——packed ELF 反编译会失败、加密区域' +
+      '无法静态分析，报告覆盖面时必须如实披露这些盲区。',
+    parameters: params({
+      ...JOB_ID_PROP,
+    }),
+    async execute(args) {
+      const out = await fw(config, 'GET', `/jobs/${args.job_id || config.jobId}/moria-tree`)
+      if (!out || !Array.isArray(out.findings)) {
+        return asJson({ error: '结构快诊不存在（旧固件或 MORIA_ENABLED=0）；不要臆测盲区' })
+      }
+      return asJson(out)
+    },
+  })
+
+  // ---------------- 固件模拟环境消费（模拟由独立的 fwgraph-emul agent 负责） ----------------
+
+  register({
+    name: 'fw_emul_request',
+    description: '静态分析与组件 fuzz 结论成型后，向固件模拟 agent 发起模拟请求：' +
+      '把嫌疑清单/目标 binary/端口等结构化上下文发过去，它会搭一个最贴合当前' +
+      '测试条件的真实服务环境。返回 req_id，用 fw_emul_env 轮询进度。',
+    parameters: params({
+      goal: { type: 'string', description: '一句话说明要模拟什么、用于验证什么结论' },
+      targets: {
+        type: 'object',
+        description: '结构化上下文：{binaries:[md5...], ports:[...], findings:[F-xxx...], seeds:[...]}',
+        additionalProperties: true,
+      },
+      job_id: JOB_ID_PROP,
+    }, ['goal']),
+    async execute(args) {
+      const out = await fw(config, 'POST', '/emul/requests', {
+        job_id: jobOf(config, args), goal: args.goal,
+        targets: args.targets || {}, from_session: config.sessionId || '',
+        from_agent: 'vuln-miner',
+      })
+      return asJson({
+        ...out,
+        hint: '模拟是异步的。继续静态工作或轮询 fw_emul_env；环境 ready 后用 fw_emul_send 复核。',
+      })
+    },
+  })
+
+  register({
+    name: 'fw_emul_env',
+    description: '查当前固件的模拟环境与模拟请求状态（ready 的环境带端口映射，' +
+      '可直接 fw_emul_send）。没有环境时返回空列表，不是缺能力。',
+    parameters: params({
+      request_id: { type: 'string', description: '只看某个模拟请求（可选）' },
+      job_id: JOB_ID_PROP,
+    }),
+    async execute(args) {
+      const envs = (await fw(config, 'GET',
+        `/emul/envs?job_id=${encodeURIComponent(jobOf(config, args))}`)) || []
+      let reqs = []
+      if (args.request_id) {
+        const r = await fw(config, 'GET', `/emul/requests/${args.request_id}`)
+        reqs = [r]
+      }
+      const ready = envs.filter((e) => e.status === 'ready')
+      return asJson({
+        envs: envs.map((e) => ({
+          env_id: e.env_id, status: e.status, request_id: e.request_id || '',
+          services: (e.services || []).map((sv) => ({
+            name: sv.name, guest_port: sv.guest_port, host_port: sv.host_port,
+            status: sv.status, binary_path: sv.binary_path,
+          })),
+          verified_endpoints: e.verified_endpoints || [],
+        })),
+        requests: reqs,
+        ready_count: ready.length,
+        hint: ready.length
+          ? `有 ${ready.length} 个就绪环境。fw_emul_send(env_id, port, ...) 打真实服务复核结论。`
+          : '暂无就绪环境。静态结论已成型可 fw_emul_request 发起模拟；'
+            + '模拟进行中就轮询本工具，不要空等。',
+      })
+    },
+  })
+
+  register({
+    name: 'fw_emul_send',
+    description: '向 ready 的模拟环境发真实报文（TCP/UDP/HTTP）并返回原始响应。' +
+      '用于把 static-only 结论升级为 observed/verified。',
+    parameters: params({
+      env_id: { type: 'string', description: 'fw_emul_env 查到的 env_id' },
+      port: { type: 'integer', description: 'guest 端口（services 里的 guest_port）' },
+      proto: { type: 'string', enum: ['tcp', 'udp'] },
+      payload_hex: { type: 'string', description: '原始字节 hex（与 payload 二选一）' },
+      payload: { type: 'string', description: '文本 payload' },
+      http_method: { type: 'string', description: '如 GET/POST（HTTP 型服务）' },
+      http_path: { type: 'string', description: 'HTTP 路径，默认 /' },
+    }, ['env_id', 'port']),
+    async execute(args) {
+      const out = await fw(config, 'POST',
+        `/emul/envs/${encodeURIComponent(args.env_id)}/send`, {
+          port: args.port, proto: args.proto || 'tcp',
+          payload_hex: args.payload_hex, payload: args.payload,
+          http_method: args.http_method, http_path: args.http_path || '/',
+        })
+      return asJson(out)
     },
   })
 

@@ -1,0 +1,26 @@
+diff --git a/packages/llm/llm-deepseek/src/protocols/messages/translate.ts b/packages/llm/llm-deepseek/src/protocols/messages/translate.ts
+index deb901119e..518d9422d6 100644
+--- a/packages/llm/llm-deepseek/src/protocols/messages/translate.ts
++++ b/packages/llm/llm-deepseek/src/protocols/messages/translate.ts
+@@ -147,15 +147,12 @@ export async function* translate(events: AsyncIterable<Record<string, unknown>>,
+     } else {
+       if (reason === undefined || [...blocks.values()].some(block => !block.closed)) return malformed('message_stop without settled blocks and stop reason')
+       if (blocks.size === 0 && reason.kind === 'stop') throw new LlmError('DeepSeek Messages returned no content', 'EMPTY_RESPONSE')
+-      // Truncated tool JSON is retained in the stream, then pruned by the shared assembler.
+-      if (reason.kind !== 'max-tokens') {
+-        for (const { content } of blocks.values()) {
+-          if (content.type !== 'tool-call') continue
+-          let parsed: unknown
+-          try { parsed = JSON.parse(content.arguments) } catch (_invalidProviderToolJson) { return malformed('tool input is invalid JSON') }
+-          object(parsed)
+-        }
+-      }
++      // Malformed tool JSON (provider-side truncation on a stop finish, seen
++      // with deepseek flash long tool arguments) must NOT abort the stream:
++      // the shared agent-loop parseArguments keeps invalid JSON as text and
++      // the tool schema validation reports it back to the model, which then
++      // re-emits the call. Preflight-parsing here killed whole turns on the
++      // first glitch (fwgraph 2026-09-22), so validation stays downstream.
+       usage.totalTokens = usage.inputTokens + usage.outputTokens + (usage.cacheReadTokens ?? 0) + (usage.cacheWriteTokens ?? 0)
+       yield { type: 'usage', usage }
+       yield { type: 'finish', reason, replayState: replayState(model, [...blocks.values()].map(block => block.replay)) }

@@ -647,3 +647,24 @@ html[data-fw-theme='dark'] .el-button--primary:not(.is-link):not(.is-text):not(.
 @media (max-width: 720px) {
   .ins-actions { margin-left: 0; width: 100%; }
 }
+
+/* ---- 笔记本小屏等比适配 ---------------------------------------------------
+   设计基准宽 1600px。视口在 [900,1600) 时整站按 视口宽/1600 等比缩小：
+   布局与 1600 桌面完全一致、只是整体变小（下限 0.8），避免 1366/1280
+   笔记本上三栏挤压、图表变形。<900px 仍交给原有移动端断点。
+   zoom 挂在 body 上，弹层（teleport 到 body）一起缩放、坐标不失真；
+   100vh 不会被 zoom 放大，故对视口高布局做等比补偿，防止底部留白。 */
+@media (min-width: 900px) and (max-width: 1599px) {
+  /* 仪表盘（态势大屏）自带 1380/1024/760 断点与滚动回退，走自己的适配，
+     不参与等比缩放，避免两套布局叠加把雷达卡片压塌 */
+  body.fit {
+    --fit-zoom: max(0.8, calc(100vw / 1600px));
+    zoom: var(--fit-zoom);
+  }
+  body.fit .app-root, body.fit .login-wrap { min-height: calc(100vh / var(--fit-zoom)) !important; }
+  body.fit .shell {
+    height: calc(100vh / var(--fit-zoom)) !important;
+    min-height: calc(100vh / var(--fit-zoom)) !important;
+  }
+  body.fit .main-col { height: calc(100vh / var(--fit-zoom)) !important; }
+}

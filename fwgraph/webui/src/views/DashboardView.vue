@@ -4,20 +4,34 @@
     <div class="ticker">
       <div class="ticker-label"><span class="dot" />严重告警</div>
       <div class="ticker-track">
-        <div class="ticker-inner" v-html="tickerHtml" />
+        <div class="ticker-inner">
+          <template v-for="(item, i) in tickerItems" :key="i">
+            <button
+              v-for="(dup, j) in 2"
+              :key="`${i}-${j}`"
+              type="button"
+              class="tk-item"
+              :class="{ link: !!item.finding }"
+              @click="onTickerClick(item)"
+            >⚠ <span v-html="item.html" /></button>
+          </template>
+        </div>
       </div>
     </div>
 
     <!-- 顶栏 -->
     <header class="screen-head">
-      <div class="logo">
-        <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M12 22s8-3.6 8-10V5l-8-3-8 3v7c0 6.4 8 10 8 10z" /><path d="M9 12l2 2 4-4" />
-        </svg>
-      </div>
+      <div class="hd-left" />
       <div class="brand">
-        <h1>FWGraph · 固件威胁态势大屏</h1>
-        <p>FIRMWARE THREAT INTELLIGENCE · LIVE</p>
+        <div class="logo">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 22s8-3.6 8-10V5l-8-3-8 3v7c0 6.4 8 10 8 10z" /><path d="M9 12l2 2 4-4" />
+          </svg>
+        </div>
+        <div class="brand-copy">
+          <h1>FWGraph · 固件威胁态势大屏</h1>
+          <p>FIRMWARE THREAT INTELLIGENCE · LIVE</p>
+        </div>
       </div>
       <div class="hd-right">
         <div class="chip"><span class="dot" />分析引擎在线</div>
@@ -47,7 +61,11 @@
           <div class="pl-node" :class="n.state">
             <span class="st">{{ n.state === 'done' ? '✓' : n.state === 'active' ? '●' : '·' }}</span>{{ n.label }}
           </div>
-          <div v-if="i < pipeNodes.length - 1" class="pl-link" :class="{ dim: !pipeActive }" />
+          <div
+            v-if="i < pipeNodes.length - 1"
+            class="pl-link"
+            :class="linkState(i)"
+          />
         </template>
         <div class="pl-meta">
           {{ pipeMeta }}
@@ -86,11 +104,12 @@
               :center-value="dash?.findings_total ?? 0"
               center-label="威胁指数"
               :period="5.5"
+              @select="openDetail"
             />
           </div>
           <div class="rail">
             <div class="rail-h">严重 · 待处置<span>{{ critFindings.length }}</span></div>
-            <div v-for="(f, i) in critFindings.slice(0, 4)" :key="f.id" class="rc" :style="{ '--j': i }">
+            <div v-for="(f, i) in critFindings.slice(0, 3)" :key="f.id" class="rc" :style="{ '--j': i }">
               <div class="rc-name"><span class="rc-dot" />{{ shortName(f.title, 22) }}<span v-if="f.cwe" class="cwe">{{ f.cwe }}</span></div>
               <div class="rc-meta">{{ f.function_name || f.binary_path?.split('/').pop() || '—' }}{{ f.confidence ? ` · 置信 ${f.confidence}` : '' }}</div>
             </div>
@@ -206,6 +225,22 @@
         </div>
       </div>
     </main>
+
+    <!-- 发现详情抽屉：告警条 / 雷达目标点击进入 -->
+    <el-drawer v-model="detailOpen" title="漏洞发现详情" size="380px" :append-to-body="true">
+      <div v-if="detail" class="fd-body">
+        <div class="fd-sev" :data-sev="detail.sev">{{ sevZh(detail.sev) }}</div>
+        <h3 class="fd-title">{{ detail.full || detail.name }}</h3>
+        <div class="fd-grid">
+          <span>CWE</span><b class="mono">{{ detail.cwe || '—' }}</b>
+          <span>置信度</span><b>{{ detail.conf }}</b>
+          <span>可达性</span><b :class="{ ok: detail.ver }">{{ detail.reach }}</b>
+          <span>动态证据</span><b>{{ detail.ver ? '有' : '暂无' }}</b>
+        </div>
+        <p class="fd-hint">点击雷达目标或告警条可在此查看详情；完整证据链在对应任务的挖掘会话与报告中。</p>
+        <el-button type="primary" @click="emit('goto', 'jobs')">前往工作台查看会话</el-button>
+      </div>
+    </el-drawer>
   </div>
 </template>
 
@@ -216,6 +251,8 @@ import { ElMessage } from 'element-plus'
 import { api } from '../api'
 import CountUp from '../components/fx/CountUp.vue'
 import RadarScreen from '../components/charts/RadarScreen.vue'
+
+const emit = defineEmits(['goto'])
 
 const dash = ref(null)
 const agentFindings = ref([])
@@ -283,6 +320,60 @@ const kpis = computed(() => {
 const critFindings = computed(() =>
   agentFindings.value.filter((f) => f.severity === 'critical').slice(0, 8))
 const running = computed(() => dash.value?.running || [])
+
+/* 告警条条目：带 finding 的可点击进入详情 */
+const tickerItems = computed(() => {
+  const d = dash.value || {}
+  const crit = critFindings.value.slice(0, 3)
+  const items = []
+  if (crit.length || sevCount('critical')) {
+    items.push({ html: `<b>严重 ${sevCount('critical')}</b> 个漏洞待处置` +
+      (crit[0]?.confidence ? ` · 最高置信度 ${crit[0].confidence}` : ''), finding: null })
+  }
+  for (const f of crit) {
+    items.push({
+      html: `<b>${shortName(f.title, 30)}</b> · ${f.cwe || 'CWE-?'} · 置信 ${f.confidence || '—'}`,
+      finding: f
+    })
+  }
+  items.push({
+    html: `动态验证命中 <b>${d.traces_with_diff || 0}/${d.traces_total || 0}</b> · 已验证 <b>${d.confirmed || 0}</b> · 数据每 8 秒自动刷新`,
+    finding: null
+  })
+  return items
+})
+
+/* 发现详情抽屉 */
+const detailOpen = ref(false)
+const detail = ref(null)
+function openDetail (target) {
+  detail.value = target
+  detailOpen.value = true
+}
+function onTickerClick (item) {
+  if (item.finding) {
+    openDetail({
+      sev: SEV_KEY[item.finding.severity] || 'low',
+      full: item.finding.title,
+      cwe: item.finding.cwe || '',
+      conf: item.finding.confidence || '—',
+      ver: item.finding.reachability === 'observed' || item.finding.reachability === 'verified' || item.finding.status === 'verified',
+      reach: item.finding.reachability === 'verified' ? '已验证' : item.finding.reachability === 'observed' ? '已观测' : '仅静态'
+    })
+  }
+}
+function sevZh (sev) {
+  return { crit: '严重', high: '高危', med: '中危', low: '低危' }[sev] || sev
+}
+/* 管线连接线状态：已完成段流动、进行中段脉冲、未到达段静止 */
+function linkState (i) {
+  const nodes = pipeNodes.value
+  const a = nodes[i]?.state
+  const b = nodes[i + 1]?.state
+  if (a === 'done' && b === 'done') return 'flow'
+  if (b === 'active' || a === 'active') return 'to-active'
+  return 'dim'
+}
 
 const tickerHtml = computed(() => {
   const d = dash.value || {}
@@ -466,7 +557,7 @@ function renderCharts () {
     series: [{
       data: (dash.value?.findings_by_severity || [])
         .filter((r) => r.count > 0)
-        .map((r) => ({ name: SEV_LABEL[r.key] || r.key, value: r.count, itemStyle: { color: SEV_COLOR[r.key] || '#5F6B85' } }))
+        .map((r) => ({ name: SEV_LABEL[r.key] || r.key, value: 1, count: r.count, itemStyle: { color: SEV_COLOR[r.key] || '#5F6B85' } }))
     }],
     graphic: [
       { style: { text: String(dash.value?.findings_total ?? 0) } },
@@ -518,11 +609,13 @@ onMounted(() => {
   })
   chRose = echarts.init(elRose.value)
   chRose.setOption({
-    tooltip: { ...TIP, formatter: '{b}：{c} 个（{d}%）' },
+    tooltip: { ...TIP, formatter: (p) => `${p.name}：${p.data.count} 个` },
     series: [{
-      type: 'pie', roseType: 'area', radius: ['44%', '74%'], center: ['50%', '50%'],
+      // 等分扇区：数值统一为 1，真实数量放 label/tooltip（原玫瑰图按数量变径，视觉误导）
+      type: 'pie', radius: ['46%', '72%'], center: ['50%', '50%'],
       itemStyle: { borderRadius: 5, borderColor: '#0B1120', borderWidth: 2 },
-      label: { color: '#8A94AD', fontSize: 10, lineHeight: 14, formatter: '{b}  {c}' },
+      label: { color: '#8A94AD', fontSize: 10, lineHeight: 14,
+               formatter: (p) => `${p.name}  ${p.data.count}` },
       labelLine: { length: 10, length2: 10, lineStyle: { color: 'rgba(148,163,184,.25)' } }
     }],
     graphic: [
@@ -617,18 +710,29 @@ onBeforeUnmount(() => {
 }
 .ticker-label .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--sc-red); animation: blink 1.1s infinite; }
 .ticker-track { flex: 1; overflow: hidden; display: flex; align-items: center; }
+.ticker-track:hover .ticker-inner { animation-play-state: paused; }
 .ticker-inner {
   display: inline-flex; white-space: nowrap; animation: marquee 30s linear infinite;
   font: 12px var(--fw-font-mono, monospace); color: #F0A8B6;
 }
-.ticker-inner :deep(span) { padding-right: 64px; }
+.ticker-inner :deep(span) { padding-right: 4px; }
+.tk-item {
+  flex: none; display: inline-flex; align-items: center;
+  margin-right: 64px; padding: 3px 8px;
+  border: none; border-radius: 6px; background: transparent;
+  color: #C7D2E8; font-size: 12px; white-space: nowrap; cursor: default;
+  font-family: inherit;
+}
+.tk-item.link { cursor: pointer; transition: background .15s ease, color .15s ease; }
+.tk-item.link:hover { background: rgba(244, 63, 94, .14); color: #F1F5FB; }
 .ticker-inner :deep(b) { color: var(--sc-red2); font-weight: 700; }
 @keyframes marquee { to { transform: translateX(-50%); } }
 @keyframes blink { 50% { opacity: .25; } }
 
 /* 顶栏 */
 .screen-head {
-  height: 60px; flex: none; display: flex; align-items: center; gap: 14px;
+  height: 60px; flex: none;
+  display: grid; grid-template-columns: 1fr auto 1fr; align-items: center;
   padding: 0 18px; position: relative;
   background: linear-gradient(180deg, rgba(15, 22, 38, .55), rgba(15, 22, 38, 0));
 }
@@ -670,7 +774,12 @@ onBeforeUnmount(() => {
   background: linear-gradient(90deg, transparent, rgba(125, 211, 252, .55));
 }
 .brand p::after { background: linear-gradient(90deg, rgba(125, 211, 252, .55), transparent); }
-.hd-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+.hd-left { min-width: 0; }
+.brand { display: flex; align-items: center; justify-self: center; gap: 12px; }
+.brand-copy h1 { font-size: 21px; }
+.hd-right {
+  position: absolute; right: 18px; top: 50%; transform: translateY(-50%);
+  justify-self: end; margin-left: auto; display: flex; align-items: center; gap: 10px; }
 .chip {
   display: flex; align-items: center; gap: 7px; font: 11px var(--fw-font-mono, monospace);
   color: var(--sc-txt2); border: 1px solid var(--sc-line); border-radius: 999px;
@@ -779,6 +888,11 @@ main.with-pipe {
 }
 .pl-node .st { font-size: 10px; font-family: var(--fw-font-mono, monospace); }
 .pl-node.done { color: #9FB4E8; border-color: rgba(91, 124, 250, .32); }
+.pl-node.active { animation: pl-node-pulse 1.2s ease-in-out infinite; }
+@keyframes pl-node-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(34, 211, 238, .35); }
+  50% { box-shadow: 0 0 0 5px rgba(34, 211, 238, 0); }
+}
 .pl-node.done .st { color: var(--sc-green); }
 .pl-node.active {
   color: var(--sc-cyan2); border-color: rgba(34, 211, 238, .5); background: rgba(34, 211, 238, .08);
@@ -786,10 +900,29 @@ main.with-pipe {
 }
 .pl-node.active .st { color: var(--sc-cyan2); animation: blink 1.2s infinite; }
 .pl-link {
-  flex: 1; min-width: 22px; height: 1px; position: relative;
-  background: linear-gradient(90deg, rgba(91, 124, 250, .45), rgba(34, 211, 238, .45));
+  flex: 1; min-width: 22px; height: 2px; position: relative; border-radius: 2px;
+  background: rgba(148, 163, 184, .14);
+  overflow: hidden;
 }
-.pl-link.dim { background: rgba(148, 163, 184, .14); }
+/* 已完成段：光点沿线流动 */
+.pl-link.flow {
+  background: linear-gradient(90deg, rgba(91, 124, 250, .38), rgba(34, 211, 238, .38));
+}
+.pl-link.flow::before {
+  content: ''; position: absolute; inset: 0;
+  background: linear-gradient(90deg,
+    transparent 0%, rgba(125, 211, 252, .95) 42%, rgba(34, 211, 238, .95) 58%, transparent 100%);
+  background-size: 46% 100%;
+  background-repeat: no-repeat;
+  animation: pl-flow 1.6s linear infinite;
+}
+/* 正在推进的段：脉冲呼吸 */
+.pl-link.to-active {
+  background: rgba(34, 211, 238, .35);
+  animation: pl-pulse 1.2s ease-in-out infinite;
+}
+@keyframes pl-flow { from { background-position: -60% 0; } to { background-position: 160% 0; } }
+@keyframes pl-pulse { 0%, 100% { opacity: .45; } 50% { opacity: 1; } }
 .pl-link::after {
   content: ''; position: absolute; top: -2px; left: 0; width: 5px; height: 5px; border-radius: 50%;
   background: var(--sc-cyan2); box-shadow: 0 0 9px var(--sc-cyan); animation: flow 2.2s linear infinite;
@@ -806,10 +939,13 @@ main.with-pipe {
 .radar-card { grid-area: radar; overflow: visible; }
 .radar-body { flex: 1; min-height: 0; display: flex; gap: 10px; }
 .rail {
-  flex: none; width: 178px; display: flex; flex-direction: column; gap: 8px; padding: 10px;
-  overflow: hidden; border: 1px solid rgba(148, 163, 184, .09); border-radius: 10px;
+  flex: none; width: 178px; display: flex; flex-direction: column; gap: 5px; padding: 7px 8px;
+  /* 隐性滚动兜底：数据再多也绝不静默裁切（桌面布局已按 3 条收纳，正常无滚动） */
+  overflow-y: auto; scrollbar-width: none;
+  border: 1px solid rgba(148, 163, 184, .09); border-radius: 10px;
   background: rgba(148, 163, 184, .03);
 }
+.rail::-webkit-scrollbar { display: none; }
 .rail-h {
   font: 600 10px var(--fw-font-mono, monospace); color: var(--sc-txt3);
   letter-spacing: 1.5px; display: flex; justify-content: space-between; align-items: center;
@@ -832,7 +968,7 @@ main.with-pipe {
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .rc {
-  padding: 7px 9px; border: 1px solid rgba(244, 63, 94, .25); border-radius: 8px;
+  padding: 4px 8px; border: 1px solid rgba(244, 63, 94, .25); border-radius: 8px;
   background: rgba(244, 63, 94, .06);
   animation: rise .5s ease both; animation-delay: calc(var(--j, 0) * 60ms);
 }
@@ -959,6 +1095,10 @@ main.with-pipe {
     grid-template-columns: 1fr 1fr; grid-template-rows: none; grid-template-areas:
       "kpis kpis" "pipe pipe" "radar radar" "trend rose" "types vendors" "bottom bottom";
   }
+  /* 两列回退时改为按内容撑高（.screen 滚动），否则 flex:1+min-height:0
+     会把 auto 行压到内容以下，雷达卡片塌成一条、内容溢出盖到邻卡 */
+  main.with-pipe { flex: none; }
+  main.with-pipe .card { min-height: 220px; }
   .bottom-row { min-height: 260px; }
   .radar-wrap { min-height: 400px; }
 }
@@ -981,5 +1121,20 @@ main.with-pipe {
 @media (prefers-reduced-motion: reduce) {
   .ticker-inner, .pl-link::after, .rc-dot, .ticker-label .dot, .chip .dot, .live::before { animation: none !important; }
   .card, .rq, .rc, .fl { animation-duration: .01ms !important; }
+}
+
+.fd-body { display: flex; flex-direction: column; gap: 12px; }
+.fd-sev { align-self: flex-start; padding: 2px 12px; border-radius: 999px; font-weight: 700; font-size: 13px; }
+.fd-sev[data-sev='crit'] { color: #F43F5E; background: rgba(244, 63, 94, .12); }
+.fd-sev[data-sev='high'] { color: #FB923C; background: rgba(251, 146, 60, .12); }
+.fd-sev[data-sev='med'] { color: #FACC15; background: rgba(250, 204, 21, .12); }
+.fd-sev[data-sev='low'] { color: #34D399; background: rgba(52, 211, 153, .12); }
+.fd-title { margin: 0; font-size: 16px; line-height: 1.5; }
+.fd-grid { display: grid; grid-template-columns: auto 1fr; gap: 8px 14px; font-size: 13px; }
+.fd-grid span { color: #8A94AD; }
+.fd-grid b.ok { color: #34D399; }
+.fd-hint { font-size: 12px; color: #8A94AD; line-height: 1.7; margin: 0; }
+@media (prefers-reduced-motion: reduce) {
+  .pl-link.flow::before, .pl-link.to-active, .pl-node.active { animation: none; }
 }
 </style>

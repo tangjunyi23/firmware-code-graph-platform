@@ -27,19 +27,39 @@ export function escapeHtml (s) {
   return String(s || '').replace(/[&<>"']/g, (c) => ESC[c])
 }
 
-const TOKEN = /CWE-\d+|CVE-\d{4}-\d+|CNVD-\d{4}-\d+|CNNVD-\d{8}-\d+|0x[0-9a-fA-F]+|\b\d+(?:\.\d+)?%?|-&gt;|=&gt;|→|←|::|[@#%^*~$|]/g
-
-export function highlightPlain (escaped) {
-  return String(escaped || '').replace(TOKEN, (m) => {
-    if (/^CWE-|^CVE-|^CNVD-|^CNNVD-/.test(m)) return `<span class="hl-cwe">${m}</span>`
-    if (/^0x/i.test(m)) return `<span class="hl-hex">${m}</span>`
-    if (/^\d/.test(m)) return `<span class="hl-num">${m}</span>`
-    return `<span class="hl-sym">${m}</span>`
-  })
-}
+// 在原文上分词（不是在转义后的文本上！否则 &#39; 里的 # 和 39 会被当成
+// token 拆碎，实体失效后用户直接看到 "&#39;" 字样），逐段转义再拼回。
+const TOKEN = /CWE-\d+|CVE-\d{4}-\d+|CNVD-\d{4}-\d+|CNNVD-\d{8}-\d+|0x[0-9a-fA-F]+|\b\d+(?:\.\d+)?%?|->|=>|→|←|::|[@#%^*~$|]/g
 
 export function highlightText (raw) {
-  return highlightPlain(escapeHtml(raw))
+  const s = String(raw || '')
+  let out = ''
+  let last = 0
+  let m
+  TOKEN.lastIndex = 0
+  while ((m = TOKEN.exec(s)) !== null) {
+    out += escapeHtml(s.slice(last, m.index))
+    const tok = m[0]
+    const cls = /^(CWE|CVE|CNVD|CNNVD)-/.test(tok) ? 'hl-cwe'
+      : /^0x/i.test(tok) ? 'hl-hex'
+      : /^\d/.test(tok) ? 'hl-num' : 'hl-sym'
+    out += `<span class="${cls}">${escapeHtml(tok)}</span>`
+    last = m.index + tok.length
+    if (m.index === TOKEN.lastIndex) TOKEN.lastIndex += 1
+  }
+  out += escapeHtml(s.slice(last))
+  return out
+}
+
+/** 兼容旧签名（输入是已转义文本）：还原成原文后走同一 tokenizer。 */
+export function highlightPlain (escaped) {
+  const un = String(escaped || '')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, '&')
+  return highlightText(un)
 }
 
 const SEV = [

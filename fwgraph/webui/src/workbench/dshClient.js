@@ -32,10 +32,32 @@ const TOOL_VARIANT = [
   [/^fw_request_(trace|fuzz|frida)/, 'bash'],
   [/^fw_(get_fuzz_run|get_traces?)/, 'read'],
   [/^record_finding$/, 'write'],
+  // 固件模拟（fw_emul_*）：执行类/读取类/修改类，折叠行标题用 EMUL_TOOL_TITLE
+  [/^fw_emul_(build|boot|reset|stop|probe|send)/, 'bash'],
+  [/^fw_emul_(binaries|console|read|env)/, 'read'],
+  [/^fw_emul_(patch|publish|request)/, 'write'],
 ]
 const TOOL_TITLE = {
   search: '检索', read: '读取', bash: '执行', write: '写入',
   edit: '编辑', code: '代码', others: '工具',
+  // dsh 技能加载（tool-skill 的 "skill" 调用）：像工具调用一样可见
+  skill: '加载技能',
+}
+// 模拟工具逐个给语义化中文名——观察台折叠行全叫「工具」等于没有信息
+const EMUL_TOOL_TITLE = {
+  fw_emul_binaries: '列二进制',
+  fw_emul_build: '建环境',
+  fw_emul_boot: '启动服务',
+  fw_emul_console: '看控制台',
+  fw_emul_probe: '探活',
+  fw_emul_patch: '改文件',
+  fw_emul_read: '读文件',
+  fw_emul_reset: '重置环境',
+  fw_emul_stop: '停环境',
+  fw_emul_publish: '发布就绪',
+  fw_emul_request: '发起模拟',
+  fw_emul_env: '查环境',
+  fw_emul_send: '发报文',
 }
 
 export function toolVariant(name) {
@@ -43,11 +65,59 @@ export function toolVariant(name) {
   return 'others'
 }
 export function toolTitle(name) {
-  return TOOL_TITLE[toolVariant(name)]
+  return EMUL_TOOL_TITLE[name] || TOOL_TITLE[toolVariant(name)]
+}
+
+/**
+ * 折叠行摘要：优先展示对人有意义的参数（路径/服务/端口/目标），
+ * 结果可解析时补一个状态箭头（探活通过/发布就绪等）。
+ */
+export function summarizeTool (node) {
+  if (node.status === 'error') {
+    return String(node.error?.message || node.resultText || '失败').split('\n')[0]
+  }
+  let base = ''
+  try {
+    const obj = JSON.parse(node.argumentsText || '')
+    if (obj && typeof obj === 'object') {
+      const key = obj.path ?? obj.binary_path ?? obj.service ?? obj.binary_md5
+        ?? obj.title ?? obj.name ?? obj.goal ?? obj.env_id ?? obj.addr
+      if (key != null && key !== '') base = String(key)
+      else if (obj.port != null) base = `端口 ${obj.port}`
+      else if (Array.isArray(obj.argv) && obj.argv.length) base = obj.argv.join(' ')
+      else if (Array.isArray(obj.endpoints)) base = `${obj.endpoints.length} 个端点`
+    }
+  } catch { /* 参数不是 JSON，退回原文 */ }
+  if (!base) {
+    base = String(node.argumentsText || '').replace(/\s+/g, ' ').trim().slice(0, 80)
+  }
+  base = String(base).slice(0, 80) || node.name || ''
+  try {
+    const r = JSON.parse(node.resultText || '')
+    if (r && typeof r === 'object') {
+      if (typeof r.ok === 'boolean') return `${base} → ${r.ok ? '通过' : '不通'}`
+      if (r.published != null) return `${base} → ${r.published ? '已就绪' : '未通过'}`
+      if (r.status === 'ok' || r.status === 'degraded' || r.status === 'stopped') {
+        return `${base} → ${{ ok: '正常', degraded: '待修复', stopped: '已停止' }[r.status]}`
+      }
+    }
+  } catch { /* 结果不是 JSON */ }
+  return base
 }
 
 let nodeSeq = 0
 const nid = (p) => `${p}-${++nodeSeq}`
+
+// dsh 运行时自动注入的上下文消息（Current runtime context / DSH file
+// policy / snapshot 说明等）——引擎内部机制，不是人机对话内容
+function isEngineInjectedContext (text) {
+  const t = String(text || '')
+  return t.startsWith('Current runtime context') ||
+    t.startsWith('This snapshot supersedes') ||
+    /^Current DSH file policy/i.test(t) ||
+    t.includes('runtime-context snapshots')
+}
+
 
 function textFromContent(content) {
   if (typeof content === 'string') return content
@@ -105,7 +175,8 @@ export function isInjectedHuntHint (text) {
   return false
 }
 
-export function createDshSession() {
+export function createDshSession(base = '/vulnagent') {
+  // base：会话 API 前缀（/vulnagent 挖掘；/emulagent 固件模拟）
   const state = reactive({
     sid: null,
     status: 'idle', // idle | connecting | live | closed | error
@@ -118,6 +189,8 @@ export function createDshSession() {
       && localStorage.getItem('fwgraph_wb_approval') === 'auto')
       ? 'auto' : 'ask',
     projections: {},
+    usageTotals: { calls: 0, input: 0, output: 0, cacheRead: 0,
+                   cacheWrite: 0, contextTokens: 0 },
     jobs: [],
     lastError: null,
     hasMoreHistory: false,
@@ -178,8 +251,9 @@ export function createDshSession() {
       || (typeof document !== 'undefined' && document.hidden)
   }
 
-  // 节点 markRaw：改 text 不进 Vue。到达的增量下一帧全部画出，
-  // 回合结束/历史回填/页签隐藏立刻刷完，不再按字节流。
+  // 节点 markRaw：改 text 不进 Vue。到达的增量按「逐字流水」放出：
+  // 每帧放出一小段字符（肉眼可见的打字节奏），积压越多每帧放得越多
+  // （追赶，不永久落后）；回合结束/历史回填/页签隐藏立刻刷完。
   function schedulePump () {
     if (_pump) return
     _pump = requestAnimationFrame(pump)
@@ -189,10 +263,21 @@ export function createDshSession() {
     _pump = 0
     const catchUp = typeCaughtUp()
     let ended = false
+    let more = false
     for (const job of _typeJobs.values()) {
       if (job.rest) {
-        job.node.text += job.rest
-        job.rest = ''
+        if (catchUp) {
+          job.node.text += job.rest
+          job.rest = ''
+        } else {
+          const n = job.rest.length
+          const take = n > 800 ? Math.ceil(n * 0.3)
+            : n > 240 ? Math.ceil(n * 0.12)
+            : Math.max(2, Math.ceil(n * 0.08))
+          job.node.text += job.rest.slice(0, take)
+          job.rest = job.rest.slice(take)
+          more = true
+        }
         paintJob(job)
       }
       if (catchUp || job.end) {
@@ -204,6 +289,7 @@ export function createDshSession() {
       }
     }
     if (ended) bump()
+    if (more) schedulePump()
   }
 
   function feedText (node, piece, live) {
@@ -266,6 +352,13 @@ export function createDshSession() {
       if (seq > _maxSeq) _maxSeq = seq
     }
     const data = event.data || {}
+    // 事件时刻：离线回放带原始 ts（后端从 events.sse 透传）；实时流没有
+    // ts 就用接收时刻；都没有（宿主 history 回放）留空，前端不显示时间
+    const ts = Number(data.ts) && Number(data.ts) > 0
+      ? Number(data.ts)
+      : (typeof data.ts === 'string' && Date.parse(data.ts))
+        || (typeof event.ts === 'string' && Date.parse(event.ts))
+        || (state.loadingHistory ? null : Date.now())
 
     switch (event.type) {
       case 'user/message': {
@@ -273,16 +366,73 @@ export function createDshSession() {
         if (src && src.kind && src.kind !== 'user') break
         const text = textFromContent(data.content ?? data.text ?? '')
         if (!text) break
+        // 乐观消息确认：命中未确认的本地 user 节点则复用，不再新建
+        const localPending = state.nodes.find((n) =>
+          n.kind === 'user' && n.local && !n.localConfirmed && n.text === text)
+        if (localPending) {
+          localPending.local = false
+          localPending.localConfirmed = true
+          localPending.seq = seq
+          bump()
+          break
+        }
         if (isInjectedHuntHint(text)) break
-        _push(null, { id: nid('u'), kind: 'user', text, seq })
+        // 引擎自动注入的系统上下文（文件策略/运行时快照）不是用户输入，
+        // 不进执行流——系统提示词绝不展示给用户
+        if (isEngineInjectedContext(text)) break
+        const node = { id: nid('u'), kind: 'user', text, seq, ts }
+        if (!state.nodes.some((n) => n.kind === 'user')) {
+          // 会话开场消息：宿主 history 不含 user 事件（任务在 inbox 里），
+          // mux 订阅后才补发——无论到达先后都固定排在最前
+          state.nodes.unshift(markRaw(node))
+          bump()
+          break
+        }
+        _push(null, node)
         break
       }
       case 'assistant/chunk': {
-        foldChunk(data)
+        foldChunk(data, ts)
         break
       }
       case 'assistant/message': {
-        // 完整一步的落盘副本；流式块已经折叠过则跳过，避免重复气泡
+        // token 实时统计：每步 LLM 调用的 usage 快照在此累计（事件带
+        // seq，_seenSeq 去重保证 mux 重连/回放不重复累加——2026-09-23）
+        if (data.usage) {
+          const u = data.usage
+          state.usageTotals.calls += 1
+          state.usageTotals.input += Number(u.inputTokens) || 0
+          state.usageTotals.output += Number(u.outputTokens) || 0
+          state.usageTotals.cacheRead += Number(u.cacheReadTokens) || 0
+          state.usageTotals.cacheWrite += Number(u.cacheWriteTokens) || 0
+          state.usageTotals.contextTokens = Math.max(
+            state.usageTotals.contextTokens,
+            (Number(u.cacheReadTokens) || 0) + (Number(u.inputTokens) || 0))
+          bump()
+        }
+        // 完整一步的落盘副本：live 时流式块已折叠过，跳过避免重复气泡；
+        // 回放（历史回填）没有流式块，从 content blocks 补建 text/reasoning
+        // 节点——否则执行流只剩工具调用，看不到 AI 的思考与结论。
+        const turn = data.turn ?? 0
+        const step = data.step ?? 0
+        const hasStreamed = state.nodes.some((n) =>
+          (n.kind === 'text' || n.kind === 'reasoning')
+          && n.turn === turn && n.step === step)
+        if (hasStreamed) break
+        const blocks = (data.message || {}).content || []
+        blocks.forEach((b, i) => {
+          // 用与 foldChunk 相同的 blkKey 注册：随后 live 流重放同一块时
+          // _push 命中本节点并重置重流（而不是并存两份——2026-09-23
+          // 用户实测首轮输出双份的根因）
+          const key = `blk-${turn}-${step}-${i}`
+          if (b.type === 'reasoning' && b.text) {
+            _push(`think-${turn}`, { id: nid('r'), kind: 'reasoning', turn, step,
+                         block: i, text: b.text, streaming: false, seq, ts })
+          } else if (b.type === 'text' && b.text) {
+            _push(key, { id: nid('a'), kind: 'text', turn, step,
+                         block: i, text: b.text, streaming: false, seq, ts })
+          }
+        })
         break
       }
       case 'tool/call': {
@@ -297,12 +447,13 @@ export function createDshSession() {
         }
         if (node) {
           Object.assign(node, patch)
+          if (!node.ts) node.ts = ts
           if (node.status !== 'ok' && node.status !== 'error' && node.status !== 'stopped') {
             node.status = 'running'
           }
           bump()
         } else if (key) {
-          _push(key, { id: nid('t'), kind: 'tool', status: 'running', ...patch })
+          _push(key, { id: nid('t'), kind: 'tool', status: 'running', ts, ...patch })
         }
         break
       }
@@ -326,6 +477,7 @@ export function createDshSession() {
         }
         if (node) {
           Object.assign(node, { status, resultText: text, error: data.error, meta: data.meta, streaming: false })
+          if (ts) node.finishedTs = ts
           if (view) node.view = view
           if (callId) _byKey.set(`tool-${callId}`, node)
           bump()
@@ -333,7 +485,7 @@ export function createDshSession() {
           _push(key, {
             id: nid('t'), kind: 'tool', callId, name: data.name || '',
             argumentsText: '', status, resultText: text, streaming: false,
-            error: data.error, meta: data.meta, view,
+            error: data.error, meta: data.meta, view, finishedTs: ts,
           })
         }
         break
@@ -358,6 +510,7 @@ export function createDshSession() {
         for (const node of state.nodes) {
           if (node.kind === 'tool' && node.status === 'running') {
             node.status = reason === 'interrupted' ? 'stopped' : 'ok'
+            if (!node.finishedTs) node.finishedTs = ts
           }
           if (node.streaming) {
             if (node.kind === 'text' || node.kind === 'reasoning') {
@@ -368,7 +521,16 @@ export function createDshSession() {
             }
           }
         }
-        _push(null, { id: nid('te'), kind: 'turn-end', reason, seq })
+        _push(null, { id: nid('te'), kind: 'turn-end', reason, seq, ts,
+                      turn: Number(data.turn) || null,
+                      error: String(
+                        data?.reason?.error?.message
+                        || data?.reason?.message || '') || null })
+        // turn 结束即拉一次会话摘要：autopilot 收尾/转等待（模拟询问）
+        // 发生在服务端，前端只有拉 summary 才能看到 huntStatus/await_note
+        // 变化——否则终局卡片（EmulationOfferCard/SessionEndCard）永远
+        // 不出现（2026-09-23 用户实测：3 findings 会话停在"思考中"视图）
+        scheduleSummaryRefresh()
         break
       }
       case 'todo/write':
@@ -381,7 +543,7 @@ export function createDshSession() {
     }
   }
 
-  function foldChunk(data) {
+  function foldChunk(data, ts = null) {
     const chunk = chunkOf(data)
     const idx = chunk.index ?? 0
     const turn = data.turn ?? 0
@@ -393,14 +555,19 @@ export function createDshSession() {
           : chunk.blockType === 'tool-call' ? 'tool' : 'text'
         if (chunk.blockType === 'tool-call') break
         const key = kind === 'reasoning' ? `think-${turn}` : blkKey
+        const prior = _byKey.get(key)
+        if (prior && prior.text && !prior.streaming) {
+          // 回放补建过的块被 live 重流：清空重放，避免追加成双份
+          prior.text = ''
+        }
         _push(key, {
-          id: nid('b'), kind, block: idx, turn, step, text: '', streaming: true,
+          id: nid('b'), kind, block: idx, turn, step, text: '', streaming: true, ts,
         })
         break
       }
       case 'text-delta': {
         const node = _push(blkKey, {
-          id: nid('b'), kind: 'text', block: idx, turn, step, text: '', streaming: true,
+          id: nid('b'), kind: 'text', block: idx, turn, step, text: '', streaming: true, ts,
         })
         feedText(node, chunk.text || '', !state.loadingHistory)
         node.streaming = true
@@ -408,7 +575,7 @@ export function createDshSession() {
       }
       case 'reasoning-delta': {
         const node = _push(`think-${turn}`, {
-          id: nid('b'), kind: 'reasoning', block: idx, turn, step, text: '', streaming: true,
+          id: nid('b'), kind: 'reasoning', block: idx, turn, step, text: '', streaming: true, ts,
         })
         feedText(node, chunk.text || '', !state.loadingHistory)
         node.streaming = true
@@ -423,7 +590,7 @@ export function createDshSession() {
           callId: chunk.id || node?.callId || '',
           status: node?.status || 'running',
         }
-        const target = node || _push(key, { id: nid('t'), argumentsText: '', ...patch })
+        const target = node || _push(key, { id: nid('t'), argumentsText: '', ts, ...patch })
         if (chunk.id && _byKey.has(blkKey) && _byKey.get(blkKey) === target) {
           _byKey.delete(blkKey)
           _byKey.set(`tool-${chunk.id}`, target)
@@ -531,11 +698,11 @@ export function createDshSession() {
   }
 
   async function openMux() {
-    closeMux()
+    startSummaryPolling()
     state.status = 'connecting'
     _abort = new AbortController()
     try {
-      await streamSse(`/vulnagent/sessions/${state.sid}/mux`, {
+      await streamSse(`${base}/sessions/${state.sid}/mux`, {
         signal: _abort.signal,
         onFrame: (frame) => {
           if (state.status === 'connecting') state.status = 'live'
@@ -566,7 +733,7 @@ export function createDshSession() {
   // ---------------- 上行 RPC ----------------
 
   async function rpc(method, payload = {}) {
-    return api(`/vulnagent/sessions/${state.sid}/rpc/${method}`, {
+    return api(`${base}/sessions/${state.sid}/rpc/${method}`, {
       method: 'POST', body: payload,
     })
   }
@@ -595,11 +762,68 @@ export function createDshSession() {
     return entries.length
   }
 
+  let _summaryTimer = 0
+  function scheduleSummaryRefresh (delayMs = 3000) {
+    // turn 结束后 3s 再拉（给 autopilot 的 120s 空闲收尾留不了等——
+    // awaiting 转换发生在 turn end 后任意时刻，这里只能覆盖立即转换
+    // （max_turns 暂停/终局询问由 autopilot 转换，多数在数十秒内）。
+    clearTimeout(_summaryTimer)
+    _summaryTimer = setTimeout(async () => {
+      _summaryTimer = 0
+      if (!state.sid) return
+      try {
+        const s = await api(`${base}/sessions/${state.sid}`)
+        if (state.sid && s) applyHuntSummary(s)
+      } catch { /* offline tolerated */ }
+    }, delayMs)
+  }
+
+  let _summaryPoll = 0
+  function startSummaryPolling () {
+    if (_summaryPoll) return
+    _summaryPoll = setInterval(() => {
+      if (state.sid && state.huntStatus === 'running'
+          && state.status !== 'connecting') {
+        scheduleSummaryRefresh(0)
+      }
+    }, 30000)
+  }
+  function stopSummaryPolling () {
+    clearInterval(_summaryPoll)
+    _summaryPoll = 0
+    clearTimeout(_summaryTimer)
+    _summaryTimer = 0
+  }
   function applyHuntSummary (summary) {
     if (!summary) return
     if (summary.turns != null) state.turns = summary.turns
     if (summary.max_turns != null) state.maxTurns = summary.max_turns
     if (summary.status) state.huntStatus = summary.status
+    // 模拟询问等待（autopilot 写入的 await_note）与发现明细（id→对象
+    // 懒加载，EmulationOfferCard / SessionEndCard 消费）
+    state.awaitNote = String(summary.await_note || '')
+    if (Array.isArray(summary.findings)) state.findingIds = summary.findings
+    if (state.huntStatus === 'done' && summary.findings?.length
+        && !state.findingsLoaded) {
+      state.findingsLoaded = true
+      api('/vulnagent/findings')
+        .then((list) => {
+          const rows = Array.isArray(list) ? list : (list?.items || [])
+          state.findings = rows.filter((f) =>
+            !f.session_id || f.session_id === state.sid)
+          bump()
+        })
+        .catch(() => {})
+    }
+  }
+
+  function pushLocalUser (text) {
+    // 乐观用户消息：发送即上屏，真实 user/message 事件到达后确认复用
+    if (!text) return
+    if (state.nodes.some((n) => n.kind === 'user' && n.text === text && !n.localConfirmed)) return
+    const node = markRaw({ id: nid('u'), kind: 'user', text, seq: 0, ts: Date.now(), local: true })
+    state.nodes.push(node)
+    bump()
   }
 
   async function prompt(text, mode = 'queue') {
@@ -629,7 +853,7 @@ export function createDshSession() {
   }
 
   async function resumeHunt (text) {
-    const rec = await api(`/vulnagent/sessions/${state.sid}/resume`, {
+    const rec = await api(`${base}/sessions/${state.sid}/resume`, {
       method: 'POST',
       body: { message: text },
     })
@@ -642,7 +866,7 @@ export function createDshSession() {
   }
 
   async function continueHunt (extraTurns = 80, message) {
-    const rec = await api(`/vulnagent/sessions/${state.sid}/continue`, {
+    const rec = await api(`${base}/sessions/${state.sid}/continue`, {
       method: 'POST',
       body: { extra_turns: extraTurns, ...(message ? { message } : {}) },
     })
@@ -674,7 +898,7 @@ export function createDshSession() {
   }
 
   async function respond(rpcId, result) {
-    return api(`/vulnagent/sessions/${state.sid}/respond`, {
+    return api(`${base}/sessions/${state.sid}/respond`, {
       method: 'POST',
       body: { type: 'client-response', rpcId, result },
     })
@@ -719,7 +943,13 @@ export function createDshSession() {
     state.approvals = []
     state.questions = []
     state.projections = {}
+    state.usageTotals = { calls: 0, input: 0, output: 0, cacheRead: 0,
+                          cacheWrite: 0, contextTokens: 0 }
     state.lastError = null
+    state.awaitNote = ''
+    state.findingIds = []
+    state.findings = []
+    state.findingsLoaded = false
     _byKey.clear()
     _maxSeq = 0
     _seenSeq.clear()
@@ -732,7 +962,7 @@ export function createDshSession() {
     let lastErr = null
     let summary = null
     try {
-      summary = await api(`/vulnagent/sessions/${sid}`)
+      summary = await api(`${base}/sessions/${sid}`)
       applyHuntSummary(summary)
       if (summary?.status === 'error') {
         lastErr = new Error(summary.error || '会话启动失败')
@@ -782,6 +1012,7 @@ export function createDshSession() {
   }
 
   function detach() {
+    stopSummaryPolling()
     closeMux()
     for (const node of state.nodes) flushType(node)
     _typeJobs.clear()
@@ -799,5 +1030,6 @@ export function createDshSession() {
     state, busy,
     attach, detach, rpc, prompt, resumeHunt, continueHunt, steerAll, cancel, fork, updateQueue,
     respond, approve, setApprovalPolicy, backfill, openMux, closeMux, foldEvent, bindStreamEl,
+    pushLocalUser,
   }
 }

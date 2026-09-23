@@ -396,41 +396,45 @@ class TestSpaHosting:
         events = (webui_src / "views" / "EventsView.vue").read_text(
             encoding="utf-8")
         assert "WorkbenchView" in jobs
-        assert "cyber" in jobs
         wb_src = (webui_src / "workbench" / "WorkbenchView.vue").read_text(
             encoding="utf-8")
-        assert "wb-root cyber" in wb_src
+        # 主题类名契约：wb-root + data-wb-theme（旧 cyber class 已迁移）
+        assert "wb-root" in wb_src
+        assert "data-wb-theme" in wb_src
         tour = (webui_src / "components" / "OnboardingTour.vue").read_text(
             encoding="utf-8")
         assert "fwgraph_onboard_v2" in tour
         assert "固件解密" in tour
-        assert "协议逆向" in tour
+        # 2026-09 教程改版：九步看板/上传/回工作台选任务；协议逆向、
+        # 许愿模式步骤已随导航精简移除
         assert "九步看板" in tour
-        assert "许愿模式" in tour
-        assert "协议挖掘" not in tour
+        assert "入口风险评估" in tour
+        assert "协议逆向" not in tour
+        assert "许愿模式" not in tour
         assert "ops-home" in app
         assert "ParticleField" in app
-        assert "SplashOverlay" in app
-        assert 'class="dark"' in (webui_src.parent / "index.html").read_text(
+        # SplashOverlay 已随 2026-09 壳层精简移除（粒子背景直达主壳）
+        assert 'lang="zh-CN"' in (webui_src.parent / "index.html").read_text(
             encoding="utf-8")
         theme = (webui_src / "theme.css").read_text(encoding="utf-8")
         assert "--fw-bg:" in theme
         assert "--fw-brand:" in theme
-        assert "html.dark" in theme
+        # 主题切换契约：html[data-fw-theme] 属性选择器（class="dark" 已废弃）
+        assert "data-fw-theme" in theme
+        assert "data-fw-theme" in app
         dash = (webui_src / "views" / "DashboardView.vue").read_text(
             encoding="utf-8")
-        assert "DonutChart" in dash
+        # 2026-09 仪表盘精简：图表收敛为 RadarScreen + CountUp
+        assert "RadarScreen" in dash
         assert "CountUp" in dash
-        assert "LineChart" in dash
-        assert "BarChart" in dash
         assert "findings_by_severity" in dash
+        assert "findings_by_class" in dash
         assert "危害等级" in dash
         assert "威胁雷达" in dash
-        assert "hit_rate" in dash
         assert "厂商漏洞排行" in dash
         assert "实时扫描日志" in dash
         assert "ProtocolView" in app
-        assert "{ index: 'protocol', title: '协议逆向'" in app
+        assert "{ index: 'protocol', title: '入口风险评估'" in app
         assert "page === 'protocol'" in app
         assert "{ index: 'protofuzz', title: '协议挖掘'" not in app
         assert "DecryptView" in app
@@ -443,17 +447,15 @@ class TestSpaHosting:
         assert "正在解密" in dec or "解密进行中" in dec
         proto = (webui_src / "views" / "ProtocolView.vue").read_text(
             encoding="utf-8")
-        assert "协议标识" in proto
-        assert "加密算法识别" in proto
-        assert "加密算法深度分析" in proto
-        assert "算法逆向" in proto
-        assert "流量实时解码" in proto
+        # 2026-09 改版：页面重定位为「入口风险评估」，能力卡收敛为
+        # 攻击面评估 / 入口风险排序
+        assert "入口风险评估" in proto
         assert "攻击面评估" in proto
-        assert "/protocol/decode" in proto
+        assert "入口风险排序" in proto
         assert "/protocol-reverse" in proto
         assert "PrepareView" in app
         assert "WishView" in app
-        assert "许愿模式" in app
+        assert "快速挖掘" in app
         assert "专家模式" in app
         assert "mode-switch" in app
         wish = (webui_src / "views" / "WishView.vue").read_text(encoding="utf-8")
@@ -534,7 +536,8 @@ class TestSpaHosting:
         assert "liveThink" in ml
         assert "bindStreamEl" in ml
         assert "content-visibility: auto" not in ml
-        assert "WINDOW" in ml
+        # 历史窗口分批放行（BATCH×reveal），不再一次全量渲染
+        assert "revealMore" in ml
         assert "显示更早" in ml
         hl = (webui_src / "highlight.js").read_text(encoding="utf-8")
         assert "highlightText" in hl

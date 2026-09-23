@@ -28,7 +28,7 @@ _CVE_RE = re.compile(r"^CVE-\d{4}-\d{4,}$", re.I)
 _CNVD_RE = re.compile(r"^CNVD-\d{4}-\d{4,}$", re.I)
 _CNNVD_RE = re.compile(r"^CNNVD-\d{8}-\d{1,}$", re.I)
 _CWE_RE = re.compile(r"^CWE-\d+$", re.I)
-_SOURCES = ("cve", "cnvd", "cnnvd", "manual")
+_SOURCES = ("cve", "cnvd", "cnnvd", "manual", "trivy")
 
 _VENDOR_RULES = (
     (re.compile(r"tp-?link|archer|wr\d|c7v|tl-", re.I), "TP-Link"),
@@ -330,6 +330,103 @@ def save(doc: dict) -> dict:
         kept.append(summary_of(doc))
         _rewrite_index(kept)
     return doc
+
+
+def upsert_sca_findings(job_id: str, firmware: str, result: dict,
+                        owner: str = "") -> dict:
+    """把 Trivy SCA 发现的 CVE 写入漏洞库（统一本库严重度体系）。
+
+    - id 合法的 CVE 才入库；库内已有的非 trivy 条目不覆盖（人工/权威来源优先）
+    - 同为 trivy 的条目更新摘要并合并受影响组件
+    - 返回 {created, updated, skipped} 供扫描结果回显
+    """
+    created = updated = skipped = 0
+    for v in (result or {}).get("vulns") or []:
+        vid = str(v.get("cve") or "").strip().upper()
+        if not _CVE_RE.match(vid):
+            skipped += 1
+            continue
+        pkg = str(v.get("pkg") or "").strip()
+        title = str(v.get("title") or vid)[:160] or vid
+        sev = str(v.get("severity") or "info").strip().lower()
+        if sev not in ("critical", "high", "medium", "low", "info"):
+            sev = "info"
+        note = (f"Trivy SCA 自动发现于固件 {firmware or job_id}"
+                f"（组件 {pkg} {v.get('installed') or ''}，"
+                f"修复版本 {v.get('fixed') or '—'}）")
+        existing = load(vid)
+        if existing and existing.get("source") != "trivy":
+            skipped += 1
+            continue
+        products = list((existing or {}).get("products") or [])
+        if pkg and pkg not in products:
+            products.append(pkg)
+        doc = normalize({
+            "id": vid,
+            "source": "trivy",
+            "title": title,
+            "severity": sev,
+            "summary": note,
+            "products": products,
+        }, owner=owner or None, existing=existing)
+        save(doc)
+        if existing:
+            updated += 1
+        else:
+            created += 1
+    return {"created": created, "updated": updated, "skipped": skipped}
+
+
+def upsert_mithril_findings(job_id: str, firmware: str, cves: list,
+                            owner: str = "") -> dict:
+    """把 mithril CVE 匹配（版本区间 + EPSS/KEV）写入漏洞库。
+
+    与 trivy 入库同款纪律：id 合法才入、非 mithril 条目不覆盖、
+    同源条目更新并合并组件；EPSS/KEV 记入 references 摘要供 N-day
+    排序与人工分诊消费。
+    """
+    created = updated = skipped = 0
+    for c in cves or []:
+        vid = str(c.get("cve") or "").strip().upper()
+        if not _CVE_RE.match(vid):
+            skipped += 1
+            continue
+        comp = str(c.get("component") or "").strip()
+        title = (str(c.get("description") or vid)[:160]) or vid
+        sev = str(c.get("severity") or "info").strip().lower()
+        if sev not in ("critical", "high", "medium", "low", "info"):
+            sev = "info"
+        extras = []
+        if c.get("epss") is not None:
+            extras.append(f"EPSS {c['epss']}")
+        if c.get("kev"):
+            extras.append("CISA KEV")
+        if c.get("confidence"):
+            extras.append(f"匹配 {c['confidence']}")
+        note = (f"mithril 版本匹配于固件 {firmware or job_id}"
+                f"（组件 {comp} {c.get('version') or ''}"
+                + (f"；{'，'.join(extras)}" if extras else "") + "）")
+        existing = load(vid)
+        if existing and existing.get("source") not in ("mithril", None, ""):
+            skipped += 1
+            continue
+        products = list((existing or {}).get("products") or [])
+        if comp and comp not in products:
+            products.append(comp)
+        doc = normalize({
+            "id": vid,
+            "source": "mithril",
+            "title": title,
+            "severity": sev,
+            "summary": note,
+            "products": products,
+        }, owner=owner or None, existing=existing)
+        save(doc)
+        if existing:
+            updated += 1
+        else:
+            created += 1
+    return {"created": created, "updated": updated, "skipped": skipped}
 
 
 def delete(vid: str) -> bool:

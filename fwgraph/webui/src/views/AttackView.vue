@@ -486,8 +486,8 @@ async function rerunRoutes () {
   color: var(--fw-text-2);
   max-width: 150px;
 }
-.cp-node.cp-src { color: #b45309; }
-.cp-node.cp-sink { color: #dc2626; }
+.cp-node.cp-src { color: var(--fw-brand); }
+.cp-node.cp-sink { color: #d946ef; font-weight: 600; }
 .cp-arrow { color: var(--fw-text-3); font-size: 11px; flex: none; }
 .cp-more {
   flex: none;
@@ -515,15 +515,15 @@ async function rerunRoutes () {
 .step { display: flex; align-items: stretch; }
 .rail { display: flex; flex-direction: column; align-items: center; width: 20px; flex: none; }
 .dot { width: 10px; height: 10px; border-radius: 50%; margin-top: 10px; flex: none; border: 2px solid rgba(28, 43, 58, .8); box-shadow: 0 0 6px color-mix(in srgb, var(--fw-brand) 35%, transparent); }
-.dot-src { background: #b45309; box-shadow: 0 0 8px rgba(180, 83, 9, .55); }
-.dot-sink { background: #dc2626; box-shadow: 0 0 8px rgba(220, 38, 38, .55); }
-.dot-both { background: linear-gradient(135deg, #b45309 50%, #dc2626 50%); box-shadow: 0 0 8px rgba(234, 88, 12, .55); }
+.dot-src { background: var(--fw-brand); box-shadow: 0 0 8px color-mix(in srgb, var(--fw-brand) 55%, transparent); }
+.dot-sink { background: #d946ef; box-shadow: 0 0 8px rgba(217, 70, 239, .55); }
+.dot-both { background: linear-gradient(135deg, var(--fw-brand) 50%, #d946ef 50%); box-shadow: 0 0 8px rgba(217, 70, 239, .55); }
 .dot-mid { background: #8b9cb3; }
 .line { width: 2px; flex: 1 1 auto; background: color-mix(in srgb, var(--fw-brand) 25%, transparent); margin: 2px 0; }
 .node-card { flex: 1 1 auto; min-width: 0; margin: 0 0 10px 10px; padding: 8px 10px; border: 1px solid color-mix(in srgb, var(--fw-brand) 25%, transparent); border-radius: 8px; background: var(--fw-surface); }
-.node-card.source { border-left: 3px solid #b45309; }
-.node-card.sink { border-left: 3px solid #dc2626; }
-.node-card.source.sink { border-left: 3px solid #ea580c; }
+.node-card.source { border-left: 3px solid var(--fw-brand); }
+.node-card.sink { border-left: 3px solid #d946ef; }
+.node-card.source.sink { border-left: 3px solid; border-image: linear-gradient(to bottom, var(--fw-brand), #d946ef) 1; }
 .node-head { display: flex; align-items: center; gap: 8px; }
 .node-name { font-weight: 600; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .node-head .el-button { margin-left: auto; flex: none; }

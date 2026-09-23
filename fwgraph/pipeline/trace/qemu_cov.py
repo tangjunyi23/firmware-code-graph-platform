@@ -556,6 +556,17 @@ def run_coverage(rootfs, qemu_in_rootfs: str, argv_in_rootfs, run_id: str,
     up via `docker rm -f fwgraph-trace-<run_id>`.
     """
     rootfs = Path(rootfs).resolve()
+    # 2026-09-23：部分固件（D-Link DIR 系）rootfs/tmp 是指向不存在目标的
+    # 悬空符号链接——docker 模式把 out_dir bind 到 rootfs/tmp 时目标不存
+    # 在，bind 静默失效，qemu -D /tmp/fwgraph-cov-*.log 打不开覆盖日志
+    # （挖掘 agent 三连失败的根因）。guest 的 /tmp 本就该是可写目录：
+    # 统一替换为真实目录。
+    _tmp_host = Path(rootfs) / "tmp"
+    if _tmp_host.is_symlink() or not _tmp_host.is_dir():
+        if _tmp_host.is_symlink():
+            _tmp_host.unlink()
+        _tmp_host.mkdir(parents=True, exist_ok=True)
+    _tmp_host.chmod(0o777)
     log_in_rootfs = f"/tmp/fwgraph-cov-{run_id}.log"
     log_host = Path(rootfs) / log_in_rootfs.lstrip("/")
     if log_host.exists():

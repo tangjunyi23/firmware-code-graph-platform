@@ -254,6 +254,161 @@ def markdown_to_docx(md_text: str, out_path) -> "Path":
 
 
 # ---------------------------------------------------------------------------
+# markdown -> pdf（无 LibreOffice 时的纯 Python 兜底，reportlab + STSong CID 字体）
+# ---------------------------------------------------------------------------
+
+_PDF_FONTS_READY = False
+
+
+def _ensure_pdf_fonts():
+    global _PDF_FONTS_READY
+    if _PDF_FONTS_READY:
+        return
+    try:
+        from reportlab.pdfbase import pdfmetrics
+        from reportlab.pdfbase.cidfonts import UnicodeCIDFont
+    except ImportError as exc:  # pragma: no cover - 部署缺依赖时给出可操作的提示
+        raise HTTPException(
+            status_code=503,
+            detail="服务器未安装 reportlab,无法导出 PDF;"
+                   "请在 venv 内执行 pip install reportlab") from exc
+    pdfmetrics.registerFont(UnicodeCIDFont("STSong-Light"))
+    _PDF_FONTS_READY = True
+
+
+def _pdf_inline(text: str) -> str:
+    """md 行内标记 -> platypus 迷你标记：链接转明文、**粗体** 去标记、`code` 等宽。"""
+    from xml.sax.saxutils import escape
+
+    text = _LINK_RE.sub(lambda m: f"{m.group(1)} ({m.group(2)})", text)
+    out = []
+    for tok in _TOKEN_RE.split(text):
+        if tok.startswith("**") and tok.endswith("**") and len(tok) > 4:
+            out.append(escape(tok[2:-2]))
+        elif tok.startswith("`") and tok.endswith("`") and len(tok) > 2:
+            out.append("<font face='Courier' size='9'>%s</font>"
+                       % escape(tok[1:-1]))
+        else:
+            out.append(escape(tok))
+    return "".join(out)
+
+
+def markdown_to_pdf(md_text: str, out_path) -> "Path":
+    """report Markdown -> PDF（reportlab）。支持与 DOCX 相同的构造：
+    标题/表格/列表/围栏代码/引用/分隔线/段落。"""
+    _ensure_pdf_fonts()
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import ParagraphStyle
+    from reportlab.platypus import (SimpleDocTemplate, Paragraph, Spacer,
+                                    Table, TableStyle, HRFlowable,
+                                    Preformatted)
+
+    cn = "STSong-Light"
+    body = ParagraphStyle("body", fontName=cn, fontSize=10.5, leading=16.5,
+                          textColor=colors.HexColor("#1F2937"), spaceAfter=6)
+    quote = ParagraphStyle("quote", parent=body, leftIndent=14,
+                           textColor=colors.HexColor("#6B7280"))
+    code = ParagraphStyle("code", fontName=cn, fontSize=8.5, leading=12.5,
+                          backColor=colors.HexColor("#F4F6F8"),
+                          borderColor=colors.HexColor("#E5E7EB"),
+                          borderWidth=0.5, borderPadding=6,
+                          leftIndent=6, rightIndent=6, spaceBefore=4,
+                          spaceAfter=8)
+    hstyles = []
+    for lvl, (size, color) in enumerate([
+            (18, "#0F766E"), (15, "#0F766E"), (13, "#155E75"),
+            (12, "#374151"), (11, "#374151"), (10.5, "#374151")], start=1):
+        hstyles.append(ParagraphStyle(
+            f"h{lvl}", fontName=cn, fontSize=size,
+            leading=size * 1.4, textColor=colors.HexColor(color),
+            spaceBefore=12 if lvl <= 2 else 8, spaceAfter=5))
+
+    story = []
+    lines = md_text.splitlines()
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        if _FENCE_RE.match(line):
+            j = i + 1
+            while j < len(lines) and not _FENCE_RE.match(lines[j]):
+                j += 1
+            if j < len(lines):
+                block = "\n".join(lines[i + 1:j])
+                story.append(Preformatted(block, code))
+                i = j + 1
+                continue
+        if line.lstrip().startswith("|") and i + 1 < len(lines) \
+                and _is_sep_row(lines[i + 1]):
+            rows = [_split_row(line)]
+            i += 2
+            while i < len(lines) and lines[i].lstrip().startswith("|"):
+                rows.append(_split_row(lines[i]))
+                i += 1
+            ncols = max(len(r) for r in rows)
+            data = [[Paragraph(_pdf_inline(c), body) for c in
+                     r + [""] * (ncols - len(r))] for r in rows]
+            table = Table(data, colWidths=[(A4[0] - 80) / ncols] * ncols,
+                          repeatRows=1)
+            table.setStyle(TableStyle([
+                ("GRID", (0, 0), (-1, -1), 0.5,
+                 colors.HexColor("#D1D5DB")),
+                ("BACKGROUND", (0, 0), (-1, 0),
+                 colors.HexColor("#EEF2F7")),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("TOPPADDING", (0, 0), (-1, -1), 4),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+            ]))
+            story.append(table)
+            story.append(Spacer(1, 6))
+            continue
+        if _HR_RE.match(line):
+            story.append(HRFlowable(width="100%", thickness=0.6,
+                                    color=colors.HexColor("#D1D5DB"),
+                                    spaceBefore=8, spaceAfter=8))
+            i += 1
+            continue
+        m = _HEADING_RE.match(line)
+        if m:
+            story.append(Paragraph(_pdf_inline(m.group(2).strip()),
+                                   hstyles[len(m.group(1)) - 1]))
+            i += 1
+            continue
+        m = _QUOTE_RE.match(line)
+        if m:
+            story.append(Paragraph(_pdf_inline(m.group(1).strip()), quote))
+            i += 1
+            continue
+        m = _BULLET_RE.match(line)
+        if m:
+            story.append(Paragraph("• " + _pdf_inline(m.group(1).strip()), body))
+            i += 1
+            continue
+        m = _ORDERED_RE.match(line)
+        if m:
+            expanded = line.expandtabs(2)
+            level = (len(expanded) - len(expanded.lstrip())) // 2
+            st = ParagraphStyle(f"ol{level}", parent=body,
+                                leftIndent=14 * (1 + level))
+            story.append(Paragraph(f"{m.group(1)}. "
+                                   + _pdf_inline(m.group(2).strip()), st))
+            i += 1
+            continue
+        if line.strip():
+            story.append(Paragraph(_pdf_inline(line.strip()), body))
+        i += 1
+
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    doc = SimpleDocTemplate(str(out_path), pagesize=A4,
+                            leftMargin=40, rightMargin=40,
+                            topMargin=44, bottomMargin=44,
+                            title="fwgraph report")
+    doc.build(story)
+    return out_path
+
+
+# ---------------------------------------------------------------------------
 # report id resolution + cached export
 # ---------------------------------------------------------------------------
 
@@ -296,10 +451,10 @@ def export_report(rid: str, fmt: str, data_dir) -> Path:
                 or pdf_path.stat().st_mtime < docx_path.stat().st_mtime):
             soffice = _soffice_bin()
             if not soffice:
-                raise HTTPException(
-                    status_code=503,
-                    detail="服务器未安装 LibreOffice,无法导出 PDF;"
-                           "请联系管理员安装 libreoffice-writer")
+                # 无 LibreOffice（如容器/最小化部署）：纯 Python 渲染兜底
+                markdown_to_pdf(md.read_text(encoding="utf-8",
+                                             errors="replace"), pdf_path)
+                return pdf_path
             try:
                 subprocess.run(
                     [soffice, "--headless", "--convert-to", "pdf",

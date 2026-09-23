@@ -251,6 +251,7 @@ def _session_summary(sdir: Path) -> dict:
     return {
         "session_id": sid,
         "task": state.get("task", ""),
+        "await_note": state.get("await_note") or "",
         "status": _effective_status(sid, state),
         "turns": state.get("turns", 0),
         "findings": _session_finding_ids(sid) or state.get("findings", []),
@@ -593,6 +594,41 @@ def _write_report(sdir: Path, state: dict) -> None:
             if k in counts:
                 lines.append(f"| **{sev_label[k]}** | {counts[k]} |")
         lines.append(f"| 合计 | {len(findings)} |")
+
+        # 统计图表（2026-09-23 用户要求：报告要有各种统计图；纯文本
+        # 条形图嵌 md，docx/pdf 导出原样保留——不依赖前端渲染）
+        def _bar(n, total, width=26):
+            filled = round(width * n / total) if total else 0
+            return "█" * filled + "·" * (width - filled)
+
+        reach_label = {"verified": "已验证", "observed": "观测到",
+                       "static": "静态可达"}
+        reach_counts = {}
+        for f in findings:
+            rk = str(f.get("reachability") or "static").lower()
+            reach_counts[rk] = reach_counts.get(rk, 0) + 1
+        bin_counts = {}
+        for f in findings:
+            bn = str(f.get("binary_path") or f.get("binary_md5") or "?")
+            bn = bn.rsplit("/", 1)[-1][:20]
+            bin_counts[bn] = bin_counts.get(bn, 0) + 1
+        top_bins = sorted(bin_counts.items(), key=lambda kv: -kv[1])[:8]
+        mx = max(counts.values()) or 1
+        lines += ["", "### 危害等级分布", "", "```"]
+        for k in ("critical", "high", "medium", "low", "info"):
+            if k in counts:
+                lines.append(f"  {sev_label[k]:　<3} │{_bar(counts[k], mx)}"
+                             f"  {counts[k]}")
+        lines += ["```", "", "### 可达性分布", "", "```"]
+        rm = max(reach_counts.values()) or 1
+        for rk, rv in reach_counts.items():
+            lines.append(f"  {reach_label.get(rk, rk):　<4} │{_bar(rv, rm)}"
+                         f"  {rv}")
+        lines += ["```", "", "### 高频目标二进制 Top8", "", "```"]
+        bm = top_bins[0][1] if top_bins else 1
+        for bn, bv in top_bins:
+            lines.append(f"  {bn:　<20}│{_bar(bv, bm)}  {bv}")
+        lines += ["```"]
     else:
         lines.append("- 本轮没有入库漏洞。空差分、连通、启动崩溃不是漏洞，未做投机记录。")
     lines += ["", "## 三、动态验证", "",
@@ -728,11 +764,13 @@ def _history_from_sse(sdir: Path, payload: dict | None = None) -> dict:
 
     for typ, data in _parse_sse_file(sdir / "events.sse"):
         seq = data.get("seq")
+        ts = data.get("ts")  # 原始事件时间：前端历史回放据此显示真实时刻
         if typ == "session_start":
             task = str(data.get("task") or "").strip()
             if task:
                 add("user/message",
-                    {"content": task, "source": {"kind": "user"}}, seq)
+                    {"content": task, "source": {"kind": "user"}, "ts": ts},
+                    seq)
         elif typ in ("thinking", "text"):
             if data.get("stream") is True:
                 continue
@@ -742,16 +780,16 @@ def _history_from_sse(sdir: Path, payload: dict | None = None) -> dict:
             kind = "reasoning" if typ == "thinking" else "text"
             turn = int(seq or len(harness) + 1)
             add("assistant/chunk", {
-                "turn": turn, "step": 0,
+                "turn": turn, "step": 0, "ts": ts,
                 "chunk": {"type": "block-start", "index": 0, "blockType": kind},
             }, seq)
             delta = "reasoning-delta" if kind == "reasoning" else "text-delta"
             add("assistant/chunk", {
-                "turn": turn, "step": 0,
+                "turn": turn, "step": 0, "ts": ts,
                 "chunk": {"type": delta, "index": 0, "text": text},
             }, seq)
             add("assistant/chunk", {
-                "turn": turn, "step": 0,
+                "turn": turn, "step": 0, "ts": ts,
                 "chunk": {"type": "block-end", "index": 0},
             }, seq)
         elif typ == "tool_call":
@@ -765,11 +803,13 @@ def _history_from_sse(sdir: Path, payload: dict | None = None) -> dict:
                 "callId": data.get("id"),
                 "name": data.get("name") or "",
                 "arguments": args,
+                "ts": ts,
             }, seq)
         elif typ == "tool_result":
             add("tool/result", {
                 "callId": data.get("id"),
                 "name": data.get("name") or "",
+                "ts": ts,
                 "message": {
                     "toolCallId": data.get("id"),
                     "content": data.get("preview") or "",
@@ -777,7 +817,8 @@ def _history_from_sse(sdir: Path, payload: dict | None = None) -> dict:
                 },
             }, seq)
         elif typ == "session_end":
-            add("turn/end", {"reason": data.get("reason") or "completed"}, seq)
+            add("turn/end", {"reason": data.get("reason") or "completed",
+                             "ts": ts}, seq)
     has_more = False
     if len(harness) > cap:
         head = []
@@ -829,15 +870,27 @@ def _refresh_job_report(job_id: str) -> None:
 # ---------------- dsh web host（工作台多轮会话/queue/steer/审批） ----------------
 
 
+def _dsh_deepseek_base(url: str) -> str:
+    """dsh llm-deepseek（messages 协议）自行拼 /v1/messages。
+
+    LLM_BASE_URL 按老 builtin 引擎约定带尾部 /v1（它拼 {base}/messages），
+    转发给 dsh 前剥掉，避免 /v1/v1/messages 404。
+    """
+    base = (url or "").rstrip("/")
+    return base[:-3] if base.endswith("/v1") else base
+
+
 def _dsh_env(sid: str, sdir: Path, state: dict) -> dict:
     """web host 模式的 env 组装（与 _spawn_dsh 同源，值从 state 取）。"""
     env_file = _vulnagent_env()
+    from orchestrator.app import llm_settings as _llm_settings_mod
+    _llm_route = _llm_settings_mod.resolve_route()
     env = dict(os.environ)
     env.update({
         "PATH": str(Path.home() / ".local/bin") + ":" + env.get("PATH", ""),
         "DSH_HOME": DSH_HOME,
-        "DEEPSEEK_API_KEY": env_file.get("LLM_API_KEY", ""),
-        "DEEPSEEK_BASE_URL": env_file.get("LLM_BASE_URL", ""),
+        "DEEPSEEK_API_KEY": _llm_route["key"],
+        "DEEPSEEK_BASE_URL": _llm_route["base"],
         "FWGRAPH_BASE_URL": env_file.get("FWGRAPH_BASE_URL", ""),
         "FWGRAPH_TOKEN": env_file.get("FWGRAPH_TOKEN", ""),
         "FWGRAPH_JOB_ID": state.get("job_id")
@@ -889,6 +942,223 @@ def _dsh_finalize(sid: str, sdir: Path, state: dict, reason: str) -> None:
                                    "findings": found}) + "\n\n")
     except OSError:
         pass
+    # 顺序衔接（2026-09-23 改为询问制）：AI 已向用户询问过模拟
+    # （emulation_offered）时——用户同意（replied 且未 declined）→
+    # 自动发起；用户拒绝（declined）→ 不发起；AI 没问过（预算耗尽
+    # 等异常收尾）→ 保持自动发起兜底。
+    _offered = bool(fresh.get("emulation_offered"))
+    _declined = bool(fresh.get("emulation_declined"))
+    if (_declined or (_offered and not fresh.get("emulation_replied"))):
+        print(f"[vulnagent_api] 跳过自动模拟衔接（offered={_offered} "
+              f"declined={_declined} session={sid}）", flush=True)
+    elif fresh.get("findings") and fresh.get("job_id"):
+        try:
+            from orchestrator.app import emulagent_api as _ea
+            _fn = _ea._create_request_fn
+            if _fn is None:
+                print("[vulnagent_api] 自动模拟衔接失败: 请求端点未注册",
+                      flush=True)
+                return
+            _req = _fn(
+                {"job_id": fresh["job_id"], "goal": _emulation_goal(fresh),
+                 "from_session": sid, "from_agent": "orchestrator"},
+                {"username": "orchestrator", "role": "admin"})
+            print(f"[vulnagent_api] 挖掘收尾，自动发起固件模拟: "
+                  f"{_req.get('req_id')} (session={sid})", flush=True)
+        except Exception as exc:  # noqa: BLE001 - 衔接失败不拖垮收尾
+            print(f"[vulnagent_api] 自动模拟衔接失败: "
+                  f"{type(exc).__name__}: {exc}", flush=True)
+
+
+def _emulation_goal(state: dict) -> str:
+    """自动衔接的模拟目标：概括已入库发现（标题/目标二进制）。"""
+    titles = []
+    fdir = VULNAGENT_HOME / "findings"
+    for fid in (state.get("findings") or [])[:5]:
+        try:
+            doc = json.loads((fdir / f"{fid}.json").read_text(encoding="utf-8"))
+            titles.append(f"{doc.get('title') or fid}"
+                          f"（{doc.get('binary_path') or doc.get('binary_md5') or '?'}）")
+        except (OSError, ValueError):
+            titles.append(str(fid))
+    total = len(state.get("findings") or [])
+    more = f"（另有 {total - len(titles)} 项见漏洞库）" if total > len(titles) else ""
+    return ("围绕本次挖掘已入库的漏洞发现搭建固件模拟环境，完成关键攻击"
+            "路径的动态验证：\n" + "\n".join(f"{i+1}) {t}"
+            for i, t in enumerate(titles)) + more
+            + "\n目标服务与入口以发现记录为准；探活通过后 publish（编排器复探）。")
+
+
+# ---------------- 挖掘会话自动驾驶（全自动流程） ----------------
+# 一次任务输入后全程无人工干预（2026-09-22 决策）：
+# - 瞬时错误自动恢复：重试队列注入系统恢复消息（上限 AUTOPILOT_MAX_RETRIES），
+#   不可恢复错误（订阅过期/凭据类）保持 error 等待资源处理；
+# - 任务批次完成自动收尾：turn completed 且之后无新轮，空闲超过
+#   AUTOPILOT_IDLE_DONE 秒即 stop 收尾（finalize → 自动发起固件模拟）。
+# 依赖 mux 在线的前置错误捕获（dsh_host._note_turn_error）只是快路径；
+# autopilot 轮询会话历史，页面无人观察时同样生效。
+
+AUTOPILOT_POLL = float(os.getenv("VULNAGENT_AUTOPILOT_POLL", "20"))
+AUTOPILOT_IDLE_DONE = float(os.getenv("VULNAGENT_AUTOPILOT_IDLE_DONE", "120"))
+AUTOPILOT_MAX_RETRIES = int(os.getenv("VULNAGENT_AUTOPILOT_MAX_RETRIES", "3"))
+_TRANSIENT_MARKERS = ("malformed_response", "empty_response", "timeout",
+                      "timed out", "econnreset", "econnrefused", "socket",
+                      "stream ended before", "stream_closed",
+                      "500", "502", "503", "bad gateway", "internal server",
+                      # 2026-09-23：网关瞬断（transport failed 实测 turn
+                      # error 后被误判永久、会话直接死在第 1 轮）。
+                      # 注意不含 auth error——无效 key 重试无意义。
+                      "transport failed", "transport error", "connection",
+                      "network error", "fetch failed", "aborted")
+_autopilot_threads: dict = {}
+_autopilot_lock = threading.Lock()
+
+
+def _error_is_transient(text: str) -> bool:
+    t = str(text or "").lower()
+    return any(m in t for m in _TRANSIENT_MARKERS)
+
+
+def _ensure_autopilot(sid: str) -> None:
+    with _autopilot_lock:
+        th = _autopilot_threads.get(sid)
+        if th is not None and th.is_alive():
+            return
+        th = threading.Thread(target=_autopilot, args=(sid,), daemon=True,
+                              name=f"autopilot-{sid}")
+        _autopilot_threads[sid] = th
+        th.start()
+
+def _journal_tail(sdir) -> list:
+    """直读 dsh 会话 journal（zstd 全量解压，会话级体量小）。
+
+    autopilot 用它做完成/错误检测：零 RPC、零 host 依赖——host 已死或
+    ensure 重拉窗口里也能判定（2026-09-22 实测：RPC 路径在 host 死后会
+    长时间挂起，导致 turn completed 迟迟无人收尾）。
+    """
+    import glob as _glob
+    import subprocess as _sp
+    _root = str(Path.home() / ".dsh" / "sessions")
+    _files = _glob.glob(_root + "/*" + sdir.name
+                        + "*/session-*/session.v3.jsonl.zstd")
+    # 多个 session 目录（历史竞态/隔离产物）时取 mtime 最新的
+    for z in sorted(_files, key=os.path.getmtime, reverse=True):
+        try:
+            out = _sp.run(["zstdcat", z], capture_output=True, text=True,
+                          timeout=30).stdout or ""
+        except Exception:  # noqa: BLE001
+            continue
+        evs = []
+        for ln in out.splitlines():
+            ln = ln.strip()
+            if not ln:
+                continue
+            try:
+                evs.append(json.loads(ln))
+            except ValueError:
+                continue  # 单行坏数据不弃整个文件
+        return evs
+    return []
+
+
+def _autopilot(sid: str) -> None:
+    sdir = VULNAGENT_HOME / "sessions" / sid
+    retries = 0
+    rpc_failures = 0
+    while True:
+        time.sleep(AUTOPILOT_POLL)
+        state = _read_state(sdir)
+        if not state or state.get("status") != "running":
+            return  # 已收尾/出错/等待确认（continue 会重新拉起 autopilot）
+        events = _journal_tail(sdir)
+        turn_end = next((ev for ev in reversed(events)
+                         if ev.get("type") == "turn/end"), None)
+        if turn_end is None:
+            continue  # 首轮进行中或历史为空
+        reason = (turn_end.get("data") or {}).get("reason") or {}
+        err_msg = str((reason.get("error") or {}).get("message") or "")
+        if reason.get("kind") == "error":
+            # 引擎自愈让路：turn error 之后 journal 仍有新活动（llm/retry
+            # 或新 turn）说明引擎在自行恢复，autopilot 不介入（2026-09-22
+            # 实测：STREAM_CLOSED 后引擎 llm/retry 进行中被抢先置 error）。
+            _ets = turn_end.get("time") or 0
+            _recent = [e for e in events
+                       if (e.get("time") or 0) > _ets
+                       and e.get("type") in ("llm/retry", "turn/start",
+                                             "assistant/message")]
+            if _recent and time.time() * 1000 - max(
+                    e.get("time") or 0 for e in _recent) < 120_000:
+                continue
+            if retries >= AUTOPILOT_MAX_RETRIES or not _error_is_transient(err_msg):
+                if state.get("status") == "running":
+                    state["status"] = "error"
+                    state["error"] = f"turn error: {err_msg[:300]}"
+                    _save_state(sdir, state)
+                return
+            retries += 1
+            try:
+                _manager().rpc(sid, sdir, state, "session.prompt", {
+                    "mode": "queue",
+                    "content": [{"type": "text", "text":
+                                 "【编排】上一轮因引擎瞬时错误中断（"
+                                 + err_msg[:120]
+                                 + "）。运行环境已自动恢复，请从中断处继续"
+                                   "当前任务，不要重复已完成的分析。"}]})
+            except Exception:  # noqa: BLE001 - 注入失败下轮再试
+                pass
+            time.sleep(AUTOPILOT_POLL)
+            continue
+        if reason.get("kind") in ("completed", "interrupted"):
+            ts = turn_end.get("time") or 0
+            idle_s = (time.time() * 1000 - ts) / 1000 if ts else 0
+            # 只认真正的新 turn；host 已死时队列消息永远不会被消费
+            has_newer = any(isinstance(ev, dict)
+                            and ev.get("type") == "turn/start"
+                            and (ev.get("time") or 0) > ts for ev in events)
+            host_alive = False
+            try:
+                _pid = int((sdir / "runner.pid").read_text().strip())
+                open(f"/proc/{_pid}/cmdline").read()
+                host_alive = True
+            except (OSError, ValueError):
+                pass
+            # 已询问模拟的会话：turn 结束后 5s 即转等待（用户实测卡片
+            # 迟到数分钟体验差）；普通收尾仍用 120s 空闲阈值。
+            _idle_gate = 5 if (state.get("emulation_offered")
+                               and not state.get("emulation_replied")
+                               ) else AUTOPILOT_IDLE_DONE
+            if idle_s > _idle_gate and (not has_newer
+                                        or not host_alive):
+                if (state.get("emulation_offered")
+                        and not state.get("emulation_replied")):
+                    # 已向用户询问模拟、尚未答复：转 awaiting_continue
+                    # 等待（不收尾；continue 会拉起新 turn 与 autopilot）。
+                    state["status"] = "awaiting_continue"
+                    state["await_note"] = ("挖掘完成，等待用户确认是否"
+                                           "进行固件模拟真实测试")
+                    _save_state(sdir, state)
+                    try:
+                        with open(sdir / "events.sse", "a",
+                                  encoding="utf-8") as fh:
+                            fh.write("event: session_state\ndata: "
+                                     + json.dumps({
+                                         "status": "awaiting_continue",
+                                         "note": state["await_note"],
+                                         "ts": _now()}) + "\n\n")
+                    except OSError:
+                        pass
+                    return
+                try:
+                    if not _manager().stop(sid, sdir, state,
+                                           reason="auto-complete"):
+                        # host 已死且未注册：stop 返回 False 不走 finalize
+                        _dsh_finalize(sid, sdir, state, "auto-complete")
+                except Exception:  # noqa: BLE001
+                    try:
+                        _dsh_finalize(sid, sdir, state, "auto-complete")
+                    except Exception:  # noqa: BLE001
+                        pass
+                return
 
 
 _dsh_manager: _dsh_host.DshHostManager | None = None
@@ -1007,12 +1277,14 @@ def _spawn_dsh(sid: str, sdir: Path, task: str, mode: str = "dynamic",
     the tools plugin stamps findings with FWGRAPH_SESSION_ID, which _watch
     uses to attribute findings to this session."""
     env_file = _vulnagent_env()
+    from orchestrator.app import llm_settings as _llm_settings_mod
+    _llm_route = _llm_settings_mod.resolve_route()
     env = dict(os.environ)
     env.update({
         "PATH": str(Path.home() / ".local/bin") + ":" + env.get("PATH", ""),
         "DSH_HOME": DSH_HOME,
-        "DEEPSEEK_API_KEY": env_file.get("LLM_API_KEY", ""),
-        "DEEPSEEK_BASE_URL": env_file.get("LLM_BASE_URL", ""),
+        "DEEPSEEK_API_KEY": _llm_route["key"],
+        "DEEPSEEK_BASE_URL": _llm_route["base"],
         "FWGRAPH_BASE_URL": env_file.get("FWGRAPH_BASE_URL", ""),
         "FWGRAPH_TOKEN": env_file.get("FWGRAPH_TOKEN", ""),
         "FWGRAPH_JOB_ID": job_id or env_file.get("FWGRAPH_JOB_ID", ""),
@@ -1112,7 +1384,26 @@ def setup(app: FastAPI, require_token) -> None:
         task = str(payload.get("task") or "").strip()
         if not task:
             raise HTTPException(status_code=400, detail="'task' required")
-        if len(task) > 4000:
+        # 交互纪律直接前置进任务首条消息（2026-09-23：dsh skill 机制只把
+        # description 放进清单、内容靠模型按需加载——实测两轮会话模型
+        # 从不加载，语言与汇报规则全部失效输出英文+全程静默。规则必须
+        # 保证进上下文，不赌 skill 触发）。
+        prompt_task = (
+            "【交互纪律（必须遵守）】\n"
+            "1. 对用户只说简体中文——包括所有中间过程消息，"
+            "一条英文都不许出现。\n"
+            "2. 每完成一组工具调用（最多两个），必须先用一两句中文向用户"
+            "交代：刚才做了什么、结果是什么、接下来验证什么。长时间连续"
+            "调用工具而一句话不说是违规。\n"
+            "3. 静态判定的最后一公里用 fw_read_bytes 直读 .data 决定性"
+            "字节；未进代码图的二进制用 fw_decompile_single 单独反编译。\n"
+            "4. 禁止输出『建议的下一步』——所有下一步自己执行完。全部"
+            "闭环后调用一次 fw_offer_emulation，然后**立刻输出最终中文"
+            "总结并停止**——不要再调用任何工具、不要开始新的分析；总结"
+            "末尾只需说明：模拟与否请在界面卡片选择。收尾（模拟询问由"
+            "卡片呈现，不要写在报告正文里）。\n\n"
+        ) + task
+        if len(payload.get("task") or "") > 4000:
             raise HTTPException(status_code=400, detail="task too long (4000)")
         mode = str(payload.get("mode") or "dynamic")
         if mode not in ("static", "dynamic"):
@@ -1198,7 +1489,7 @@ def setup(app: FastAPI, require_token) -> None:
             try:
                 _manager().rpc(sid, sdir, state, "session.prompt", {
                     "mode": "queue",
-                    "content": [{"type": "text", "text": task}],
+                    "content": [{"type": "text", "text": prompt_task}],
                 })
             except Exception as exc:  # noqa: BLE001
                 try:
@@ -1209,11 +1500,24 @@ def setup(app: FastAPI, require_token) -> None:
 
         threading.Thread(target=_boot_and_prompt, daemon=True,
                          name=f"dsh-boot-{sid}").start()
+        _ensure_autopilot(sid)
         accounts.audit(principal["username"], "session_start",
                        f"{sid} engine=dsh-web job={gate_job} mode={mode}")
         _bind_hunt_session(gate_job, sid)
         return {"session_id": sid, "status": "running",
                 "engine": "dsh-web", "max_turns": max_turns}
+
+    # 编排器重启后 running 会话的自动驾驶线程随进程丢失——启动时恢复，
+    # 否则完成/错误无人接管（2026-09-22 实测：重启后 turn completed 停滞
+    # 9 分钟无人收尾）。
+    try:
+        for sd in (VULNAGENT_HOME / "sessions").iterdir():
+            if sd.is_dir():
+                st = _read_state(sd)
+                if st and st.get("status") == "running":
+                    _ensure_autopilot(str(st.get("session_id") or sd.name))
+    except Exception:  # noqa: BLE001 - 恢复失败不阻塞启动
+        pass
 
     @app.get("/vulnagent/sessions")
     def list_sessions(principal: dict = Depends(require_token)):
@@ -1366,6 +1670,57 @@ def setup(app: FastAPI, require_token) -> None:
         return PlainTextResponse(report.read_text(encoding="utf-8",
                                                   errors="replace"))
 
+    @app.get("/vulnagent/sessions/{sid}/export")
+    def session_export(sid: str, principal: dict = Depends(require_token)):
+        """会话完整导出（ZIP）——对齐 dsh 官方 session-log-export 的
+        用户能力：报告 + journal jsonl + state + findings 全打包下载
+        （2026-09-23 用户需求，从 harness 扒到工作台）。"""
+        import io
+        import subprocess as _sp
+        import zipfile as _zf
+        sdir = _session_dir(sid)
+        _require_session_access(sdir, principal)
+        state = _read_state(sdir) or {}
+        buf = io.BytesIO()
+        with _zf.ZipFile(buf, "w", _zf.ZIP_DEFLATED, compresslevel=6) as zf:
+            zf.writestr(f"{sid}/state.json",
+                        json.dumps(state, indent=2, ensure_ascii=False))
+            rp = sdir / "report.md"
+            if rp.is_file():
+                zf.writestr(f"{sid}/report.md",
+                            rp.read_text(encoding="utf-8",
+                                         errors="replace"))
+            for fid in state.get("findings") or []:
+                fp = VULNAGENT_HOME / "findings" / f"{fid}.json"
+                if fp.is_file():
+                    try:
+                        zf.writestr(f"{sid}/findings/{fid}.json",
+                                    fp.read_text(encoding="utf-8"))
+                    except OSError:
+                        pass
+            evs = sdir / "events.sse"
+            if evs.is_file():
+                zf.writestr(f"{sid}/events.sse",
+                            evs.read_text(encoding="utf-8",
+                                          errors="replace"))
+            for zst in sorted((Path.home() / ".dsh" / "sessions").glob(
+                    f"*{sid}*/session-*/session.v3.jsonl.zstd")):
+                try:
+                    out = _sp.run(["zstdcat", str(zst)],
+                                  capture_output=True, text=True,
+                                  timeout=60).stdout
+                    if out:
+                        zf.writestr(f"{sid}/session.jsonl", out)
+                        break
+                except Exception:  # noqa: BLE001
+                    continue
+        buf.seek(0)
+        from fastapi.responses import StreamingResponse
+        return StreamingResponse(
+            buf, media_type="application/zip",
+            headers={"Content-Disposition":
+                     f"attachment; filename={sid}-session-log.zip"})
+
     @app.post("/vulnagent/sessions/{sid}/resume")
     def resume_session(sid: str, payload: dict = Body(default=None),
                        principal: dict = Depends(require_token)):
@@ -1428,9 +1783,30 @@ def setup(app: FastAPI, require_token) -> None:
         state["error"] = ""
         _save_state(sdir, state)
         _manager().undiscard(sid)
-        msg = str((payload or {}).get("message") or (
-            "【编排】用户同意继续。轮次上限已放宽，请继续挖掘。"
-            "不要重复已经入库的漏洞。record_finding 必须 call_chain+poc。"))
+        user_text = str((payload or {}).get("message") or "").strip()
+        if state.get("emulation_offered"):
+            # 模拟询问后的用户答复：登记已答复；用户同意的标志是
+            # findings 仍在且未 decline——收尾时 _dsh_finalize 自动发起。
+            state["emulation_replied"] = True
+            _save_state(sdir, state)
+            low = user_text.lower()
+            neg = any(k in user_text for k in ("不用", "不需要", "不要",
+                                               "先不", "否", "跳过", "算了"))
+            declined = neg or low.startswith(("no", "skip"))
+            if declined:
+                state["emulation_declined"] = True
+                _save_state(sdir, state)
+            msg = ("【编排】用户对固件模拟询问的答复："
+                   + (user_text or "（同意）")
+                   + ("。用户不同意模拟：用中文简要收尾本次任务即可，"
+                      "不要发起模拟。" if declined else
+                      "。用户已答复，请按答复处理：如为同意，输出最终"
+                      "总结后结束本轮（编排会自动发起固件模拟）；如答复"
+                      "内容另有要求，先完成再收尾。"))
+        else:
+            msg = user_text or (
+                "【编排】用户同意继续。轮次上限已放宽，请继续挖掘。"
+                "不要重复已经入库的漏洞。record_finding 必须 call_chain+poc。")
         try:
             state = _charge_turn(sdir, state)
             value = _manager().rpc(sid, sdir, state, "session.prompt", {
@@ -1442,10 +1818,47 @@ def setup(app: FastAPI, require_token) -> None:
                                 detail=f"{exc.code}: {exc}") from exc
         accounts.audit(principal["username"], "session_continue",
                        f"{sid} max_turns={state.get('max_turns')}")
+        _ensure_autopilot(sid)
         return {"session_id": sid, "status": "running",
                 "turns": state.get("turns"),
                 "max_turns": state.get("max_turns"),
                 "accepted": (value or {}).get("accepted", True)}
+
+    @app.post("/vulnagent/sessions/{sid}/emulation-offer")
+    def emulation_offer(sid: str, payload: dict = Body(default=None),
+                        principal: dict = Depends(require_token)):
+        """挖掘 agent 终局询问前的登记（fw_offer_emulation 透传）。
+
+        2026-09-23 决策：固件模拟改为完成后询问用户。AI 把静态+动态
+        验证全部闭环后调用本端点，随后向用户输出中文询问；turn 结束
+        后 autopilot 据此转入 awaiting_continue 等用户答复，而不是
+        自动收尾。用户在 continue 消息里答复即可。"""
+        sdir = _session_dir(sid)
+        _require_session_access(sdir, principal)
+        state = _read_state(sdir)
+        state["emulation_offered"] = True
+        state["emulation_declined"] = False
+        _save_state(sdir, state)
+        return {
+            "session_id": sid, "emulation_offered": True,
+            "instruction": "现在用中文向用户完整汇报本次挖掘结论"
+            "（发现清单、PoC、验证结果）。汇报里不要写模拟询问句——"
+            "选择卡片会自动出现在界面上；只在结尾加一句『是否进行"
+            "固件模拟真实测试，请在下方卡片选择』。然后结束本轮输出。"
+            "不要自行调用 fw_emul_request——用户在卡片上选择发起后"
+            "编排会自动发起模拟。",
+        }
+
+    @app.post("/vulnagent/sessions/{sid}/emulation-decline")
+    def emulation_decline(sid: str, payload: dict = Body(default=None),
+                          principal: dict = Depends(require_token)):
+        """用户答复不做模拟：收尾时不再自动发起模拟请求。"""
+        sdir = _session_dir(sid)
+        _require_session_access(sdir, principal)
+        state = _read_state(sdir)
+        state["emulation_declined"] = True
+        _save_state(sdir, state)
+        return {"session_id": sid, "emulation_declined": True}
 
     @app.post("/vulnagent/sessions/{sid}/stop")
     def stop_session(sid: str, principal: dict = Depends(require_token)):
@@ -1472,6 +1885,14 @@ def setup(app: FastAPI, require_token) -> None:
                     detail=f"SIGTERM pid={pid} 失败: {exc}") from exc
             accounts.audit(principal["username"], "session_stop",
                            f"{sid} pid={pid}")
+            _st_now = _read_state(sdir) or state or {}
+            if _st_now.get("status") in ("awaiting_continue",
+                                         "awaiting_user_confirm"):
+                # 暂停态会话杀完 host 无人收尾，直接 finalize
+                try:
+                    _dsh_finalize(sid, sdir, _st_now, "stop")
+                except Exception:  # noqa: BLE001
+                    pass
             return {"session_id": sid, "status": "terminating"}
         # still booting: host is not registered yet. Flip status so the
         # background boot thread will not prompt / will tear the host down.
@@ -1481,6 +1902,18 @@ def setup(app: FastAPI, require_token) -> None:
             _save_state(sdir, state)
             accounts.audit(principal["username"], "session_stop",
                            f"{sid} pre-boot")
+            return {"session_id": sid, "status": "terminating"}
+        # awaiting_continue（轮次上限/模拟询问暂停）时 host 未注册在当前
+        # 服务进程（如服务重启过）：直接 finalize 收尾，而不是 409
+        # （2026-09-23 用户实测"结束本轮"报错）。
+        if state.get("status") in ("awaiting_continue",
+                                   "awaiting_user_confirm"):
+            try:
+                _dsh_finalize(sid, sdir, state, "stop")
+            except Exception:  # noqa: BLE001 - finalize 失败仍返回终止
+                pass
+            accounts.audit(principal["username"], "session_stop",
+                           f"{sid} awaiting")
             return {"session_id": sid, "status": "terminating"}
         raise HTTPException(status_code=409,
                             detail="session not running (or not managed "

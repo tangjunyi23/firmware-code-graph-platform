@@ -1,12 +1,13 @@
 /** Agent-style Lucide outline icons (ChatGPT / Cursor / Claude 同类). */
 import { h } from 'vue'
 import {
+  Monitor,
   MessageSquarePlus, Search, Settings, PanelLeft, Plus, ChevronDown,
   X, Lightbulb, FolderOpen, Folder, ScanSearch, GitBranch, SendHorizontal,
   Square, Ellipsis, User, Lock, MessageSquare, Upload, Cpu, Unlock,
   Share2, ListTree, LayoutDashboard, Code, Crosshair, Download, Network,
   ShieldAlert, NotebookText, Users, ScrollText, LogOut, KeyRound, Compass,
-  ArrowDown, Sun, Moon
+  ArrowDown, Sun, Moon, ChartColumn
 } from '@lucide/vue'
 
 function wrap (Icon, defaultSize = 16) {
@@ -27,6 +28,7 @@ export const IconNewChatOutline16 = wrap(MessageSquarePlus)
 export const IconSearchOutline16 = wrap(Search)
 export const IconSettingsOutline16 = wrap(Settings)
 export const IconPanelLeftOutline16 = wrap(PanelLeft)
+export const IconChartColumn16 = wrap(ChartColumn)
 export const IconPlusOutline16 = wrap(Plus)
 export const IconChevronDownOutline14 = wrap(ChevronDown, 14)
 export const IconCloseOutline16 = wrap(X)
@@ -41,6 +43,7 @@ export const IconStop = wrap(Square)
 export const IconMore = wrap(Ellipsis)
 
 export const NAV_ICONS = {
+  Monitor: wrap(Monitor),
   ChatDotRound: wrap(MessageSquare),
   Upload: wrap(Upload),
   Cpu: wrap(Cpu),
@@ -64,5 +67,6 @@ export const NAV_ICONS = {
   SwitchButton: wrap(LogOut),
   Lock: wrap(Lock),
   Sun: wrap(Sun),
-  Moon: wrap(Moon)
+  Moon: wrap(Moon),
+  ScanSearch: wrap(ScanSearch)
 }

@@ -31,11 +31,13 @@ const appBoot = await import(
   join(DSH, 'apps/cli/node_modules/@deepseek-ai/dsh-app-boot/lib/index.js'))
 const { boot, healProfilesModuleFallback, loadOptionalPatches, loadProfile } = appBoot
 
-// Same composition path as apps/cli/src/profile-boot.ts (prepareProfile +
-// bundle layers -> profile cordis.patch.yml -> home layer -> overlays).
+// Same composition path as apps/cli/src/profile-boot.ts (prepareProfile ->
+// async healProfilesModuleFallback({installAnchor, profile}) -> layers ->
+// profile cordis.patch.yml -> home layer -> overlays).
+// healProfilesModuleFallback 自 0.1.1 起收 options 对象且返回 Promise。
 const INSTALL_ANCHOR = join(DSH, 'apps/cli/package.json')
-healProfilesModuleFallback(INSTALL_ANCHOR)
 const profile = loadProfile('dsh', 'fwgraph', INSTALL_ANCHOR, undefined, { userLayer: true })
+await healProfilesModuleFallback({ installAnchor: INSTALL_ANCHOR, profile })
 
 // prepareProfile() rewrites the empty root on every real boot (the loader can
 // bake composed rows into it on write-back); mirror that here.

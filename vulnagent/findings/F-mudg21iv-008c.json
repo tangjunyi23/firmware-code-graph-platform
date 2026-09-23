@@ -1,0 +1,30 @@
+{
+  "job_id": "9160aafaa095",
+  "title": "httpd 登录处理存在硬编码凭据前缀旁路（受回环源地址限制）",
+  "severity": "medium",
+  "confidence": 0.55,
+  "vuln_class": "硬编码凭据",
+  "cwe": "CWE-798",
+  "binary_md5": "b18be6d07f1c97903c063686924ed3c7",
+  "binary_path": "firmware/binwalk_extracted/firmware.extracted/0/decrypted.bin.extracted/56CD97/squashfs-root/bin/httpd",
+  "reachability": "static-only",
+  "summary": "httpd 登录处理函数 sub_47B918（@0x47b918）内含一条硬编码凭据旁路分支：当请求参数 Action == \"request\" 时，取用户传入的 Username（v15），以 v19 = strlen(v15) 作为长度调用 strncmp(v15, \"0A2326B60AB94BC\", v19)。由于比较长度取自攻击者输入，该判定退化为\"用户输入是硬编码常量 0A2326B60AB94BC 的前缀\"，例如 Username 传 \"0\"、\"0A\"、\"0A2326B6\" 均可通过。通过后代码不再走常规口令校验，而是直接 read_csman 读取本机管理员凭据（键 65538/66435 等）并调用 sub_424384 生成有效会话、写入会话结构（strcpy(*(v23-27152)+285, v75)），等效于无口令获得管理员会话。\\n\\n影响限定：该分支外层带有源地址守卫 v74[0] = 2130706433 并比较 dword_4F0154 == 2130706433（127.0.0.1），即仅当请求源地址为本机回环时可用。因此这是\"本机/回环可用的硬编码凭据后门\"，不是远程预认证 RCE；远程利用需先取得回环源地址（本次未在固件中发现可组合的 SSRF/代理头伪造链）。\\n\\n同一函数另有常规校验路径做对照（strcasecmp 用户名 + strncmp 口令摘要），说明该硬编码分支是额外的旁路而非主流程。",
+  "evidence": [
+    "sub_47B918 @ 0x47b918 伪 C 中的硬编码凭据分支：v19 = strlen(v15); if ( !strncmp(v15, \"0A2326B60AB94BC\", v19) ) { v74[0] = 2130706433; if ( dword_4F0154 == 2130706433 ) { ... read_csman(...,-2147466621, v73, 512, 4); read_csman(..., 66435, v75, 17, 4); goto LABEL_18; } return -401; }",
+    "同一函数中的常规校验路径（对照）：if ( !strcasecmp(v15, v39 + 1) ) { v58 = strlen(v40 + 124); if ( !strncmp(v14, v40 + 124, v58) ) { *(_DWORD *)(v38 - 27148) = 1; ... } }，失败时 syslog(134, \"UI login from [%s] failed\")",
+    "strncmp 使用攻击者可控长度 v19 = strlen(用户输入 Username)，使比较退化为\"用户输入是硬编码常量的前缀\"即可成立（例如 Username 取 \"0\"、\"0A\"、\"0A2326B6\"）",
+    "GET_FROM_LOCALHOST 守卫：v74[0] = 2130706433 并被声明但后续仅比较 dword_4F0154（客户端源地址），即该分支仅在源地址为 127.0.0.1 时可用，限制了远程可利用性",
+    "httpd 未鉴权即可到达该登录处理（认证判定位于该函数内部），故属预认证面；但受源地址限制，非远程可用"
+  ],
+  "session_id": "s-mudfrpjq-8279",
+  "preconditions": "请求需表现为来自 127.0.0.1（dword_4F0154 == 2130706433）。攻击者需具备本机代码执行、或存在能伪造回环源地址的中间路径（如设备内其他服务的 SSRF、或 httpd 自身处理代理头）。远程直接利用不成立。",
+  "exploit_sketch": "在设备本机（127.0.0.1）上下文发起登录请求，Username 取硬编码常量 \"0A2326B60AB94BC\" 的任意前缀（如 \"0\" 或 \"0A2326B6\"），LoginPassword 任意即可通过该分支，随后 httpd 用 read_csman 读取到的本机管理员凭据生成会话并经 sub_424384 写入会话结构（HMAC/MD5 摘要与 Cookie）。远程攻击者受 dword_4F0154 == 127.0.0.1 判定阻断，除非能借 SSRF/DNS 重绑定等使请求源地址呈现为回环（本固件未发现此类组合链，故未确认远程可利用）。",
+  "remediation": "1) 删除 sub_47B918 中针对 \"0A2326B60AB94BC\" 的硬编码凭据分支，改由统一的凭据校验路径与随机出厂密码/首次登录强制改密承担；2) 若该分支为产线/维修用途，应改为编译期开关并在量产固件中移除，而不是运行时后端字符串比较；3) 凭据比较必须使用固定长度比较（对两者取等长哈希后定长比较），杜绝长度由用户输入决定的 strncmp 前缀比较；4) 对回环专用维护接口增加独立鉴权（令牌/双向证书），不要只依赖源地址判定。",
+  "poc": "在本机（或源地址被伪装为 127.0.0.1 的通道）向 httpd 登录接口提交：\n\nPOST /login.cgi HTTP/1.1\nHost: 127.0.0.1\nContent-Type: application/x-www-form-urlencoded\nContent-Length: 40\n\nUsername=0A2326B6&LoginPassword=x&Action=login\n\n说明：Username 取硬编码常量前缀即可让 strncmp(v15, \"0A2326B60AB94BC\", strlen(v15)) 成立（v19 来自用户输入长度），随后进入 v74[0]==dword_4F0154 的回环判定。该 PoC 仅演示凭据判定缺陷，未在模拟环境中完成一次真实认证，故保持 static-only。",
+  "call_chain": "httpd 登录 CGI → sub_47B918 @0x47b918 登录处理 → strlen(v15) 取用户输入 Username 长度 → strncmp(v15, \"0A2326B60AB94BC\", v19) 前缀比较 → 校验 dword_4F0154 == 127.0.0.1 (2130706433) → read_csman 取凭据 → sub_424384 生成会话 → strcpy(session+285, v75)",
+  "id": "F-mudg21iv-008c",
+  "status": "draft",
+  "owner": "token-admin",
+  "recorded_at": "2026-09-23T01:48:29Z",
+  "history": []
+}

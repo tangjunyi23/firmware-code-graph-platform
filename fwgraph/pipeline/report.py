@@ -221,6 +221,48 @@ def _md5_map(manifest) -> dict:
 # report sections
 # ---------------------------------------------------------------------------
 
+
+def _mithril_section(job_id: str, data_dir: Path, lines: list) -> None:
+    """mithril 语义扫描段：密钥泄露（脱敏）/弱公钥/SBOM/启动安全。"""
+    sca_path = data_dir / "sca" / f"{job_id}.json"
+    try:
+        state = json.loads(sca_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return
+    m = (state.get("result") or {}).get("mithril") or {}
+    if not m:
+        return
+    secrets = m.get("secrets") or []
+    weak = m.get("weak_keys") or []
+    comps = m.get("components") or []
+    boot = m.get("boot") or []
+    lines.append("")
+    lines.append("## 认证与组件风险（mithril 深度扫描）")
+    lines.append("")
+    if secrets:
+        lines.append(f"- 密钥泄露命中 {len(secrets)} 项（已按校验层级过滤展示）：")
+        for sec in secrets[:10]:
+            lines.append(f"  - `{str(sec.get('path') or "")[:120]}`：{sec.get('type')}"
+                         f"（{sec.get('tier')}，置信度 {sec.get('confidence')}）"
+                         f"——{sec.get('description', '')[:80]}")
+    else:
+        lines.append("- 密钥泄露：无命中")
+    if weak:
+        lines.append(f"- 弱公钥 {len(weak)} 项（签名伪造/默认凭据风险，static-only）：")
+        for k in weak[:10]:
+            lines.append(f"  - `{str(k.get('path') or "")[:120]}`：{k.get('description', '')[:90]}")
+    if comps:
+        top = ", ".join(f"{c.get('name')} {c.get('version')}".strip()
+                        for c in comps[:12])
+        lines.append(f"- SBOM 版本恢复（{len(comps)} 个组件）：{top}")
+        cdx = m.get("sbom_cyclonedx") or ""
+        if cdx:
+            lines.append(f"  - 完整清单：CycloneDX/SPDX 见 `{str(cdx)[:160]}`")
+    if boot:
+        lines.append(f"- 启动安全姿势 {len(boot)} 项（U-Boot/FIT/AVB/UEFI）")
+    lines.append("")
+
+
 def _summary_section(job_id: str, data_dir: Path, findings: list,
                      lines: list):
     job = _read_json(data_dir / "firmware" / job_id / "job.json") or {}
@@ -789,6 +831,7 @@ def generate_job_report(job_id: str, data_dir) -> Path:
     lines: list = []
     findings, unrelated = _collect_findings(job_id, data_dir)
     _summary_section(job_id, data_dir, findings, lines)
+    _mithril_section(job_id, data_dir, lines)
     _findings_section(job_id, data_dir, lines)
     _appendix_section(job_id, data_dir, unrelated, lines)
     out = data_dir / "reports" / f"job-{job_id}.md"

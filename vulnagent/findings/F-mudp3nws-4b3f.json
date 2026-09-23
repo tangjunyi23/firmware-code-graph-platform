@@ -1,0 +1,27 @@
+{
+  "job_id": "9160aafaa095",
+  "title": "httpd 日志格式串明文输出 auth_pass / sess_prikey / dec_pass",
+  "severity": "medium",
+  "confidence": 0.5,
+  "vuln_class": "敏感信息泄露",
+  "cwe": "CWE-532",
+  "binary_md5": "b18be6d07f1c97903c063686924ed3c7",
+  "binary_path": "firmware/binwalk_extracted/firmware.extracted/0/decrypted.bin.extracted/56CD97/squashfs-root/bin/httpd",
+  "reachability": "static-only",
+  "summary": "httpd 内存在把管理员口令、HNAP 会话私钥与解密口令一并格式化的日志格式串 \"auth_pass = %s\\n sess_prikey= %s dec_pass =  %s\\n\"，以明文字节存在于出厂固件，属认证材料被打入日志的风险点（可能经日志接口/串口/syslog 服务器外泄）。",
+  "evidence": [
+    "bin/httpd .rodata 0x4d0010-0x4d0050 实测字节：'auth_pass = %s\\n sess_prikey= %s dec_pass =  %s\\n'，即管理员认证口令、HNAP 会话私钥(PrivateKey)与解密口令被格式化进同一日志行",
+    "该字符串与 'System Logs'、'ws-hnap/SetSysEmailSettings.c'、'SetSysEmailSettings_put' 同区块（自 0x4d0000 起），位于 HNAP 认证/邮件设置相关代码的 .rodata 池内，说明确为 httpd 认证路径的输出模板",
+    "未闭合部分：未定位具体调用点（httpd 内部调用边在代码图缺失），故无法确认默认日志级别下是否落盘及是否可被未授权读取"
+  ],
+  "session_id": "s-mudoe515-e250",
+  "preconditions": "需触发 HNAP 认证/邮件设置代码路径；日志可读性取决于运行时日志级别与设备是否暴露日志查看接口。",
+  "remediation": "删除该调试日志，或仅输出脱敏标识（长度/哈希前缀）；禁止把 auth_pass、sess_prikey 明文写入日志；发布版关闭调试日志宏。",
+  "poc": "静态复现：fw_read_bytes(binary_md5=b18be6d07f1c97903c063686924ed3c7, vaddr=0x4d0000, length=512) 读到 'auth_pass = %s / sess_prikey= %s / dec_pass = %s' 原始字节。动态验证：在真实设备触发一次 HNAP 登录后检查 /var/log 及 syslog 输出是否出现该行。",
+  "call_chain": "HNAP 认证/邮件设置路径 → httpd 日志调用（sub_49A624/sub_49A6D0 日志族） → 格式串 \"auth_pass = %s\\n sess_prikey= %s dec_pass =  %s\\n\" → 日志输出（syslog/文件）",
+  "id": "F-mudp3nws-4b3f",
+  "status": "draft",
+  "owner": "token-admin",
+  "recorded_at": "2026-09-23T06:01:41Z",
+  "history": []
+}

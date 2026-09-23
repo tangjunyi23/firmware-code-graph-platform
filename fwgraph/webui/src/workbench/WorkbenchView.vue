@@ -36,6 +36,21 @@
           <IconPanelLeftOutline16 :size="16" />
         </button>
         <span class="stage-title">{{ firmwareLabel || 'FWGraph' }}</span>
+        <button
+          v-if="activeSid"
+          type="button"
+          class="traj-btn"
+          title="对话轨迹与工具调用统计 / 导出会话"
+          @click="trajectoryOpen = true"
+        >
+          <IconChartColumn16 :size="15" />
+          <span>统计</span>
+          <span
+            v-if="tokBadge"
+            class="tok-badge"
+            :title="`累计 ${tokBadge.total} tokens（输入 ${tokBadge.in} · 输出 ${tokBadge.out} · 缓存 ${tokBadge.cache}）· ${tokBadge.calls} 次调用`"
+          >{{ tokBadge.total }}</span>
+        </button>
       </header>
       <div class="conv" :data-phase="phase">
         <div class="scroll-wrap" v-show="phase === 'active'">
@@ -95,6 +110,10 @@
             <QueueDock />
             <ApprovalPanel />
             <ContinueCapPanel @continued="catalog.refresh()" @ended="onStopCurrent" />
+            <div class="end-cards-row">
+              <EmulationOfferCard @answered="catalog.refresh()" />
+              <SessionEndCard @new-hunt="onNewSession" />
+            </div>
             <Composer
               :variant="phase === 'hero' ? 'hero' : 'composer'"
               :draft="draft"
@@ -148,6 +167,8 @@ import SidebarJobs from './SidebarJobs.vue'
 import MessageList from './MessageList.vue'
 import Composer from './Composer.vue'
 import QueueDock from './QueueDock.vue'
+import EmulationOfferCard from './EmulationOfferCard.vue'
+import SessionEndCard from './SessionEndCard.vue'
 import ApprovalPanel from './ApprovalPanel.vue'
 import ContinueCapPanel from './ContinueCapPanel.vue'
 import DetailsPanel from './DetailsPanel.vue'
@@ -161,7 +182,7 @@ import { t } from './locales.js'
 import {
   DEFAULT_TASK, HUNT_TURNS, pipelineFinished
 } from './pipeline.js'
-import { IconFolderClose16, IconFolderOpen16, IconChevronDownOutline14, IconPanelLeftOutline16 } from './icons.js'
+import { IconFolderClose16, IconFolderOpen16, IconChevronDownOutline14, IconPanelLeftOutline16, IconChartColumn16 } from './icons.js'
 
 const RAIL = 260
 
@@ -247,6 +268,24 @@ const sending = ref(false)
 const notice = ref(null)
 const sessionJobMap = reactive({})
 const showToBottom = ref(false)
+
+// token 实时徽章（dshClient usageTotals：每步 assistant/message 累加，
+// 流式过程中随事件跳动）
+function fmtBadge (n) {
+  if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M'
+  if (n >= 1e3) return (n / 1e3).toFixed(0) + 'K'
+  return String(n)
+}
+const tokBadge = computed(() => {
+  const u = session.state.usageTotals
+  if (!u || !u.calls) return null
+  const total = u.input + u.output + u.cacheRead + u.cacheWrite
+  return {
+    total: fmtBadge(total),
+    in: fmtBadge(u.input), out: fmtBadge(u.output),
+    cache: fmtBadge(u.cacheRead + u.cacheWrite), calls: u.calls,
+  }
+})
 
 const readyJobs = computed(() =>
   (catalog.state.jobs || []).filter((j) => pipelineFinished(j))
@@ -449,6 +488,9 @@ async function onSend () {
   }
   notice.value = null
   if (activeSid.value && session.state.sid) {
+    // 乐观上屏：发送瞬间插入本地用户消息（真实事件到达后确认复用），
+    // 消除"点发送后卡一下才显示"（2026-09-23 用户反馈）
+    session.pushLocalUser(text)
     sending.value = true
     try {
       if (session.state.huntStatus === 'awaiting_continue') {
@@ -482,11 +524,23 @@ async function onSend () {
   }
 }
 
+// stick-to-bottom（2026-09-23 用户要求）：默认跟随 AI 进度滚动；
+// 用户上滚即脱离（自由查看）；点"回到底部"或滚回底部即恢复跟随。
+const followTail = ref(true)
+
 function onScroll () {
   const el = scrollEl.value
   if (!el) return
   const gap = el.scrollHeight - el.scrollTop - el.clientHeight
   showToBottom.value = gap > 48
+  // 程序滚动期间（scrollAnim 活跃）不判定脱离
+  if (!scrollAnim) followTail.value = gap <= 48
+}
+
+function onContentGrow () {
+  if (!followTail.value) return
+  const el = scrollEl.value
+  if (el) el.scrollTop = el.scrollHeight
 }
 
 let scrollAnim = 0
@@ -512,15 +566,13 @@ function animateScrollTo (el, top, ms = 320) {
   }
   scrollAnim = requestAnimationFrame(step)
 }
-
 function scrollToBottom () {
   const el = scrollEl.value
   if (!el) return
+  followTail.value = true
   animateScrollTo(el, el.scrollHeight)
 }
-
 function jumpToBottom () {
-  const el = scrollEl.value
   if (!el) return
   el.scrollTop = el.scrollHeight
   onScroll()
@@ -532,6 +584,13 @@ watch([activeSid, () => session.state.loadingHistory], async ([sid, loading]) =>
   jumpToBottom()
 })
 
+
+// 内容增长（AI 流式输出/新节点）时若处于跟随态则贴底
+watch(() => session.state.rev, async () => {
+  if (!followTail.value) return
+  await nextTick()
+  onContentGrow()
+})
 let seatObs = null
 watch(seatRef, (seat) => {
   if (seatObs) { seatObs.disconnect(); seatObs = null }
@@ -671,6 +730,13 @@ onBeforeUnmount(() => {
   height: 48px;
   padding: 0 20px;
 }
+.tok-badge {
+  margin-left: 2px; padding: 1px 7px;
+  border-radius: 999px; font-size: 11px; font-weight: 600;
+  color: var(--fw-brand, #5b8cff);
+  background: rgba(91, 140, 255, .12);
+  font-variant-numeric: tabular-nums;
+}
 .stage-title {
   min-width: 0;
   overflow: hidden;
@@ -680,6 +746,14 @@ onBeforeUnmount(() => {
   font-weight: 600;
   color: var(--dsw-alias-label-primary);
 }
+.traj-btn {
+  display: inline-flex; align-items: center; gap: 5px;
+  margin-left: 12px; padding: 4px 10px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 8px; background: transparent;
+  color: inherit; font-size: 12px; cursor: pointer;
+}
+.traj-btn:hover { background: var(--dsw-alias-interactive-bg-hover); }
 .hero-copy {
   padding: 0 20px 8px;
   text-align: left;
@@ -709,14 +783,33 @@ onBeforeUnmount(() => {
   height: 100%;
   min-width: 0;
   background: transparent;
-  --dsh-chat-content-width: 748px;
+  /* 2026-09-23：748px 的旧覆盖是"对话窄"的真凶——tokens 层的值一直被
+     它压住。按用户要求拉满：留少量页边距的近全宽（大屏自动到顶）。 */
+  --dsh-chat-content-width: min(1760px, calc(100% - 24px));
   --dsh-composer-card-max-width: calc(var(--dsh-chat-content-width) + 32px);
-  --dsh-composer-side-clearance: 16px;
+  --dsh-composer-side-clearance: 12px;
   --dsh-composer-dock-inset: 8px;
   --dsh-composer-stack-gap: 6px;
   --dsh-composer-text-max-height: 336px;
 }
 
+.end-cards-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  max-width: var(--dsh-chat-content-width);
+  margin: 0 auto;
+  width: 100%;
+}
+.end-cards-row > :deep(.emu-card),
+.end-cards-row > :deep(.end-card) {
+  margin: 0;
+  max-width: none;
+  width: 100%;
+}
+@media (max-width: 900px) {
+  .end-cards-row { grid-template-columns: 1fr; }
+}
 .scroll-body {
   display: flex;
   flex: 1;

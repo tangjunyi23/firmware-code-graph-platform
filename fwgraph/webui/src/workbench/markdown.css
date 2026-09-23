@@ -201,6 +201,13 @@
   max-width: 320px;
   max-width: min(30vw, 320px);
   min-width: 100px;
+  /* 2026-09-23：长无空串（hex/PoC 载荷）不再撑破单元格溢出气泡 */
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.tableScroll td code,
+.wb-md :not(pre) > code {
+  overflow-wrap: anywhere;
 }
 
 .tableScroll th:first-child,

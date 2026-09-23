@@ -27,6 +27,10 @@
    curve: cubic-bezier(0.4, 0, 0.2, 1) at 0.1s / 0.2s / 0.3s. */
 .wb-root[data-wb-theme="light"],
 .wb-root[data-wb-theme="dark"] {
+  /* 2026-09-23：对话列/Composer 布局宽 token（此前从未定义——var() 落空
+     导致列宽漂移）。用户要求加宽：AI 长报告在更宽的气泡里展示 */
+  --dsh-chat-content-width: 1360px;
+  --dsh-composer-side-clearance: 12px;
   --dsw-font-family: var(--fw-font, Inter, 'PingFang SC', 'Microsoft YaHei UI', sans-serif);
   --ds-font-family-code: var(--fw-font-mono, 'JetBrains Mono', ui-monospace, Consolas, monospace);
   --ds-ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);

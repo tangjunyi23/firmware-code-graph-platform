@@ -1,0 +1,31 @@
+{
+  "job_id": "d2cb45ce4524",
+  "title": "HTTPS 管理面 TLS 服务器私钥硬编码并跨设备复用（etc/nginx/cert.key）",
+  "severity": "high",
+  "confidence": 0.6,
+  "vuln_class": "硬编码凭据",
+  "cwe": "CWE-798",
+  "binary_md5": "4369b1ae99cb82584a8ff615eadb7159",
+  "binary_path": "etc/nginx/cert.key",
+  "reachability": "static-only",
+  "summary": "固件在为 HTTPS 管理面提供的 nginx 配置中硬编码了 TLS 服务器私钥 etc/nginx/cert.key，与其配套证书 etc/nginx/cert.crt 一起静态固化在只读 rootfs 内，并非设备首次启动时按设备唯一生成。该私钥可被任何拿到固件镜像（公开可下载）的人完整提取，从而导致：(1) 对路由器管理面 443 端口做主动中间人——攻击者可用同一证书冒充 miwifi.com/www.miwifi.com，受害浏览器不产生证书告警，管理员登录凭据与全部 /cgi-bin/luci/* 管理请求可被读取与篡改；(2) 该密钥对全部同版本（RB03 1.0.57, ROM 1.0.57, BUILDTIME 2023-01-30）设备相同，属\"一钥通杀\"而非单机泄露。管理面 443 直接对接 FCGI（127.0.0.1:8920 → fcgi-cgi → /www/cgi-bin/luci Lua 控制器），因此中间人一旦成立即可完全绕过 TLS 对 Web 管理会话的机密性与完整性保护。同一固件内 plugin_public.pem 与 usr/share/xiaoqiang/cc/mq_a1 另使用 RSA-1024（低于 2048 位下限），说明该产品的密码学基线整体偏低。",
+  "evidence": [
+    "etc/nginx/cert.key 内容为 PEM 私钥（mithril 三层校验命中 type=private-key, tier=structural, confidence=80, label=\"-----BEGIN RSA PRIVATE KEY-----\"）",
+    "etc/nginx/cert.crt 为配套证书，两者作为静态文件固化在只读 rootfs 中（非首次启动生成）",
+    "etc/nginx/nginx.conf 的 443 server 块逐字引用：`ssl on; ssl_certificate cert.crt; ssl_certificate_key cert.key; ssl_prefer_server_ciphers on; server_name miwifi.com www.miwifi.com;`",
+    "etc/init.d/nginx 启动链把 443 上的管理面接到 FCGI：`spawn-fcgi -a 127.0.0.1 -p 8920 -U nobody -F 1 -- /usr/bin/fcgi-cgi`，nginx 以 `-c /etc/nginx/nginx.conf` 启动",
+    "etc/nginx/fastcgi-proxy-tcp.conf 将 /cgi-bin/luci、/uploadfile/cgi-bin/luci、/api-third-party 的 SCRIPT_FILENAME 映射到 /www/cgi-bin/luci，并 `fastcgi_pass 127.0.0.1:8920`，即 HTTPS 管理面最终由 Lua 控制器处理",
+    "同一固件的管理面版本面：/usr/share/xiaoqiang/xiaoqiang_version 显示 ROM 1.0.57 / CHANNEL release / HARDWARE RB03 / BUILDTIME Mon, 30 Jan 2023，即该私钥随所有同版本 RB03 出厂固件批量分发",
+    "对比项：/etc/init.d/uhttpd 的 generate_keys() 会用 px5g/openssl 配合 /dev/urandom 生成唯一密钥并落盘，证明本平台具备按设备唯一生成证书的能力，nginx 管理面却未采用"
+  ],
+  "session_id": "s-mucc83m5-c451",
+  "preconditions": "仅需一份公开可下载的 miwifi_rb03_firmware_83db5_1.0.57.bin（该私钥固化在只读 rootfs，并非开机生成，故对所有 RB03 1.0.57 设备相同）。利用阶段需能对受害者到路由器 443 端口的流量做中间人（同网段 ARP/DNS 欺骗，或用户 hosts/DNS 指向攻击者）。",
+  "remediation": "不要在固件镜像中固化 TLS 私钥：移除 etc/nginx/cert.key，改为设备首次启动时生成唯一密钥对并持久化到可写的 /etc（可复用 /etc/init.d/uhttpd 中已有的 generate_keys/px5g 逻辑，其已实现基于 /dev/urandom 唯一化并写盘）。同时把 HTTPS 管理面证书纳入出厂个性化烧录流程（每机一钥），并在证书生成后校验私钥未进入只读 rootfs。对已出货设备，应通过固件升级替换该密钥并吊销旧证书；另建议引入证书固定/公钥指纹校验以降低同类失效的可用性。",
+  "poc": "Extract the private key from any copy of the firmware and use it to impersonate the router management plane:\n\n1) 解包固件取私钥：\n   binwalk -e miwifi_rb03_firmware_83db5_1.0.57.bin\n   cat squashfs-root/etc/nginx/cert.key\n   openssl rsa -in squashfs-root/etc/nginx/cert.key -noout -text   # 可正常解析，证明是完整私钥\n\n2) 用该私钥做 HTTPS 管理面中间人（局域网内 ARP/DNS 欺骗 miwifi.com 或直接以该证书架站）：\n   openssl s_server -cert squashfs-root/etc/nginx/cert.crt -key squashfs-root/etc/nginx/cert.key -accept 443 -www\n\n3) 由于客户端已把 miwifi.com 视为本机管理入口，受害者浏览器不会出现证书告警，攻击者可完整代理并读取 /cgi-bin/luci/* 的登录凭据与管理请求。\n\n4) 复核跨设备复用：md5sum squashfs-root/etc/nginx/cert.key 在多份同版本固件间一致，即证明为固话密钥而非设备唯一密钥。",
+  "call_chain": "nginx HTTPS 监听 (etc/nginx/nginx.conf: listen 443 ssl; ssl_certificate cert.crt; ssl_certificate_key cert.key) → server_name miwifi.com www.miwifi.com → location ~* /cgi-bin/luci.* / location /api-third-party/service → fastcgi_pass 127.0.0.1:8920 → spawn-fcgi → usr/bin/fcgi-cgi (md5 ce0a558d008216efd1f4000920c0af03) → /www/cgi-bin/luci (Lua, luci.sgi.cgi) → XQ* 控制器与 /usr/sbin/netapi",
+  "id": "F-mucceqzv-d3bd",
+  "status": "draft",
+  "owner": "token-admin",
+  "recorded_at": "2026-09-22T07:18:37Z",
+  "history": []
+}
