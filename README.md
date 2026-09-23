@@ -4,31 +4,48 @@
 > 工作台 DeepSeek Harness 挖掘 agent。
 
 固件攻击面发现平台：静态（反编译、调用图、source/sink）和动态（单 ELF
-qemu-user 覆盖差分、整二进制 AFL、PoC 执行）接到同一条证据链。上游挖掘
-AI 在工作台里调平台工具，产出带调用链和 PoC 的 finding。**不做整机仿真。**
+qemu-user 覆盖差分、整二进制 AFL、PoC 执行、**整设备固件模拟**）接到同
+一条证据链。上游挖掘 AI 在工作台里调平台工具，产出带调用链和 PoC 的
+finding；挖掘闭环后自动询问是否发起**固件模拟真实测试**（emulagent
+qemu 环境 + 探活 + PoC 攻击面确认）。
 
-当前前端入口是 **工作台**（选已完成的前置任务 → 开挖掘会话）。编排提示、
-能力验收文案不对用户展示。动态工具结果带 `hunt_next`，给 agent 自己用，
-不是给用户看的验收表。
+当前前端入口是 **工作台**（选已完成的前置任务 → 开挖掘会话 → 终局
+卡片选择是否模拟）。编排提示、能力验收文案不对用户展示。动态工具结果
+带 `hunt_next`（中文简报导向），给 agent 自己用。
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
 ---
 
-## 当前状态（2026-08-23）
+## 当前状态（2026-09-23）
 
-- 工作台 dsh-web：Thinking 一行、工具卡、审批允许/拒绝、全部同意/需要审批、
-  当前窗口开挖、输入框停止生成（只 cancel）、侧栏停止对话（`/stop`）。
-- `max_turns` 按 `session.prompt` 计数；到顶暂停询问「继续挖掘 / 结束本轮」。
-  暂停后再发消息走 `POST /resume`，看门狗不能把 `done` 会话偷着重开。
-- 动态：`fw_request_trace` 支持 `via=stdin` / `input_path=/tmp/<file>` /
-  `payload` / `payload_hex` / `payloads_hex`；`fw_qemu_exec` 单次跑 PoC。
-  没喂输入就 SIGSEGV 标 `crash_kind=startup`（环境，禁止放弃该 ELF）。
-- Archer C7 v2 无人值守挖掘已跑过：job `3a1f3c822c22`，主会话
-  `s-mt4rda4n-55d3`，18 条 finding 与会话事件在仓库里。解包/图谱数据仍只在
-  分析机 `fwgraph/data/`。
-- 已知限制：网络口 trace 仍大量空差分（缺处理函数覆盖）；MIPS 函数级 AFL
-  handshake 常失败，整二进制 AFL 能跑；全系统 QEMU 不做。
+- **全流程自动化**：一次任务输入 → autopilot 全程驾驶（瞬时 LLM 错误
+  自愈注入、turn 完成自动收尾、host 死亡兜底 finalize）；挖掘闭环后
+  AI 调 `fw_offer_emulation` → 会话转等待 → 界面**选项卡片**（发起
+  模拟测试 / 跳过）→ 用户选择后编排自动衔接 emulagent。
+- **静态判定最后一公里**：`fw_read_bytes` 按虚拟地址直读 ELF 任意段
+  （鉴权开关/动作表等 .data 决定性字节）；`fw_decompile_single` 对
+  未进代码图的二进制单独反编译（r2 → capstone 调用目标聚类 fallback，
+  no-section stripped ELF 可用）。
+- **UBIFS 残留分区自动解包**：binwalk 切出未解的 `*_ubifs.raw` 自动
+  ubireader 解出并入主 rootfs（csman/mib 配置数据源，D-Link 系
+  HNAP 分发链修复的关键）。
+- **会话导出与实时统计**：`GET /vulnagent/sessions/{sid}/export`
+  ZIP（report.md + session.jsonl + findings + state）；工作台顶栏
+  token 实时徽章 + 轨迹统计面板（工具调用排行 / token 累计 / 上下文
+  规模 / 成功失败计数）。
+- **报告**：生成时内嵌文本统计图（等级分布 / 可达性 / 高频目标二进制），
+  DOCX/PDF 导出原样保留；报告中心含 KPI + 图表总览带。
+- **webui**：对话列近全宽（748px 封顶的旧覆盖已移除）、stick-to-bottom
+  滚动跟随、终局双卡片并排、侧栏会话运行中脉冲徽章、思考动画柔和化、
+  turn 错误红胶囊透出（不再误显"第 N 轮完成"）。
+- **LLM 路由**：主（opencode go）+ 备（ark）应用层探活 failover；
+  transport 类瞬时断流自动恢复重试，auth 错误不浪费重试。
+- Archer C7 v2 无人值守挖掘记录（18 finding）与 D-Link R15A1 挖掘+
+  模拟会话在仓库里；解包/图谱/模拟 rootfs 数据只在分析机。
+- 已知限制：网络口 trace 仍有空差分；MIPS 函数级 AFL handshake 常失败
+  （整二进制可用）；csmanuds 依赖真实 MTD 的机型需要垫片（模拟 skill
+  内有配方）。
 
 更细的变更记在 [进度-项目.md](进度-项目.md)。
 
@@ -55,7 +72,7 @@ AI 在工作台里调平台工具，产出带调用链和 PoC 的 finding。**�
 - **qemu-user 差分覆盖率（M7）**：单 ELF 在 docker 沙箱里 `chroot + qemu -d exec`
   跑 baseline/trigger。网络口用 port + payload；解析器/CLI 用 `via=stdin` 或
   `input_path=/tmp/<file>`。空差分不是漏洞，agent 应改 stdin 再跑。
-  **不做整机仿真。**
+  整机级动态由独立的 emulagent 承担（见下）。
 - **PoC 执行（qemu_exec）**：单次跑固件 ELF，看 crash/timeout/error。
   启动即崩（没喂 payload）是环境；喂了 payload 才崩才当动态证据。
 - **函数级 fuzz / frida hook**：x86 用 frida；ARM/MIPS 优先整二进制 AFL++
@@ -70,9 +87,21 @@ AI 在工作台里调平台工具，产出带调用链和 PoC 的 finding。**�
   `fw_qemu_exec` 返回压缩结果 + `hunt_next`（读差分函数或改 via=stdin）。
   `record_finding` 必须同时有 `call_chain`（`→`）和 `poc`。轮次上限、
   会话预算（trace 192 / fuzz 12 / exec 8）、日配额由编排器与插件共同卡住。
-- **Web 前端**：工作台（对话在左、选前置任务后发送即开挖）+ 仪表盘 /
-  前置任务 / 函数 / 攻击面 / 输入面 / 图谱 / 协议挖掘 / 报告 / 用户 /
-  日志 / 设置。隐藏 `【编排】` 与能力验收类注入气泡。
+- **Web 前端**：工作台（对话在左、选前置任务后发送即开挖；终局双卡片、
+  token 徽章、轨迹统计、stick-to-bottom 滚动）+ 仪表盘 / 报告中心
+  （KPI + 统计图表 + DOCX/PDF/MD 导出）/ 前置任务 / 函数 / 攻击面 /
+  输入面 / 图谱 / 协议挖掘 / 用户 / 日志 / 设置。隐藏 `【编排】` 注入
+  与能力验收类气泡。
+- **emulagent（固件模拟，M9）**：独立 dsh 会话（`fwgraph-emul` profile），
+  从挖掘终局自动衔接（用户卡片确认）。拉起 qemu-user 整设备环境（垫
+  /dev、等长 patch、hostfwd 探活），实测服务应答后 `fw_emul_publish`；
+  D-Link/csman 机型的 MTD/SIGBUS/HNAP 诊断配方沉淀在 skill 里。
+- **补刀工具**：`fw_read_bytes`（vaddr→PT_LOAD 偏移直读 .data/.rodata，
+  静态判定鉴权字节）；`fw_decompile_single`（未进图 ELF 单独反编译，
+  r2 优先、capstone 调用目标聚类兜底）；`fw_offer_emulation`（终局
+  登记，触发界面选项卡片）。
+- **会话运维**：`fwgraph/tools/omp-supervisor.py` 旁路监督器（STALL/
+  HOSTDEAD/NOPILOT 告警，只读不干预）；会话 ZIP 导出；token 实时统计。
 - **产品化与安全**：账号密码登录（防爆破锁定 + 弱口令黑名单 + 首登强制
   改密）、会话 token（fws-）+ 主 token 双轨、owner 数据隔离（他人 404）、
   全量审计日志、按 job×日配额（trace/fuzz/frida/protofuzz）、
