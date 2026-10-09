@@ -373,6 +373,7 @@ def setup(app: FastAPI, require_token) -> None:
             "语义与 /var/config UBIFS 补齐方法见 fwgraph-firmware-emul "
             "技能的诊断配方节。\n\n"
         ) + raw_task
+        job_id = str(payload.get("job_id") or "").strip()
         if not job_id:
             raise HTTPException(status_code=400,
                                 detail="缺少 job_id：模拟必须绑定固件任务")
