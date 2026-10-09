@@ -1,0 +1,31 @@
+{
+  "job_id": "9160aafaa095",
+  "title": "固件内置固定 root 口令哈希并启动 telnetd（/etc/init_54FW 写 /etc/passwd，23/tcp 远程 root 后门）",
+  "severity": "high",
+  "confidence": 0.55,
+  "vuln_class": "硬编码凭据",
+  "cwe": "CWE-798",
+  "binary_md5": "2476b288487c26e69f4656b150a41e38",
+  "binary_path": "firmware/binwalk_extracted/firmware.extracted/0/decrypted.bin.extracted/56CD97/squashfs-root/usr/sbin/telnetd",
+  "reachability": "static-only",
+  "summary": "镜像内的初始化脚本 /etc/init_54FW 用重定向直接覆盖 /etc/passwd，写入唯一一条 root 记录并固定 SHA-512 crypt 口令哈希（root:$6$g8QQW/jew$QNWRqE3uFgr9WbAVaJ6fFoX2pS6trDUD29pT5MMvEj2EGj18SqTeSyra6ru2COfBVqut44zVBBS1uLid0mvme0:0:0::/home/:/bin/sh），紧接着以 root 身份启动 busybox telnetd（监听 23/tcp）。该口令哈希与型号绑定、不随用户/界面口令变化（脚本用 '>' 覆盖整个口令库），意味着同一型号所有设备的 root 口令哈希完全一致：离线爆破一次即可通杀全部在线设备，并绕过 Web 管理口令实现远程 root 登录。镜像 /etc 中不存在 passwd 文件，口令库完全由该脚本在设备初始化时生成，属于厂商预置后门凭据。",
+  "evidence": [
+    "/etc/init_54FW 内容：echo 'root:$6$g8QQW/jew$QNWRqE3uFgr9WbAVaJ6fFoX2pS6trDUD29pT5MMvEj2EGj18SqTeSyra6ru2COfBVqut44zVBBS1uLid0mvme0:0:0::/home/:/bin/sh' > /etc/passwd",
+    "同脚本紧随其后：tag '***** Init telnetd' 后执行 telnetd&（无 -l/-a 参数，默认监听 23/tcp，root 身份）",
+    "镜像 etc/ 目录清点中不存在 passwd 文件，口令库由该脚本在初始化阶段覆盖生成，与 Web 管理口令相互独立",
+    "/etc/scripts/checkroot.sh：mount -n -o remount,$rootmode /（依据 /etc/fstab 以 rw 重挂根文件系统），使脚本对 /etc/passwd 的覆盖写可行；/etc/init.d/rcS 顺序执行 rc0..rc63 完成启动",
+    "telnetd 为 busybox applet（usr/sbin/telnetd → bin/busybox，md5 2476b288487c26e69f4656b150a41e38），identification 亦将其列为 IN-001 公网输入 23/tcp",
+    "同一固定哈希在镜像中作为唯一口令来源，所有同型号设备共享，具备可离线爆破（hashcat -m 1800）并由单一口令横向通杀的特征"
+  ],
+  "session_id": "s-mudsq59m-4d91",
+  "preconditions": "设备已完成初始化（/etc/init_54FW 被调用，本镜像内未见其它脚本显式引用该路径，静态无法确认调用者）；23/tcp 可达（identification IN-001，autostart 未确认）",
+  "exploit_sketch": "1) 从固件镜像或设备文件系统取出 /etc/init_54FW 中固定哈希；2) 离线爆破（SHA-512 crypt）或直接使用已知/泄露口令；3) telnet 目标 23 端口以 root 登录获得 root shell；4) 由于口令库被脚本覆盖、与 Web 口令解耦，用户修改管理口令无法阻断该通道。",
+  "remediation": "移除脚本中的固定口令哈希，改为首次启动随机生成（或仅在使用者显式开启调试时创建）；telnetd 默认关闭并以 dropbear/SSH 替代，或限制仅本地串口调试使用；出厂镜像不得包含任何可复用的 root 凭据。",
+  "poc": "获取镜像后离线爆破固定哈希：hashcat -m 1800 '$6$g8QQW/jew$QNWRqE3uFgr9WbAVaJ6fFoX2pS6trDUD29pT5MMvEj2EGj18SqTeSyra6ru2COfBVqut44zVBBS1uLid0mvme0' rockyou.txt\n得到口令后远程登录：\ntelnet <target> 23\nlogin: root\npassword: <爆破所得口令>   → 直接获得 # root shell",
+  "call_chain": "设备初始化阶段执行 /etc/init_54FW → echo 'root:$6$g8QQW/jew$…' > /etc/passwd（固定 root 口令哈希）→ telnetd&（usr/sbin/telnetd → bin/busybox telnetd applet，md5 2476b288487c26e69f4656b150a41e38）→ 23/tcp 接受远程 root 登录",
+  "id": "F-mudtzc51-eb6c",
+  "status": "draft",
+  "owner": "token-admin",
+  "recorded_at": "2026-09-23T08:18:18Z",
+  "history": []
+}

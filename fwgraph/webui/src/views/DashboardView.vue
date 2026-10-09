@@ -557,7 +557,7 @@ function renderCharts () {
     series: [{
       data: (dash.value?.findings_by_severity || [])
         .filter((r) => r.count > 0)
-        .map((r) => ({ name: SEV_LABEL[r.key] || r.key, value: 1, count: r.count, itemStyle: { color: SEV_COLOR[r.key] || '#5F6B85' } }))
+        .map((r) => ({ name: SEV_LABEL[r.key] || r.key, value: r.count, count: r.count, itemStyle: { color: SEV_COLOR[r.key] || '#5F6B85' } }))
     }],
     graphic: [
       { style: { text: String(dash.value?.findings_total ?? 0) } },
@@ -609,13 +609,14 @@ onMounted(() => {
   })
   chRose = echarts.init(elRose.value)
   chRose.setOption({
-    tooltip: { ...TIP, formatter: (p) => `${p.name}：${p.data.count} 个` },
+    tooltip: { ...TIP, formatter: (p) => `${p.name}：${p.data.count} 个（${p.percent}%）` },
     series: [{
-      // 等分扇区：数值统一为 1，真实数量放 label/tooltip（原玫瑰图按数量变径，视觉误导）
-      type: 'pie', radius: ['46%', '72%'], center: ['50%', '50%'],
+      // 2026-09-23：实心饼 + 真实占比（value=count）+ label 百分比；
+      // 中心总数由 graphic 文本层提供
+      type: 'pie', radius: ['0%', '72%'], center: ['50%', '50%'],
       itemStyle: { borderRadius: 5, borderColor: '#0B1120', borderWidth: 2 },
       label: { color: '#8A94AD', fontSize: 10, lineHeight: 14,
-               formatter: (p) => `${p.name}  ${p.data.count}` },
+               formatter: (p) => `${p.name}  ${p.data.count} · ${p.percent}%` },
       labelLine: { length: 10, length2: 10, lineStyle: { color: 'rgba(148,163,184,.25)' } }
     }],
     graphic: [

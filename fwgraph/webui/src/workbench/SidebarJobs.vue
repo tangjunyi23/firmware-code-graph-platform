@@ -37,7 +37,7 @@
         </button>
         <template v-if="isOpen(folder.job.job_id)">
           <div
-            v-for="sess in folder.sessions"
+            v-for="sess in shownSessions(folder.sessions)"
             :key="sess.session_id"
             class="session-row"
             :class="{ selected: activeSid === sess.session_id }"
@@ -63,6 +63,47 @@
             >
               <IconMore :size="14" />
             </button>
+          </div>
+          <div v-if="hiddenSessions(folder.sessions).length" class="older-block">
+            <button
+              type="button"
+              class="older-head"
+              @click="toggleOlder(folder.job.job_id)"
+            >
+              <IconChevronDownOutline14 class="arrow" :class="{ open: olderOpen.has(folder.job.job_id) }" :size="12" />
+              <span>更早会话 {{ hiddenSessions(folder.sessions).length }}</span>
+              <span
+                class="older-arch"
+                title="将这些已完成会话全部归档"
+                @click.stop="$emit('archive-many', hiddenSessions(folder.sessions).map((s) => s.session_id))"
+              >归档</span>
+            </button>
+            <template v-if="olderOpen.has(folder.job.job_id)">
+              <div
+                v-for="sess in hiddenSessions(folder.sessions)"
+                :key="sess.session_id"
+                class="session-row dim"
+                :class="{ selected: activeSid === sess.session_id }"
+              >
+                <button
+                  type="button"
+                  class="session-main"
+                  @click="$emit('select', { sid: sess.session_id, jobId: folder.job.job_id })"
+                >
+                  <span class="dot" :data-on="sess.status === 'running' || undefined" :data-wait="sess.status === 'awaiting_continue' || undefined" />
+                  <span class="title" :title="sess.task || sess.session_id">{{ sessTitle(sess) }}</span>
+                  <span class="sess-time">{{ relTime(sess) }}</span>
+                </button>
+                <button
+                  type="button"
+                  class="sess-act"
+                  :title="t('session.more')"
+                  @click.stop="openMenu($event, sess, folder.job.job_id)"
+                >
+                  <IconMore :size="14" />
+                </button>
+              </div>
+            </template>
           </div>
           <button
             v-if="!folder.sessions.length"
@@ -185,7 +226,7 @@ const props = defineProps({
   jobId: { type: String, default: '' }
 })
 const emit = defineEmits([
-  'select', 'select-job', 'new-session', 'stop', 'archive', 'unarchive', 'purge-archived'
+  'select', 'select-job', 'new-session', 'stop', 'archive', 'archive-many', 'unarchive', 'purge-archived'
 ])
 
 const catalog = inject('wbCatalog')
@@ -209,17 +250,45 @@ function toggleFolder (id) {
   else next.add(id)
   openFolders.value = next
 }
-function onProjectClick (folder) {
-  toggleFolder(folder.job.job_id)
-  if (!folder.sessions.length) emit('select-job', folder.job)
+
+function sessTitle (sess) {
+  let task = String(sess.task || '')
+    .split('\n')[0]
+    .replace(/【[^】]*】/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+  // 新任务书前缀「本次挖掘目标」；旧会话仍是「用户希望挖到」
+  const wish = task.match(/^(?:本次挖掘目标|用户希望挖到)[:：]\s*(.+?)(?:。|$)/)
+  if (wish) task = wish[1].trim()
+  if (!task) return sess.session_id || '未命名对话'
+  // 2026-09-23：侧栏任务名截断（首行 ≤14 字，全文在 title 悬停提示）
+  return task.length > 14 ? task.slice(0, 14) + '…' : task
 }
-watch(() => props.jobId, (id) => {
-  if (id) {
-    const next = new Set(openFolders.value)
-    next.add(id)
-    openFolders.value = next
+
+const DONE_STATES = new Set(['done', 'error', 'interrupted'])
+function splitDone (list) {
+  const live = []
+  const done = []
+  for (const s of list) {
+    ;(DONE_STATES.has(s.status) ? done : live).push(s)
   }
-})
+  return { live, done }
+}
+function shownSessions (list) {
+  const { live, done } = splitDone(list)
+  return [...live, ...done.slice(0, 3)]
+}
+function hiddenSessions (list) {
+  return splitDone(list).done.slice(3)
+}
+
+const olderOpen = ref(new Set())
+function toggleOlder (jobId) {
+  const next = new Set(olderOpen.value)
+  if (next.has(jobId)) next.delete(jobId)
+  else next.add(jobId)
+  olderOpen.value = next
+}
 
 function activeOf (sessions) {
   return (sessions || []).filter((s) => !s.archived)
@@ -246,15 +315,6 @@ const archived = computed(() =>
 function firmwareLabel (job) {
   const name = String(job?.firmware || job?.job_id || '').trim()
   return name.replace(/\.(bin|img|chk|trx|tar|gz|zip)$/i, '') || job?.job_id || '未命名固件'
-}
-
-function sessTitle (sess) {
-  let task = (sess.task || '').replace(/\s+/g, ' ').trim()
-  // 新任务书前缀「本次挖掘目标」；旧会话仍是「用户希望挖到」
-  const wish = task.match(/^(?:本次挖掘目标|用户希望挖到)[:：]\s*(.+?)(?:。|$)/)
-  if (wish) task = wish[1].trim()
-  if (!task) return sess.session_id || '未命名对话'
-  return task
 }
 
 // 相对时间：同名会话靠它区分（"3 小时前"）
@@ -398,6 +458,24 @@ html[data-fw-theme='light'] .rail {
   gap: 8px;
   margin-top: 10px;
 }
+.older-block { margin-top: 2px; }
+.older-head {
+  display: flex; align-items: center; gap: 6px;
+  width: 100%; padding: 3px 6px 3px 18px;
+  border: none; background: transparent; cursor: pointer;
+  color: var(--dsw-alias-label-tertiary); font-size: 11.5px;
+}
+.older-head:hover { color: var(--dsw-alias-label-secondary); }
+.older-head .arrow { transition: transform .15s ease; }
+.older-head .arrow:not(.open) { transform: rotate(-90deg); }
+.older-arch {
+  margin-left: auto; padding: 1px 8px;
+  border-radius: 999px; font-size: 11px;
+  color: var(--fw-brand, #5b8cff);
+  background: rgba(91, 140, 255, .12);
+}
+.older-arch:hover { background: rgba(91, 140, 255, .2); }
+.session-row.dim .title { opacity: .6; }
 .purge {
   border: none;
   background: transparent;

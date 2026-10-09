@@ -20,6 +20,7 @@
         @new-session="onNewSession"
         @stop="onStopSession"
         @archive="onArchiveSession"
+        @archive-many="onArchiveMany"
         @unarchive="onUnarchiveSession"
         @purge-archived="onPurgeArchived"
       />
@@ -405,6 +406,21 @@ async function onArchiveSession ({ sid }) {
   } catch (err) {
     notice.value = { level: 'error', text: err.message || '归档失败' }
   }
+}
+
+async function onArchiveMany (sids) {
+  // 侧栏"更早会话"组的一键归档（2026-09-23：终态堆积治理）
+  let ok = 0
+  for (const sid of sids || []) {
+    try {
+      await api(`/vulnagent/sessions/${sid}`, {
+        method: 'PATCH', body: { archived: true }
+      })
+      ok += 1
+    } catch { /* 单个失败不阻断批量 */ }
+  }
+  if (ok) catalog.refresh()
+  else notice.value = { level: 'error', text: '归档失败，请重试' }
 }
 
 async function onUnarchiveSession ({ sid }) {

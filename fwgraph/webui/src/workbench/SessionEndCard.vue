@@ -15,10 +15,10 @@
         </div>
         <div class="end-actions">
           <button type="button" class="end-btn primary" @click="goReports">
-            前往报告中心查看完整报告
+            查看完整报告
           </button>
           <button type="button" class="end-btn ghost" @click="newHunt">
-            开始新一轮挖掘
+            新一轮挖掘
           </button>
         </div>
       </div>
@@ -94,5 +94,6 @@ function newHunt () {
 .end-btn.primary { background: #16a34a; color: #fff; }
 .end-btn.primary:hover { background: #15803d; }
 .end-btn.ghost { background: transparent; color: inherit; border: 1px solid rgba(128, 128, 128, .4); }
+.end-btn.ghost:hover { background: var(--dsw-alias-interactive-bg-hover, rgba(128, 128, 128, .08)); }
 [data-wb-theme='dark'] .end-inner { border-color: rgba(74, 222, 128, .4); }
 </style>

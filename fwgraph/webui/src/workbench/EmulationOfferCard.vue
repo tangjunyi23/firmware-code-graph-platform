@@ -5,7 +5,7 @@
         <span class="emu-ico">🧪</span>
         <div class="emu-title">
           <b>挖掘完成 · 固件模拟真实测试</b>
-          <span>{{ note || '静态与动态验证已闭环，可在真实服务环境中验证 PoC 落地。' }}</span>
+          <span>静态与动态验证已闭环，可在真实服务环境中验证 PoC 落地。</span>
         </div>
       </div>
       <div class="emu-actions">
@@ -20,7 +20,7 @@
           class="emu-btn ghost"
           :disabled="busy"
           @click="decline"
-        >跳过，仅收尾</button>
+        >跳过模拟</button>
       </div>
       <p v-if="error" class="emu-err">{{ error }}</p>
     </div>
@@ -81,8 +81,8 @@ function decline () { answer('不进行固件模拟，直接收尾即可。') }
 .emu-ico { font-size: 20px; line-height: 1.2; }
 .emu-title { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .emu-title b { font-size: 14px; }
-.emu-title span { font-size: 12.5px; opacity: .75; }
-.emu-actions { display: flex; gap: 10px; margin-top: 12px; }
+.emu-title span { font-size: 12.5px; opacity: .75; line-height: 1.55; }
+.emu-actions { display: flex; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
 .emu-btn {
   border: none; border-radius: 10px; padding: 8px 16px;
   font-size: 13px; font-weight: 600; cursor: pointer;
@@ -90,6 +90,7 @@ function decline () { answer('不进行固件模拟，直接收尾即可。') }
 .emu-btn.primary { background: #2563eb; color: #fff; }
 .emu-btn.primary:hover { background: #1d4ed8; }
 .emu-btn.ghost { background: transparent; color: inherit; border: 1px solid rgba(128, 128, 128, .4); }
+.emu-btn.ghost:hover { background: var(--dsw-alias-interactive-bg-hover, rgba(128, 128, 128, .08)); }
 .emu-btn:disabled { opacity: .55; cursor: default; }
 .emu-err { margin: 8px 0 0; font-size: 12px; color: #e11d48; }
 [data-wb-theme='dark'] .emu-card > div { border-color: rgba(96, 165, 250, .4); }
