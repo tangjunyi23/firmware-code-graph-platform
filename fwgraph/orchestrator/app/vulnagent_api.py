@@ -1505,6 +1505,15 @@ def setup(app: FastAPI, require_token) -> None:
                         fh.write(f"[vulnagent_api] first prompt failed: {exc}\n")
                 except OSError:
                     pass
+
+        threading.Thread(target=_boot_and_prompt, daemon=True,
+                         name=f"dsh-boot-{sid}").start()
+        _ensure_autopilot(sid)
+        accounts.audit(principal["username"], "session_start",
+                       f"{sid} engine=dsh-web job={gate_job} mode={mode}")
+        _bind_hunt_session(gate_job, sid)
+        return {"session_id": sid, "status": "running",
+                "engine": "dsh-web", "max_turns": max_turns}
     # 编排器重启后 running 会话的自动驾驶线程随进程丢失——启动时恢复，
     # 否则完成/错误无人接管（2026-09-22 实测：重启后 turn completed 停滞
     # 9 分钟无人收尾）。

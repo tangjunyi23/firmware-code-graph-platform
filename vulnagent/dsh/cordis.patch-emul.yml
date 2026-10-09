@@ -97,7 +97,11 @@
 - id: agent-default-model
   config:
     provider: deepseek-official
-    model: deepseek-v4.1-flash
+    model: glm-5.3
+
+- id: llm-deepseek
+  config:
+    maxTokens: 131072
 
 - insert:
     - id: fwgraph-emul-tools

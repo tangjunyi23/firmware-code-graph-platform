@@ -160,9 +160,9 @@ def resolve_route() -> dict:
     primary = {
         "base": _strip_v1(primary_base_raw),
         "key": env_file.get("LLM_API_KEY", ""),
-        "model": "deepseek-v4.1-flash",
+        "model": env_file.get("LLM_MODEL", "") or "deepseek-v4.1-flash",
         "source": "primary",
-        "label": "opencode go（主）",
+        "label": env_file.get("LLM_LABEL", "") or "主网关",
     }
     fb = load_llm_settings()
     fallback = {

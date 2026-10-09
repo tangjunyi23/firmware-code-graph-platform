@@ -55,12 +55,17 @@
       不要跳到无关二进制。
       禁止把 trace 表、能力验收、平台修复说明写进对用户可见回复。
 
-# 默认模型：deepseek-v4.1-flash（覆盖 dsh-base agent-default-model 行的
-# deepseek-flash；该 ID 经 opencode go 网关实测 200 可用）
+# 默认模型：glm-5.3（bigmodel Anthropic 兼容端点，经 DEEPSEEK_BASE_URL/
+# DEEPSEEK_API_KEY 环境注入；provider 名不变——它只是消息协议适配层）
 - id: agent-default-model
   config:
     provider: deepseek-official
-    model: deepseek-v4.1-flash
+    model: glm-5.3
+
+# GLM 网关单响应上限 131072，覆盖 llm-deepseek 默认 256k（否则 1210 参数非法）
+- id: llm-deepseek
+  config:
+    maxTokens: 131072
 
 # ── 禁用出站与子代理；保留沙箱 bash/文件读写供写 PoC、本地验证 ────────
 # bash-sandbox / fs 工具行保持启用（会话 cwd 是 session/workspace，不是解包树）。
