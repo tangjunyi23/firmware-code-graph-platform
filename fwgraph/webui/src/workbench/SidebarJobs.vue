@@ -251,6 +251,11 @@ function toggleFolder (id) {
   openFolders.value = next
 }
 
+function onProjectClick (folder) {
+  toggleFolder(folder.job.job_id)
+  if (!folder.sessions.length) emit('select-job', folder.job)
+}
+
 function sessTitle (sess) {
   let task = String(sess.task || '')
     .split('\n')[0]
