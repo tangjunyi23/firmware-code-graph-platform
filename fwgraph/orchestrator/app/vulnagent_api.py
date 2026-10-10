@@ -82,6 +82,7 @@ _JOB_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 _TRACE_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 
 _FINDINGS_LOCK = threading.Lock()
+_SESSION_START_LOCK = threading.RLock()
 
 # session_id -> subprocess.Popen of the CLI runner (dies with this process'
 # knowledge only; the child itself is start_new_session=True so a service
@@ -229,6 +230,25 @@ def _effective_status(sid: str, state: dict) -> str:
     return status
 
 
+def _finding_ids_by_session() -> dict[str, list[str]]:
+    result: dict[str, list[str]] = {}
+    fdir = VULNAGENT_HOME / "findings"
+    if not fdir.is_dir():
+        return result
+    for f in sorted(fdir.glob("F-*.json")):
+        try:
+            doc = json.loads(f.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(doc, dict):
+            continue
+        sid = doc.get("session_id")
+        fid = str(doc.get("id") or "")
+        if isinstance(sid, str) and sid and _FID_RE.match(fid):
+            result.setdefault(sid, []).append(fid)
+    return result
+
+
 def _session_finding_ids(sid: str) -> list:
     """Live finding ids for a session (disk is source of truth while running)."""
     found = []
@@ -245,7 +265,7 @@ def _session_finding_ids(sid: str) -> list:
     return found
 
 
-def _session_summary(sdir: Path) -> dict:
+def _session_summary(sdir: Path, finding_ids: dict[str, list[str]] | None = None) -> dict:
     state = _read_state(sdir)
     sid = state.get("session_id", sdir.name)
     return {
@@ -254,7 +274,7 @@ def _session_summary(sdir: Path) -> dict:
         "await_note": state.get("await_note") or "",
         "status": _effective_status(sid, state),
         "turns": state.get("turns", 0),
-        "findings": _session_finding_ids(sid) or state.get("findings", []),
+        "findings": (finding_ids.get(sid, []) if finding_ids is not None else _session_finding_ids(sid)) or state.get("findings", []),
         "usage": state.get("usage", {}),
         "created_at": state.get("created_at"),
         "updated_at": state.get("updated_at"),
@@ -1001,6 +1021,37 @@ def _emulation_goal(state: dict) -> str:
 AUTOPILOT_POLL = float(os.getenv("VULNAGENT_AUTOPILOT_POLL", "20"))
 AUTOPILOT_IDLE_DONE = float(os.getenv("VULNAGENT_AUTOPILOT_IDLE_DONE", "120"))
 AUTOPILOT_MAX_RETRIES = int(os.getenv("VULNAGENT_AUTOPILOT_MAX_RETRIES", "3"))
+AUTOPILOT_IDLE_NUDGES = int(os.getenv("VULNAGENT_AUTOPILOT_IDLE_NUDGES", "2"))
+
+
+def _turn_is_idling(events: list, turn_end: dict) -> bool:
+    """空转回合（借鉴 ARTEX isThinkingOnlyTurn）：本轮既无正文输出也无
+    工具调用——通常只有思考。它不是错误（harness 视为自然完成），但
+    任务实际断在半路，五层重试一层都够不着，必须编排层续推。"""
+    tdata = turn_end.get("data") or {}
+    want_turn = tdata.get("turn")
+    end_time = turn_end.get("time") or 0
+    started = False
+    for ev in events:
+        if ev is turn_end:
+            break
+        d = ev.get("data") or {}
+        if ev.get("type") == "turn/start" and d.get("turn") == want_turn:
+            started = True
+            continue
+        if not started or (ev.get("time") or 0) > end_time:
+            continue
+        if d.get("turn") != want_turn:
+            continue
+        if ev.get("type") == "tool/call":
+            return False
+        if ev.get("type") == "assistant/message":
+            for blk in (d.get("message") or {}).get("content") or []:
+                if (blk.get("type") == "text"
+                        and str(blk.get("text") or "").strip()):
+                    return False
+    return started
+
 _TRANSIENT_MARKERS = ("malformed_response", "empty_response", "timeout",
                       "timed out", "econnreset", "econnrefused", "socket",
                       "stream ended before", "stream_closed",
@@ -1090,6 +1141,11 @@ def _autopilot(sid: str) -> None:
                 if _recent and time.time() * 1000 - max(
                         e.get("time") or 0 for e in _recent) < 120_000:
                     continue
+                try:
+                    from orchestrator.app import llm_settings as _llm_mod
+                    _llm_mod.note_primary_failure(err_msg)
+                except Exception:  # noqa: BLE001 - 探针失败不影响自愈
+                    pass
                 if retries >= AUTOPILOT_MAX_RETRIES or not _error_is_transient(err_msg):
                     if state.get("status") == "running":
                         state["status"] = "error"
@@ -1110,6 +1166,12 @@ def _autopilot(sid: str) -> None:
                 time.sleep(AUTOPILOT_POLL)
                 continue
             if reason.get("kind") in ("completed", "interrupted"):
+                try:
+                    from orchestrator.app import llm_settings as _llm_mod
+                    if reason.get("kind") == "completed":
+                        _llm_mod.note_primary_success()
+                except Exception:  # noqa: BLE001
+                    pass
                 ts = turn_end.get("time") or 0
                 idle_s = (time.time() * 1000 - ts) / 1000 if ts else 0
                 # 只认真正的新 turn；host 已死时队列消息永远不会被消费
@@ -1128,6 +1190,68 @@ def _autopilot(sid: str) -> None:
                 _idle_gate = 5 if (state.get("emulation_offered")
                                    and not state.get("emulation_replied")
                                    ) else AUTOPILOT_IDLE_DONE
+                # —— 空转回合续推（借鉴 ARTEX steerHooks.Stop）：本轮既无
+                # 正文也无工具调用 = 任务断在半路而 harness 视为自然完成；
+                # 注入续跑指令，配额按会话总量计防病态循环。 ——
+                if (reason.get("kind") == "completed" and not has_newer
+                        and _turn_is_idling(events, turn_end)):
+                    nudges = int(state.get("idle_nudges") or 0)
+                    if nudges < AUTOPILOT_IDLE_NUDGES:
+                        state["idle_nudges"] = nudges + 1
+                        _save_state(sdir, state)
+                        try:
+                            _manager().rpc(sid, sdir, state,
+                                           "session.prompt", {
+                                               "mode": "queue",
+                                               "content": [{"type": "text",
+                                                            "text":
+                                                            "【编排】上一轮只"
+                                                            "输出了思考过程，"
+                                                            "没有正文也没有"
+                                                            "工具调用，任务没"
+                                                            "有推进。请直接执"
+                                                            "行你刚才想好的"
+                                                            "下一步：要么调用"
+                                                            "工具取证，要么给"
+                                                            "出结论文字。"}]})
+                        except Exception:  # noqa: BLE001
+                            pass
+                        time.sleep(AUTOPILOT_POLL)
+                        continue
+                    # 续推配额耗尽：放行，按正常空闲阈值收尾
+                # —— Settlement 收尾轮（借鉴 ARTEX wrapup）：轮次预算到顶
+                # 时先注入一次写回指令（入库未记录的发现 + 总结），避免
+                # agent 已确认未入库的内容随收尾丢失；每会话一次。 ——
+                elif (reason.get("kind") == "completed" and not has_newer
+                      and not state.get("settlement_done")
+                      and host_alive
+                      and int(state.get("turns") or 0)
+                      >= int(state.get("max_turns") or 0)
+                      and not (state.get("emulation_offered")
+                               and not state.get("emulation_replied"))):
+                    state["settlement_done"] = True
+                    _save_state(sdir, state)
+                    try:
+                        _manager().rpc(sid, sdir, state,
+                                       "session.prompt", {
+                                           "mode": "queue",
+                                           "content": [{"type": "text",
+                                                        "text":
+                                                        "【编排】轮次预算已"
+                                                        "到顶，进入收尾轮："
+                                                        "只做两件事——把已确"
+                                                        "认但尚未 record_"
+                                                        "finding 的发现立即"
+                                                        "入库（call_chain+"
+                                                        "poc 齐全才入），"
+                                                        "然后输出最终中文总"
+                                                        "结并停止调用工具。"
+                                                        "禁止开展新分析方"
+                                                        "向。"}]})
+                    except Exception:  # noqa: BLE001
+                        pass
+                    time.sleep(AUTOPILOT_POLL)
+                    continue
                 if idle_s > _idle_gate and (not has_newer
                                             or not host_alive):
                     if (state.get("emulation_offered")
@@ -1209,11 +1333,22 @@ def _charge_turn(sdir: Path, state: dict) -> dict:
     return state
 
 
+def _claim_session_slot(sdir: Path, state: dict) -> None:
+    """Reserve resumed sessions before host startup so the parallel cap stays atomic."""
+    sid = state.get("session_id") or sdir.name
+    with _SESSION_START_LOCK:
+        others = [live for live in _live_sessions() if live != sid]
+        if len(others) >= MAX_PARALLEL:
+            raise HTTPException(status_code=409, detail="运行中的分析会话已达上限，请等待完成后再继续。")
+        state["status"] = "running"
+        state["error"] = ""
+        _save_state(sdir, state)
+
+
 def _save_state(sdir: Path, state: dict) -> None:
     state["updated_at"] = _now()
     try:
-        (sdir / "state.json").write_text(json.dumps(state, indent=2),
-                                         encoding="utf-8")
+        accounts._write_json(sdir / "state.json", state)
     except OSError:
         pass
 
@@ -1444,31 +1579,32 @@ def setup(app: FastAPI, require_token) -> None:
                 status_code=503,
                 detail="未安装 DeepSeek Harness：请将仓库放到 "
                        f"{DSH_REPO} 或设置 DSH_REPO")
-        running = _live_sessions()
-        if len(running) >= MAX_PARALLEL:
-            raise HTTPException(
-                status_code=409,
-                detail=f"{len(running)} sessions already running (cap {MAX_PARALLEL}): "
-                       + ", ".join(running))
-        sid = _new_sid()
-        sdir = VULNAGENT_HOME / "sessions" / sid
-        sdir.mkdir(parents=True, exist_ok=True)
-        state = {
-            "session_id": sid,
-            "agent_id": "vuln-miner-fwgraph (dsh-web)",
-            "environment_id": "fwgraph-dsh-web",
-            "task": task, "status": "running", "turns": 1,
-            "usage": {}, "findings": [],
-            "created_at": _now(), "updated_at": _now(),
-            "engine": "dsh-web",
-            "mode": mode, "job_id": gate_job,
-            "max_turns": max_turns, "owner": principal["username"] or "admin",
-            "approval_policy": (
-                "ask" if str(payload.get("approval_policy") or "auto") == "ask"
-                else "auto"),
-        }
-        (sdir / "state.json").write_text(json.dumps(state, indent=2),
-                                         encoding="utf-8")
+        with _SESSION_START_LOCK:
+            running = _live_sessions()
+            if len(running) >= MAX_PARALLEL:
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"{len(running)} sessions already running (cap {MAX_PARALLEL}): "
+                           + ", ".join(running))
+            sid = _new_sid()
+            sdir = VULNAGENT_HOME / "sessions" / sid
+            sdir.mkdir(parents=True, exist_ok=True)
+            state = {
+                "session_id": sid,
+                "agent_id": "vuln-miner-fwgraph (dsh-web)",
+                "environment_id": "fwgraph-dsh-web",
+                "task": task, "status": "running", "turns": 1,
+                "usage": {}, "findings": [],
+                "created_at": _now(), "updated_at": _now(),
+                "engine": "dsh-web",
+                "mode": mode, "job_id": gate_job,
+                "max_turns": max_turns, "owner": principal["username"] or "admin",
+                "approval_policy": (
+                    "ask" if str(payload.get("approval_policy") or "auto") == "ask"
+                    else "auto"),
+            }
+            (sdir / "state.json").write_text(json.dumps(state, indent=2),
+                                             encoding="utf-8")
 
         def _boot_and_prompt():
             if (_read_state(sdir) or state).get("status") != "running":
@@ -1500,6 +1636,15 @@ def setup(app: FastAPI, require_token) -> None:
                     "content": [{"type": "text", "text": prompt_task}],
                 })
             except Exception as exc:  # noqa: BLE001
+                fresh = _read_state(sdir) or state
+                if fresh.get("status") == "running":
+                    fresh["status"] = "error"
+                    fresh["error"] = f"首次分析指令发送失败：{exc}"
+                    _save_state(sdir, fresh)
+                    try:
+                        _manager().stop(sid, sdir, fresh, reason="prompt-failed", finalize=False)
+                    except Exception:
+                        pass
                 try:
                     with open(sdir / "runner.log", "a", encoding="utf-8") as fh:
                         fh.write(f"[vulnagent_api] first prompt failed: {exc}\n")
@@ -1543,7 +1688,8 @@ def setup(app: FastAPI, require_token) -> None:
     @app.get("/vulnagent/sessions")
     def list_sessions(principal: dict = Depends(require_token)):
         base = VULNAGENT_HOME / "sessions"
-        out = [_session_summary(d) for d in sorted(base.iterdir(), reverse=True)
+        finding_ids = _finding_ids_by_session()
+        out = [_session_summary(d, finding_ids) for d in sorted(base.iterdir(), reverse=True)
                if d.is_dir()] if base.is_dir() else []
         out = [s for s in out if accounts.can_access(principal, s["owner"])]
         out.sort(key=lambda s: s.get("created_at") or "", reverse=True)
@@ -1765,9 +1911,7 @@ def setup(app: FastAPI, require_token) -> None:
         if not msg:
             raise HTTPException(status_code=400, detail="message required")
         if status in ("done", "error", "interrupted"):
-            state["status"] = "running"
-            state["error"] = ""
-            _save_state(sdir, state)
+            _claim_session_slot(sdir, state)
             _manager().undiscard(sid)
         elif status != "running":
             raise HTTPException(status_code=409,
@@ -1782,6 +1926,7 @@ def setup(app: FastAPI, require_token) -> None:
             raise HTTPException(status_code=502,
                                 detail=f"{exc.code}: {exc}") from exc
         accounts.audit(principal["username"], "session_resume", sid)
+        _ensure_autopilot(sid)
         return {"session_id": sid, "status": "running",
                 "turns": state.get("turns"),
                 "max_turns": state.get("max_turns"),
@@ -1800,9 +1945,7 @@ def setup(app: FastAPI, require_token) -> None:
                                 detail="extra_turns must be 1..200")
         turns = int(state.get("turns") or 0)
         state["max_turns"] = turns + extra
-        state["status"] = "running"
-        state["error"] = ""
-        _save_state(sdir, state)
+        _claim_session_slot(sdir, state)
         _manager().undiscard(sid)
         user_text = str((payload or {}).get("message") or "").strip()
         if state.get("emulation_offered"):

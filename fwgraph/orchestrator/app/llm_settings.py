@@ -63,6 +63,102 @@ def load_llm_settings() -> dict:
             merged[k] = os.environ[envk]
     return merged
 
+# ---------------- 主网关被动熔断（借鉴 ARTEX llmpool 编排）----------------
+# 真实会话的 turn 成败即探针（无主动心跳）：
+# - auth/quota/计费类硬故障：首次失败立即熔断（确定性故障重试无意义）；
+# - 瞬时故障：连续 SOFT_TRIP_AFTER 次才熔断；
+# - 熔断冷却阶梯 1m/5m/30m，窗口过期自动回探（半开，由下一次真实流量验证）；
+# - 状态持久化 data/llm_breaker.json，重启不重复踩坑。
+SOFT_TRIP_AFTER = int(os.getenv("LLM_BREAKER_SOFT_TRIPS", "3"))
+COOLDOWN_LADDER = (60.0, 300.0, 1800.0)
+_HARD_MARKERS = ("401", "402", "403", "404", "invalid api key",
+                 "unauthorized", "authentication", "permission denied",
+                 "quota", "billing", "insufficient", "balance", "expired",
+                 "额度", "欠费", "余额", "过期",
+                 # bigmodel 等网关的中文错误原文（2026-10-09 实测：key 失效
+                 # 返回「身份验证失败。」type=1000，英文 marker 全部漏判）
+                 "身份验证", "鉴权失败", "无效的", "认证失败")
+
+_breaker_lock = threading.Lock()
+_breaker: dict = {"fails": 0, "trips": 0, "open_until": 0.0,
+                  "last_error": "", "last_fail_at": 0.0}
+
+
+def _breaker_path() -> Path:
+    return _data_dir() / "llm_breaker.json"
+
+
+def _load_breaker() -> None:
+    global _breaker
+    with _breaker_lock:
+        if _breaker.get("loaded"):
+            return
+        try:
+            raw = json.loads(_breaker_path().read_text(encoding="utf-8"))
+            _breaker.update({k: raw.get(k, _breaker[k]) for k in
+                             ("fails", "trips", "open_until",
+                              "last_error", "last_fail_at")})
+        except (OSError, ValueError):
+            pass
+        _breaker["loaded"] = True
+
+
+def _save_breaker() -> None:
+    try:
+        _breaker_path().write_text(
+            json.dumps({k: _breaker.get(k) for k in
+                        ("fails", "trips", "open_until", "last_error",
+                         "last_fail_at")}), encoding="utf-8")
+    except OSError:
+        pass
+
+
+def note_primary_failure(err_msg: str) -> None:
+    """autopilot 观察到主网关 turn error 时上报（真实流量探针的失败样本）。"""
+    _load_breaker()
+    msg = str(err_msg or "").lower()
+    with _breaker_lock:
+        now = time.time()
+        _breaker["last_error"] = str(err_msg or "")[:300]
+        _breaker["last_fail_at"] = now
+        hard = any(m in msg for m in _HARD_MARKERS)
+        _breaker["fails"] = _breaker.get("fails", 0) + 1
+        if hard or _breaker["fails"] >= SOFT_TRIP_AFTER:
+            trips = min(int(_breaker.get("trips", 0)) + 1, len(COOLDOWN_LADDER))
+            _breaker["trips"] = trips
+            _breaker["open_until"] = now + COOLDOWN_LADDER[trips - 1]
+            _breaker["fails"] = 0
+            _save_breaker()
+
+
+def note_primary_success() -> None:
+    """turn 正常完成即复位（窗口内成功 = 半开验证通过）。"""
+    _load_breaker()
+    with _breaker_lock:
+        if _breaker.get("fails") or _breaker.get("trips"):
+            _breaker["fails"] = 0
+            _breaker["trips"] = 0
+            _breaker["open_until"] = 0.0
+            _save_breaker()
+
+
+def primary_breaker_open() -> bool:
+    """熔断窗口内返回 True（resolve_route 据此跳过主网关探活）。"""
+    _load_breaker()
+    with _breaker_lock:
+        return time.time() < float(_breaker.get("open_until") or 0.0)
+
+
+def breaker_status() -> dict:
+    _load_breaker()
+    with _breaker_lock:
+        out = {k: _breaker.get(k) for k in
+               ("fails", "trips", "open_until", "last_error", "last_fail_at")}
+    out["open"] = time.time() < float(out.get("open_until") or 0.0)
+    out["cooldown_remaining_s"] = max(
+        0.0, float(out.get("open_until") or 0.0) - time.time())
+    return out
+
 
 def save_llm_settings(section: dict) -> dict:
     cur = load_llm_settings()
@@ -177,17 +273,18 @@ def resolve_route() -> dict:
         return primary
     if force in ("fallback", "ark", "backup"):
         return fallback
-    if primary_base_raw and probe_primary(primary_base_raw):
+    open_ = primary_base_raw and primary_breaker_open()
+    if not open_ and primary_base_raw and probe_primary(primary_base_raw):
         return primary
-    # 主网关探活失败也不盲切：备用网关必须网络可达才切。备用订阅过期
-    # 时切过去只会让整会话立即报错（2026-09-22 实测：主网关单次抖动
-    # 误杀 + ark AgentPlan 过期 → 会话崩）；留在主网关交给 dsh llm-retry
-    # 的 5 次退避兜底。
+    # 主网关不可用（探活失败或被动熔断窗口内）也不盲切：备用网关必须
+    # 网络可达才切。备用订阅过期时切过去只会让整会话立即报错
+    # （2026-09-22 实测）；留在主网关交给 dsh llm-retry 的退避兜底。
+    # 熔断窗口过期 = 半开，回到主网关由下一次真实流量验证。
     if probe_fallback():
+        fallback["label"] += "（主网关熔断窗口内）" if open_ else ""
         return fallback
     primary["label"] += "（备用不可达，保持主网关）"
     return primary
-
 
 def status() -> dict:
     env_file = _vulnagent_env()
@@ -197,6 +294,7 @@ def status() -> dict:
         "primary_ok": probe_primary(env_file.get("LLM_BASE_URL", "")),
         "active_source": route["source"],
         "active_label": route["label"],
+        "primary_breaker": breaker_status(),
         "fallback": {k: v for k, v in load_llm_settings().items()
                      if k != "key"} | {"key_set": bool(
                          load_llm_settings().get("key"))},

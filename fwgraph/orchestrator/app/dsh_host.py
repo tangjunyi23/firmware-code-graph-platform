@@ -892,6 +892,13 @@ class DshHostManager:
                 return
             err = reason.get("error") or {}
             message = str(err.get("message") or "turn error")[:300]
+            # LLM 被动熔断探针：所有 turn error 的汇聚点（无论 mux 快路径
+            # 还是 autopilot 轮询路径都经过这里）。
+            try:
+                from orchestrator.app import llm_settings as _llm_mod
+                _llm_mod.note_primary_failure(message)
+            except Exception:  # noqa: BLE001 - 探针失败不影响错误落地
+                pass
             if state.get("status") != "running":
                 return
             state["status"] = "error"
