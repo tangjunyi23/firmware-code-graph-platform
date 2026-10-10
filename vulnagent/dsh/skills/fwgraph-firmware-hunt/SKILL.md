@@ -30,6 +30,7 @@ user-invocable: false
    - 识别到首选网络入口的 binary_md5 后立刻 fw_request_trace。网络入口：port + payload/payloads_hex。解析器/CLI/文件：via=stdin 或 input_path=/tmp/…（网络空差分就改走 stdin，不要死磕端口）。再 fw_get_trace 等到结束。
    - fw_list_traces 若为空，只说明还没跑过，不是“找不到动态资源”。
    - 需要时 fw_request_fuzz + fw_get_fuzz_run。要验证一条 PoC 会不会崩，用 fw_qemu_exec（stdin/stdin_hex 或 input_path=/tmp/…）。
+   - 构造超长填充（溢出 PoC 的长 Host/长字段/长 stdin）必须用 `@repeat(A,2041)` 占位符（fw_request_trace 的 payload 与 fw_qemu_exec 的 stdin 支持展开），**禁止手写长重复串**——模型数不准自己的重复次数，手写长度失控必被 8192 上限拒绝并陷入重试循环。
    - md5 对不上路径时用 fw_list_binaries（硬链接/符号链接会共用 md5）。
 4. 静态判定的最后一公里必须走完：鉴权开关、硬编码表项、动作函数指
    针等在 .data/.rodata 的决定性字节，用 `fw_read_bytes(vaddr=…)` 直读

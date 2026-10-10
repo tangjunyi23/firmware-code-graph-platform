@@ -200,6 +200,20 @@ export function asJson(value) {
   return JSON.parse(JSON.stringify(value))
 }
 
+const REPEAT_RE = /@repeat\((.{1,8}?),\s*(\d{1,7})\)/g
+const REPEAT_MAX = 65536
+
+/** Expand `@repeat(A,2041)` placeholders into exact character counts.
+ *  LLMs cannot reliably hand-type long runs of one character: a claimed
+ *  "2041 A's" Host header measured 74K..232K bytes across retries (every
+ *  retry re-appended the previous attempt) and looped on the 8192-byte
+ *  budget rejection. The placeholder keeps generation O(1) for the model. */
+export function expandPayload(value) {
+  if (typeof value !== 'string' || !value.includes('@repeat(')) return value
+  return value.replace(REPEAT_RE, (_m, ch, count) =>
+    ch.repeat(Math.min(Number(count), REPEAT_MAX)))
+}
+
 export function compactDiffFns(fns, limit = 24) {
   const out = []
   for (const f of fns || []) {
@@ -768,8 +782,7 @@ export function apply(ctx, config) {
       port: { type: 'integer' },
       request_path: { type: 'string' },
       argv0: { type: 'string', description: 'Forge guest argv[0] for busybox multicall' },
-      payload: { type: 'string', description: 'Raw UTF-8 bytes to send on the port (FTP USER, SOAP POST, SSH line). Mutually exclusive with payload_hex/payloads_hex.' },
-      payload_hex: { type: 'string', description: 'Raw hex bytes to send (SMB/DNS/binary overflow). Mutually exclusive with payload/payloads_hex.' },
+      payload: { type: 'string', description: 'Raw UTF-8 bytes to send on the port (FTP USER, SOAP POST, SSH line). Mutually exclusive with payload_hex/payloads_hex. Long character runs MUST use @repeat(A,2041) placeholder expansion — never hand-type repeats (counts drift, requests get rejected on the 8192-byte budget).' },
       payloads_hex: { type: 'array', items: { type: 'string' }, description: 'Same-connection conversation: hex blobs sent in order with a short recv between (dropbear banner+KEX, SMB2 negotiate+session). Exclusive with payload/payload_hex. Max 8.' },
       via: { type: 'string', enum: ['net', 'stdin'], description: 'stdin = payload on qemu stdin (parsers). net = listen-port trigger. Default: stdin if payload and no port, else net.' },
       input_path: { type: 'string', description: 'Guest /tmp/<name> to drop payload as a file (file parsers).' },
@@ -786,7 +799,7 @@ export function apply(ctx, config) {
         ...(args.port ? { port: Number(args.port) } : {}),
         ...(args.request_path ? { request_path: args.request_path } : {}),
         ...(args.argv0 ? { argv0: args.argv0 } : {}),
-        ...(args.payload ? { payload: String(args.payload) } : {}),
+        ...(args.payload ? { payload: expandPayload(String(args.payload)) } : {}),
         ...(args.payload_hex ? { payload_hex: String(args.payload_hex) } : {}),
         ...(Array.isArray(args.payloads_hex) ? { payloads_hex: args.payloads_hex.map(String) } : {}),
         ...(args.via ? { via: String(args.via) } : {}),
@@ -845,7 +858,7 @@ export function apply(ctx, config) {
       binary_md5: { type: 'string' },
       argv: { type: 'array', items: { type: 'string' } },
       argv0: { type: 'string' },
-      stdin: { type: 'string', description: 'Bytes on qemu stdin (parsers that read stdin).' },
+      stdin: { type: 'string', description: 'Bytes on qemu stdin (parsers that read stdin). Long character runs MUST use @repeat(A,2041) placeholder expansion — never hand-type repeats.' },
       stdin_hex: { type: 'string', description: 'Hex stdin; exclusive with stdin.' },
       input_path: { type: 'string', description: 'Guest path /tmp/<name> to drop the bytes as a file.' },
       seconds: { type: 'integer', description: 'Hard cap 2..20, default 8' },
@@ -860,7 +873,7 @@ export function apply(ctx, config) {
         argv: Array.isArray(args.argv) ? args.argv : [],
         seconds: Math.min(Number(args.seconds ?? 8), 20),
         ...(args.argv0 ? { argv0: String(args.argv0) } : {}),
-        ...(args.stdin ? { stdin: String(args.stdin) } : {}),
+        ...(args.stdin ? { stdin: expandPayload(String(args.stdin)) } : {}),
         ...(args.stdin_hex ? { stdin_hex: String(args.stdin_hex) } : {}),
         ...(args.input_path ? { input_path: String(args.input_path) } : {}),
       }
