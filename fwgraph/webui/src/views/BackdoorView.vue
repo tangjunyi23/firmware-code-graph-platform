@@ -29,7 +29,8 @@
         @dragover.prevent="dragOver = true"
         @dragleave.prevent="dragOver = false"
         @drop.prevent="onDrop"
-        @click="fileInput.click()"
+        role="button" tabindex="0" aria-label="选择固件文件"
+        @keydown.enter.prevent="fileInput.click()" @keydown.space.prevent="fileInput.click()" @click="fileInput.click()"
       >
         <input ref="fileInput" type="file" class="hidden" :accept="FW_ACCEPT" @change="onPick" />
         <strong>{{ uploadName || '把固件拖到这里现场检测，或点击选择' }}</strong>

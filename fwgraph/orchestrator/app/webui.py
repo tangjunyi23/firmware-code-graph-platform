@@ -56,6 +56,22 @@ def _make_client() -> httpx.AsyncClient:
     return httpx.AsyncClient(timeout=httpx.Timeout(PROXY_TIMEOUT, connect=5.0),
                              follow_redirects=True)
 
+_shared_client_inst: httpx.AsyncClient | None = None
+_shared_client_builder = None
+
+
+async def _shared_client() -> httpx.AsyncClient:
+    """Process-wide proxy client (connection reuse). The builder identity
+    check keeps test injection working: a monkeypatched _make_client
+    invalidates the shared instance immediately."""
+    global _shared_client_inst, _shared_client_builder
+    if (_shared_client_builder is not _make_client
+            or _shared_client_inst is None
+            or _shared_client_inst.is_closed):
+        _shared_client_inst = _make_client()
+        _shared_client_builder = _make_client
+    return _shared_client_inst
+
 
 # Session tokens minted by accounts.create_session carry this prefix
 # (accounts._TOKEN_PREFIX); only they may authenticate via URL query params.
@@ -121,7 +137,9 @@ async def _proxy(request: Request, upstream_path: str, rewrite_html: bool) -> Re
         raise HTTPException(status_code=401, detail="invalid or missing bearer token")
     query = httpx.QueryParams(
         [(k, v) for k, v in request.query_params.multi_items() if k != "token"])
-    client = _make_client()
+    # one shared client: every CBM iframe XHR flows through this proxy and
+    # a per-request AsyncClient paid a fresh connection pool each time
+    client = await _shared_client()
     try:
         upstream = await client.request(
             request.method,
@@ -133,8 +151,6 @@ async def _proxy(request: Request, upstream_path: str, rewrite_html: bool) -> Re
     except httpx.HTTPError as exc:
         raise HTTPException(status_code=502,
                             detail=f"cbm ui unreachable: {type(exc).__name__}") from exc
-    finally:
-        await client.aclose()
 
     content = upstream.content
     headers = {}

@@ -92,7 +92,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { api } from '../api'
 import CodeViewer from '../components/CodeViewer.vue'
@@ -106,9 +106,14 @@ const TAG_TYPES = { auth_related: 'danger', network_facing: 'warning', calls_dan
 
 const jobId = ref('')
 const binaries = ref({})
-const functions = ref([])
+const functions = shallowRef([])
+let functionRequest = null
+let sourceRevision = 0
 const loading = ref(false)
 const search = ref('')
+const settledSearch = ref('')
+let searchTimer = null
+watch(search, value => { clearTimeout(searchTimer); searchTimer = setTimeout(() => { settledSearch.value = value }, 160) })
 const tagFilter = ref([])
 const domainFilter = ref('')
 const sortBy = ref('lines')
@@ -141,8 +146,8 @@ function binLabel (f) {
   return b ? `${b.path} (${b.arch})` : f.binary
 }
 const filtered = computed(() => {
-  const q = search.value.trim().toLowerCase()
-  let rows = functions.value
+  const q = settledSearch.value.trim().toLowerCase()
+  let rows = sortedFunctions.value
   if (tagFilter.value.length) {
     rows = rows.filter(f => (f.tags || []).some(t => tagFilter.value.includes(t)))
   }
@@ -155,16 +160,15 @@ const filtered = computed(() => {
       (f.domain || '').toLowerCase().includes(q) ||
       (f.libc_equiv || '').toLowerCase().includes(q))
   }
-  rows = [...rows]
-  if (sortBy.value === 'lines') {
-    rows.sort((a, b) => (b.lines || 0) - (a.lines || 0))
-  } else {
-    rows.sort((a, b) => (a.addr || '').localeCompare(b.addr || ''))
-  }
   return rows
 })
+const sortedFunctions = computed(() => [...functions.value].sort(sortBy.value === 'lines'
+  ? (a,b) => (b.lines || 0) - (a.lines || 0)
+  : (a,b) => (a.addr || '').localeCompare(b.addr || '')))
 
 const domains = computed(() => [...new Set(functions.value.map(f => f.domain).filter(Boolean))].sort())
+
+watch([search, tagFilter, domainFilter, sortBy], () => { page.value = 1 }, { deep: true })
 
 const pageRows = computed(() => {
   const start = (page.value - 1) * pageSize
@@ -173,18 +177,26 @@ const pageRows = computed(() => {
 
 async function loadJob (id) {
   if (!id) return
+  jobId.value = id
+  functionRequest?.abort()
+  const controller = new AbortController()
+  functionRequest = controller
+  sourceRevision += 1
+  funcVisible.value = false
   loading.value = true
   functions.value = []
   binaries.value = {}
   page.value = 1
   try {
-    const r = await api(`/jobs/${id}/functions`)
-    functions.value = r.functions
+    const r = await api(`/jobs/${id}/functions`, { signal: controller.signal })
+    if (controller.signal.aborted || jobId.value !== id) return
+    functions.value = Array.isArray(r.functions) ? r.functions : []
     binaries.value = r.binaries || {}
   } catch (e) {
+    if (controller.signal.aborted) return
     ElMessage.warning('加载函数失败: ' + e.message)
   } finally {
-    loading.value = false
+    if (functionRequest === controller) loading.value = false
   }
 }
 
@@ -198,28 +210,32 @@ async function openFunc (row) {
 
 async function loadSource () {
   if (!current.value) return
+  const revision = ++sourceRevision
   sourceLoading.value = true
   source.value = ''
   const base = `/jobs/${jobId.value}/functions/${current.value.binary}/${current.value.addr}/source`
   try {
-    source.value = await api(srcKind.value === 'asm' ? `${base}?asm=1` : base)
+    const result = await api(srcKind.value === 'asm' ? `${base}?asm=1` : base)
+    if (revision === sourceRevision) source.value = result
   } catch (e) {
+    if (revision !== sourceRevision) return
     if (e.status === 404 && srcKind.value === 'asm') {
       try {
         const c = await api(base)
-        source.value = `// 该函数没有汇编导出，已显示伪代码。\n${c}`
+        if (revision === sourceRevision) source.value = `// 该函数没有汇编导出，已显示伪代码。\n${c}`
       } catch (e2) {
-        source.value = `// 加载伪代码失败: ${e2.message}`
+        if (revision === sourceRevision) source.value = `// 加载伪代码失败: ${e2.message}`
       }
     } else {
       source.value = `// 加载伪代码失败: ${e.message}`
     }
   } finally {
-    sourceLoading.value = false
+    if (revision === sourceRevision) sourceLoading.value = false
   }
 }
 
 defineExpose({ loadJob })
+onBeforeUnmount(() => { functionRequest?.abort(); sourceRevision += 1; clearTimeout(searchTimer) })
 </script>
 
 <style scoped>

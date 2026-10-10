@@ -2,11 +2,15 @@
   <div class="prep">
     <aside class="rail">
       <button type="button" class="new-btn" data-tour="prepare-new" @click="reset">{{ t('prepare.new') }}</button>
-      <div class="section">{{ t('prepare.heading') }}</div>
+      <div class="section"><span>{{ t('prepare.heading') }}</span><span>{{ jobs.length }}</span></div>
+      <el-input v-model="taskQuery" class="prepare-task-search" placeholder="搜索固件任务" aria-label="搜索固件任务" clearable />
+      <div class="task-status-tabs" aria-label="筛选分析任务状态">
+        <button v-for="item in taskFilters" :key="item.key" type="button" :class="{ on: taskFilter === item.key }" :aria-pressed="taskFilter === item.key" @click="taskFilter = item.key">{{ item.label }} <span>{{ item.count }}</span></button>
+      </div>
       <div class="list">
         <p v-if="!jobs.length" class="empty">{{ t('prepare.empty') }}</p>
         <button
-          v-for="job in jobs"
+          v-for="job in filteredJobs"
           :key="job.job_id"
           type="button"
           class="row"
@@ -18,17 +22,25 @@
           <span class="title" :title="job.firmware">{{ job.firmware }}</span>
           <span class="meta">{{ STATUS_TEXT[job.status] || job.status }}</span>
         </button>
+        <p v-if="jobs.length && !filteredJobs.length" class="empty">没有匹配的任务，请调整搜索内容。</p>
       </div>
     </aside>
-    <main class="stage">
+    <main class="stage" :class="{ 'create-stage': !current }">
       <header class="head">
         <div>
           <p class="kicker">分析任务</p>
-          <h1>{{ current ? (current.firmware || '固件任务') : '上传固件，九步自动推进' }}</h1>
-          <p>{{ current ? (STATUS_TEXT[current.status] || current.status) : '解密、解包、反编译、图谱到攻击面，进度会在这里实时播报。' }}</p>
+          <h1>{{ current ? (current.firmware || '固件任务') : '新建固件分析' }}</h1>
+          <p>{{ current ? (STATUS_TEXT[current.status] || current.status) : '上传目标固件，建立代码图谱，持续跟踪安全风险。' }}</p>
         </div>
         <span v-if="current && RUNNING.has(current.status)" class="live"><i />分析进行中</span>
       </header>
+
+      <div v-if="!current" class="prepare-guide" aria-label="固件分析流程">
+        <header class="prepare-guide-head"><span>分析流程</span><b>从固件到证据</b></header>
+        <article><span>01</span><h2>选择目标固件</h2><p>上传固件镜像，或从左侧继续已有的分析任务。</p></article>
+        <article><span>02</span><h2>自动解析与建图</h2><p>完成解密、解包、反编译与攻击面分析，实时查看进度。</p></article>
+        <article><span>03</span><h2>进入安全工作台</h2><p>描述分析目标，沿代码调用链寻找风险与证据。</p></article>
+      </div>
 
       <PipelineCard
         v-if="current"
@@ -44,16 +56,21 @@
 
       <p v-if="current && current.task" class="task">前置提示词：{{ current.task }}</p>
       <p v-if="current && pipelineFinished(current)" class="hint">
-        分析任务已保存。到「新对话」选中该任务即可开始漏洞挖掘。
+        分析任务已保存。到「安全工作台」选中该任务即可开始漏洞挖掘。
       </p>
       <p v-if="notice" class="notice" :class="{ error: notice.level === 'error' }">{{ notice.text }}</p>
 
       <div v-if="!current || !pipelineFinished(current)" class="composer-wrap">
+        <div v-if="!current" class="prepare-form-head"><h2>目标与分析范围</h2><p>选择文件，补充需要重点关注的入口或风险类型。</p></div>
+        <button v-if="!current && !file" type="button" class="prepare-upload" @click="fileInput.click()">
+          <span class="prepare-file-icon"><component :is="NAV_ICONS.Upload" :size="26" /></span><span><b>选择固件文件</b><small>支持 BIN、IMG、TRX、CHK 等固件镜像；选择后可补充分析方向。</small></span>
+        </button>
         <div v-if="file" class="chip">
           <span>{{ file.name }}</span>
           <button type="button" @click="file = null">×</button>
         </div>
-        <textarea
+        <label for="prepare-analysis-note" class="prepare-note-label">分析方向 <span class="muted">· 可选</span></label>
+        <textarea id="prepare-analysis-note"
           v-model="draft"
           class="input"
           rows="3"
@@ -71,7 +88,7 @@
             data-tour="prepare-send"
             :disabled="busy || (!file && !current)"
             @click="onSend"
-          >开始前置分析</button>
+          >创建并开始分析</button>
         </div>
       </div>
       <div v-if="uploadPct !== null" class="toast">正在上传固件… {{ uploadPct }}%</div>
@@ -82,14 +99,28 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { api, uploadFirmware } from '../api.js'
+import { loadJobs, rememberSelectedJob } from '../jobCatalog.js'
 import PipelineCard from '../workbench/PipelineCard.vue'
 import { t } from '../workbench/locales.js'
+import { NAV_ICONS } from '../workbench/icons.js'
 import {
   DEFAULT_PREPARE_TASK, FW_ACCEPT, RUNNING, STATUS_TEXT, pipelineFinished,
   announceSteps, failedStep, failedStepLabel, RETRYABLE_STEPS
 } from '../workbench/pipeline.js'
 
 const jobs = ref([])
+const taskQuery = ref('')
+const taskFilter = ref('all')
+const taskFilters = computed(() => [
+  { key: 'all', label: '全部', count: jobs.value.length },
+  { key: 'ready', label: '已就绪', count: jobs.value.filter(job => job.status !== 'failed' && pipelineFinished(job)).length },
+  { key: 'running', label: '进行中', count: jobs.value.filter(job => RUNNING.has(job.status)).length }
+])
+const filteredJobs = computed(() => {
+  const query = taskQuery.value.trim().toLowerCase()
+  const rows = jobs.value.filter(job => taskFilter.value === 'all' || (taskFilter.value === 'ready' ? job.status !== 'failed' && pipelineFinished(job) : RUNNING.has(job.status)))
+  return query ? rows.filter(job => `${job.firmware || ''} ${job.job_id || ''} ${STATUS_TEXT[job.status] || job.status}`.toLowerCase().includes(query)) : rows
+})
 const current = ref(null)
 const draft = ref('')
 const file = ref(null)
@@ -107,6 +138,9 @@ let timer = null
 let feedSeq = 0
 let seenDecrypt = 0
 let lastJob = null
+let refreshPending = null
+let disposed = false
+let detailRevision = 0
 
 function pushFeed (text, kind = 'info') {
   const line = String(text || '').trim()
@@ -148,9 +182,10 @@ async function retryFailed () {
 }
 
 async function loadDetail (jobId) {
+  const revision = ++detailRevision
   try {
     const detail = await api(`/jobs/${jobId}`)
-    if (!current.value || current.value.job_id !== jobId) return
+    if (disposed || revision !== detailRevision || !current.value || current.value.job_id !== jobId) return
     current.value = { ...current.value, ...detail }
     stats.value = detail.manifest_summary || {}
     const packedN = detail.manifest_summary?.packed_binaries || 0
@@ -170,7 +205,7 @@ async function loadDetail (jobId) {
   } catch { /* keep last */ }
   try {
     const dec = await api(`/jobs/${jobId}/decrypt`)
-    if (!current.value || current.value.job_id !== jobId) return
+    if (disposed || revision !== detailRevision || !current.value || current.value.job_id !== jobId) return
     decrypt.value = dec
     const logs = dec.log || []
     for (const raw of logs.slice(seenDecrypt)) {
@@ -179,13 +214,20 @@ async function loadDetail (jobId) {
     }
     seenDecrypt = logs.length
   } catch {
-    decrypt.value = null
+    if (!disposed && revision === detailRevision && current.value?.job_id === jobId) decrypt.value = null
   }
 }
 
-async function refresh () {
+function refresh () {
+  if (refreshPending) return refreshPending
+  refreshPending = refreshOnce().finally(() => { refreshPending = null })
+  return refreshPending
+}
+
+async function refreshOnce () {
   try {
-    const list = await api('/jobs')
+    const list = await loadJobs({ force: true })
+    if (disposed) return
     jobs.value = Array.isArray(list) ? list : []
     if (current.value) {
       const fresh = jobs.value.find((j) => j.job_id === current.value.job_id)
@@ -202,6 +244,7 @@ async function refresh () {
 }
 
 function reset () {
+  detailRevision += 1
   current.value = null
   file.value = null
   draft.value = ''
@@ -214,6 +257,7 @@ function reset () {
 }
 
 function openJob (job) {
+  rememberSelectedJob(job.job_id)
   feed.value = []
   seenDecrypt = 0
   lastJob = null
@@ -281,9 +325,14 @@ watch(uploadPct, (n) => {
 
 onMounted(() => {
   refresh()
-  timer = setInterval(refresh, 1500)
+  const poll = async () => {
+    if (disposed) return
+    if (!document.hidden) await refresh()
+    if (!disposed) timer = setTimeout(poll, jobs.value.some(j => RUNNING.has(j.status)) ? 4000 : 20000)
+  }
+  timer = setTimeout(poll, 4000)
 })
-onBeforeUnmount(() => { if (timer) clearInterval(timer) })
+onBeforeUnmount(() => { disposed = true; detailRevision += 1; if (timer) clearTimeout(timer) })
 </script>
 
 <style scoped>

@@ -3,18 +3,14 @@
     <!-- 告警滚动条 -->
     <div class="ticker">
       <div class="ticker-label"><span class="dot" />严重告警</div>
-      <div class="ticker-track">
-        <div class="ticker-inner">
-          <template v-for="(item, i) in tickerItems" :key="i">
-            <button
-              v-for="(dup, j) in 2"
-              :key="`${i}-${j}`"
-              type="button"
-              class="tk-item"
-              :class="{ link: !!item.finding }"
-              @click="onTickerClick(item)"
-            >⚠ <span v-html="item.html" /></button>
-          </template>
+      <div ref="tickerTrack" class="ticker-track">
+        <div class="ticker-inner" :style="{ animationDuration: tickerDuration }">
+          <div v-for="copy in 2" :key="copy" class="ticker-group" :aria-hidden="copy === 2 ? 'true' : undefined">
+            <button v-for="(item, i) in tickerItems" :key="i" type="button" class="tk-item" :class="{ link: !!item.finding }"
+                    :tabindex="copy === 2 ? -1 : 0" :title="item.finding?.title || item.label" @click="onTickerClick(item)">
+              <span aria-hidden="true">{{ item.finding ? '⚠' : '•' }}</span><span><b v-if="item.emphasis">{{ item.emphasis }}</b>{{ item.label }}</span>
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -29,7 +25,7 @@
           </svg>
         </div>
         <div class="brand-copy">
-          <h1>FWGraph · 固件威胁态势大屏</h1>
+          <h1 title="FWGraph · 固件威胁态势大屏">FWGraph · 固件威胁态势大屏</h1>
           <p>FIRMWARE THREAT INTELLIGENCE · LIVE</p>
         </div>
       </div>
@@ -102,7 +98,7 @@
               :sectors="radarSectors"
               :targets="radarTargets"
               :center-value="dash?.findings_total ?? 0"
-              center-label="威胁指数"
+              center-label="漏洞总数"
               :period="5.5"
               @select="openDetail"
             />
@@ -110,8 +106,8 @@
           <div class="rail">
             <div class="rail-h">严重 · 待处置<span>{{ critFindings.length }}</span></div>
             <div v-for="(f, i) in critFindings.slice(0, 3)" :key="f.id" class="rc" :style="{ '--j': i }">
-              <div class="rc-name"><span class="rc-dot" />{{ shortName(f.title, 22) }}<span v-if="f.cwe" class="cwe">{{ f.cwe }}</span></div>
-              <div class="rc-meta">{{ f.function_name || f.binary_path?.split('/').pop() || '—' }}{{ f.confidence ? ` · 置信 ${f.confidence}` : '' }}</div>
+              <div class="rc-name" :title="f.title"><span class="rc-dot" />{{ shortName(f.title, 22) }}<span v-if="f.cwe" class="cwe">{{ f.cwe }}</span></div>
+              <div class="rc-meta" :title="f.function_name || f.binary_path">{{ f.function_name || f.binary_path?.split('/').pop() || '—' }}{{ f.confidence ? ` · 置信 ${f.confidence}` : '' }}</div>
             </div>
             <div v-if="!critFindings.length" class="rail-empty">暂无严重级别发现</div>
             <div class="rail-div" />
@@ -152,7 +148,7 @@
           <div class="rail-h">最近报告批次<span>{{ dash?.reports_total || recentReports.length }} 份</span></div>
           <div class="rep-list">
             <div v-for="r in recentReports" :key="r.report_id" class="rep">
-              <span class="rep-name">{{ shortName(r.title, 22) }}</span>
+              <span class="rep-name" :title="r.title">{{ shortName(r.title, 22) }}</span>
               <span class="rep-sev" :class="'sev-' + (SEV_KEY_ZH[r.max_severity] || 'low')">{{ r.max_severity || '无风险' }}</span>
               <b class="rep-n">{{ r.vuln_count }}</b>
             </div>
@@ -176,7 +172,7 @@
                 {{ f.sev === 'critical' ? '告警' : f.ver ? '已验证' : '新发现' }}
               </span>
               <span class="fl-fw">{{ f.fw }}</span>
-              <span class="fl-title">▸ {{ shortName(f.title, 40) }}</span>
+              <span class="fl-title" :title="f.title">▸ {{ shortName(f.title, 40) }}</span>
               <span v-if="f.cwe" class="cwe">{{ f.cwe }}</span>
               <span class="sev" :class="'sev-' + f.sevKey">{{ f.sevLabel }}</span>
               <span v-if="f.conf" class="fl-conf">置信 {{ f.conf }}</span>
@@ -246,7 +242,7 @@
 
 <script setup>
 import * as echarts from 'echarts'
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { api } from '../api'
 import CountUp from '../components/fx/CountUp.vue'
@@ -321,26 +317,36 @@ const critFindings = computed(() =>
   agentFindings.value.filter((f) => f.severity === 'critical').slice(0, 8))
 const running = computed(() => dash.value?.running || [])
 
-/* 告警条条目：带 finding 的可点击进入详情 */
+// Keep the same alert band and content, with one complete repeated group.
+const tickerTrack = ref(null)
+const tickerDuration = ref('60s')
+let tickerObserver = null
+const fmtConfidence = value => typeof value === 'number' && value >= 0 && value <= 1
+  ? Math.round(value * 100) + '%' : value ?? '—'
 const tickerItems = computed(() => {
   const d = dash.value || {}
   const crit = critFindings.value.slice(0, 3)
   const items = []
   if (crit.length || sevCount('critical')) {
-    items.push({ html: `<b>严重 ${sevCount('critical')}</b> 个漏洞待处置` +
-      (crit[0]?.confidence ? ` · 最高置信度 ${crit[0].confidence}` : ''), finding: null })
+    const confidence = crit.map(f => f.confidence).filter(value => typeof value === 'number')
+    items.push({ emphasis: `严重 ${sevCount('critical')}`, label: ' 个漏洞待处置' +
+      (confidence.length ? ` · 最高置信度 ${fmtConfidence(Math.max(...confidence))}` : ''), finding: null })
   }
-  for (const f of crit) {
-    items.push({
-      html: `<b>${shortName(f.title, 30)}</b> · ${f.cwe || 'CWE-?'} · 置信 ${f.confidence || '—'}`,
-      finding: f
-    })
-  }
-  items.push({
-    html: `动态验证命中 <b>${d.traces_with_diff || 0}/${d.traces_total || 0}</b> · 已验证 <b>${d.confirmed || 0}</b> · 数据每 8 秒自动刷新`,
-    finding: null
-  })
+  for (const f of crit) items.push({ emphasis: shortName(f.title, 30), label: ` · ${f.cwe || 'CWE-?'} · 置信 ${fmtConfidence(f.confidence)}`, finding: f })
+  items.push({ emphasis: '', label: `动态验证命中 ${d.traces_with_diff || 0}/${d.traces_total || 0} · 已验证 ${d.confirmed || 0} · 数据每 8 秒自动刷新`, finding: null })
   return items
+})
+function measureTicker () {
+  const group = tickerTrack.value?.querySelector('.ticker-group')
+  if (group) tickerDuration.value = Math.max(24, group.scrollWidth / 38) + 's'
+}
+watch(tickerItems, () => nextTick(measureTicker))
+watch(tickerTrack, element => {
+  tickerObserver?.disconnect()
+  if (!element) return
+  tickerObserver = new ResizeObserver(measureTicker)
+  tickerObserver.observe(element)
+  nextTick(measureTicker)
 })
 
 /* 发现详情抽屉 */
@@ -374,22 +380,6 @@ function linkState (i) {
   if (b === 'active' || a === 'active') return 'to-active'
   return 'dim'
 }
-
-const tickerHtml = computed(() => {
-  const d = dash.value || {}
-  const items = []
-  const crit = critFindings.value.slice(0, 3)
-  if (crit.length || sevCount('critical')) {
-    items.push(`<b>严重 ${sevCount('critical')}</b> 个漏洞待处置` +
-      (crit[0]?.confidence ? ` · 最高置信度 ${crit[0].confidence}` : ''))
-  }
-  for (const f of crit) {
-    items.push(`<b>${shortName(f.title, 30)}</b> · ${f.cwe || 'CWE-?'} · 置信 ${f.confidence || '—'}`)
-  }
-  items.push(`动态验证命中 <b>${d.traces_with_diff || 0}/${d.traces_total || 0}</b> · 已验证 <b>${d.confirmed || 0}</b> · 数据每 8 秒自动刷新`)
-  const html = items.map((i) => `<span>⚠ ${i}</span>`).join('')
-  return html + html // 双份无缝滚动
-})
 
 /* ---------- 管线 ---------- */
 const STAGE_OF = {
@@ -427,7 +417,7 @@ const pipeMeta = computed(() => {
 const radarSectors = computed(() => {
   const rows = [...(dash.value?.findings_by_class || [])]
     .sort((a, b) => b.count - a.count).slice(0, 5)
-  const secs = rows.map((r) => CLASS_L[r.key] || r.key)
+  const secs = [...new Set(rows.map((r) => CLASS_L[r.key] || r.key))]
   return secs.length ? secs : ['其他']
 })
 const radarTargets = computed(() =>
@@ -526,6 +516,7 @@ const elTypes = ref(null)
 let chTrend = null
 let chRose = null
 let chTypes = null
+let chartObserver = null
 
 const TIP = {
   backgroundColor: 'rgba(10,16,30,.96)', borderColor: 'rgba(148,163,184,.22)',
@@ -535,7 +526,7 @@ const TIP = {
 const AX = {
   axisTick: { show: false },
   axisLine: { lineStyle: { color: 'rgba(148,163,184,.16)' } },
-  axisLabel: { color: '#8A94AD', fontSize: 10 }
+  axisLabel: { color: '#A6B9D4', fontSize: 10.5 }
 }
 
 function renderCharts () {
@@ -584,7 +575,7 @@ onMounted(() => {
   chTrend.setOption({
     grid: { left: 30, right: 14, top: 32, bottom: 20 },
     tooltip: { trigger: 'axis', ...TIP },
-    legend: { right: 0, top: 0, itemWidth: 14, itemHeight: 2, textStyle: { color: '#8A94AD', fontSize: 10 } },
+    legend: { right: 0, top: 0, itemWidth: 14, itemHeight: 2, textStyle: { color: '#A6B9D4', fontSize: 10 } },
     xAxis: { type: 'category', ...AX, boundaryGap: true },
     yAxis: {
       type: 'value',
@@ -615,8 +606,8 @@ onMounted(() => {
       // 中心总数由 graphic 文本层提供
       type: 'pie', radius: ['0%', '72%'], center: ['50%', '50%'],
       itemStyle: { borderRadius: 5, borderColor: '#0B1120', borderWidth: 2 },
-      label: { color: '#8A94AD', fontSize: 10, lineHeight: 14,
-               formatter: (p) => `${p.name}  ${p.data.count} · ${p.percent}%` },
+      label: { color: '#B6C7DF', fontSize: 10.5, lineHeight: 14,
+               formatter: (p) => `${p.name} ${p.data.count}\n${p.percent}%` },
       labelLine: { length: 10, length2: 10, lineStyle: { color: 'rgba(148,163,184,.25)' } }
     }],
     graphic: [
@@ -632,7 +623,7 @@ onMounted(() => {
     yAxis: {
       type: 'category', inverse: true,
       axisTick: { show: false }, axisLine: { show: false },
-      axisLabel: { color: '#AAB6CF', fontSize: 11 }
+      axisLabel: { color: '#BBCBE1', fontSize: 11, width: 92, overflow: 'truncate' }
     },
     series: [{
       type: 'bar', barWidth: 9,
@@ -648,6 +639,8 @@ onMounted(() => {
     animationDuration: 1200
   })
   renderCharts()
+  chartObserver = new ResizeObserver(onWinResize)
+  for (const element of [elTrend.value, elRose.value, elTypes.value]) chartObserver.observe(element)
   window.addEventListener('resize', onWinResize)
 })
 function onWinResize () {
@@ -656,6 +649,8 @@ function onWinResize () {
 onBeforeUnmount(() => {
   if (timer) clearInterval(timer)
   if (clockTimer) clearInterval(clockTimer)
+  tickerObserver?.disconnect()
+  chartObserver?.disconnect()
   window.removeEventListener('resize', onWinResize)
   chTrend?.dispose(); chRose?.dispose(); chTypes?.dispose()
 })
@@ -1139,3 +1134,5 @@ main.with-pipe {
   .pl-link.flow::before, .pl-link.to-active, .pl-node.active { animation: none; }
 }
 </style>
+
+<style scoped src="./dashboard-polish.css"></style>

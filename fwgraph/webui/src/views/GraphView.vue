@@ -206,7 +206,7 @@
 </template>
 
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, shallowRef, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { RefreshCw } from '@lucide/vue'
 import { api } from '../api'
@@ -224,7 +224,9 @@ const result = ref(null)
 const queryError = ref('')
 const rawOpen = ref(false)
 
-const layout = ref(null)
+const layout = shallowRef(null)
+let layoutRequest = null
+let queryRevision = 0
 const layoutLoading = ref(false)
 const enabledTypes = ref(['File', 'Module', 'Function', 'Project', 'Branch', 'Folder'])
 const highlight = ref('')
@@ -338,6 +340,7 @@ async function runQuery () {
     body.pattern = keyword.value
     body.limit = 100
   }
+  const revision = ++queryRevision
   querying.value = true
   queried.value = true
   result.value = null
@@ -345,36 +348,47 @@ async function runQuery () {
   rawOpen.value = false
   try {
     const r = await api('/graph/query', { method: 'POST', body })
+    if (revision !== queryRevision) return
     result.value = r
     if (r?.error) queryError.value = String(r.error)
   } catch (e) {
-    queryError.value = e.message || '查询失败'
+    if (revision === queryRevision) queryError.value = e.message || '查询失败'
   } finally {
-    querying.value = false
+    if (revision === queryRevision) querying.value = false
   }
 }
 
 async function loadLayout () {
   if (!jobId.value) return
+  layoutRequest?.abort()
+  const controller = new AbortController()
+  layoutRequest = controller
+  const id = jobId.value
   layoutLoading.value = true
   try {
-    layout.value = await api(`/jobs/${jobId.value}/graph/layout`)
+    const next = await api(`/jobs/${id}/graph/layout`, { signal: controller.signal })
+    if (!controller.signal.aborted && jobId.value === id) layout.value = next
   } catch (e) {
+    if (controller.signal.aborted) return
     layout.value = null
     ElMessage.error('图谱加载失败: ' + e.message)
   } finally {
-    layoutLoading.value = false
+    if (layoutRequest === controller) layoutLoading.value = false
   }
 }
 
 function onNodeSelect (node) { selectedNode.value = node }
 
 watch(jobId, () => {
+  queryRevision += 1
+  querying.value = false
+  layout.value = null
   selectedNode.value = null
   loadLayout()
 })
 
 // 任务选择与自动选中由 JobPicker 完成；jobId 变化触发 loadLayout
+onBeforeUnmount(() => { layoutRequest?.abort(); queryRevision += 1 })
 </script>
 
 <style scoped>

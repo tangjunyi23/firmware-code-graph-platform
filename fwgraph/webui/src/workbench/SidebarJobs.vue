@@ -6,7 +6,7 @@
     </button>
 
     <div class="section-head">
-      <span class="section-label">{{ t('session.heading') }}</span>
+      <span class="section-label">固件与分析会话</span><span class="workspace-catalog-count">{{ catalog.state.jobs.length }}</span>
     </div>
 
     <div class="search-row">
@@ -18,6 +18,8 @@
       />
     </div>
 
+    <div class="workspace-list-tabs" aria-label="筛选工作台固件"><button v-for="item in workspaceFilters" :key="item.key" type="button" :class="{ on: workspaceFilter === item.key }" :aria-pressed="workspaceFilter === item.key" @click="workspaceFilter = item.key">{{ item.label }}</button></div>
+    <p v-if="catalog.state.error" class="workspace-catalog-error" role="status">{{ catalog.state.error }}<button type="button" @click="catalog.refresh()">重试</button></p>
     <div class="list">
       <p v-if="!filtered.length && !ungrouped.length && !archived.length" class="empty">{{ t('firmware.empty') }}</p>
 
@@ -220,6 +222,7 @@ import {
   IconNewChatOutline16, IconSettingsOutline16, IconMore
 } from './icons.js'
 import { t } from './locales.js'
+import { pipelineFinished } from './pipeline.js'
 
 const props = defineProps({
   activeSid: { type: String, default: null },
@@ -233,6 +236,8 @@ const catalog = inject('wbCatalog')
 const openSettings = inject('wbOpenSettings', () => {})
 const theme = inject('wbTheme', ref('light'))
 const query = ref('')
+const workspaceFilter = ref('all')
+const workspaceFilters = [{ key: 'all', label: '全部固件' }, { key: 'ready', label: '已就绪' }, { key: 'live', label: '运行中' }]
 const openFolders = ref(new Set())
 const menu = ref(null)
 
@@ -304,12 +309,12 @@ const filtered = computed(() => {
   const folders = catalog.groups.value.folders.map((f) => ({
     ...f,
     sessions: activeOf(f.sessions)
-  }))
+  })).filter(f => workspaceFilter.value === 'all' || (workspaceFilter.value === 'ready' ? f.job.status !== 'failed' && pipelineFinished(f.job) : f.sessions.some(s => s.status === 'running')))
   if (!q) return folders
   return folders.filter((f) => {
     const name = (f.job.firmware || '').toLowerCase()
     const hitSess = f.sessions.some((s) => (s.task || '').toLowerCase().includes(q))
-    return name.includes(q) || hitSess
+    return name.includes(q) || String(f.job.job_id).includes(q) || hitSess
   })
 })
 const ungrouped = computed(() => activeOf(catalog.groups.value.ungrouped))

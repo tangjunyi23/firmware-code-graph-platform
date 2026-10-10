@@ -11,6 +11,11 @@
       <p class="ins-sub">平台账号与角色权限管理。</p>
     </header>
 
+    <section class="account-summary" aria-label="账号概览">
+      <article><span>平台账号</span><b>{{ users.length }}</b></article>
+      <article><span>管理员</span><b>{{ users.filter(user => user.role === 'admin').length }}</b></article>
+      <article><span>正常账号</span><b>{{ users.filter(user => !user.disabled).length }}</b></article>
+    </section>
     <el-card shadow="never" class="block">
       <el-table :data="users" size="small" v-loading="loading">
         <el-table-column prop="username" label="用户名" min-width="140" />

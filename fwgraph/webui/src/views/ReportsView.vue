@@ -4,8 +4,13 @@
       <div class="ins-head-row">
         <h1 class="ins-title"><span class="ins-ico"><component :is="NAV_ICONS.Notebook" :size="18" /></span>报告中心</h1>
       </div>
-      <p class="ins-sub">漏洞报告汇总、预览与导出。</p>
+      <p class="ins-sub">集中管理风险报告，查看分析证据并导出交付文档。</p>
     </header>
+
+    <nav class="product-tabs" aria-label="报告中心视图">
+      <button type="button" :class="{ on: reportTab === 'archive' }" :aria-pressed="reportTab === 'archive'" @click="reportTab = 'archive'"><component :is="NAV_ICONS.Notebook" :size="15" />报告档案<span>{{ reports.length }}</span></button>
+      <button type="button" :class="{ on: reportTab === 'analytics' }" :aria-pressed="reportTab === 'analytics'" @click="reportTab = 'analytics'"><component :is="NAV_ICONS.Odometer" :size="15" />风险分析</button>
+    </nav>
 
     <!-- 统计总览：KPI + 图表（2026-09-23 用户要求：报告中心要多统计图，
          数据一眼可读） -->
@@ -21,7 +26,7 @@
         </div>
         <div class="kpi">
           <span class="kpi-num">{{ verifiedCount }}</span>
-          <span class="kpi-label">动态验证（observed+）</span>
+          <span class="kpi-label">已验证或已观测</span>
         </div>
         <div class="kpi">
           <span class="kpi-num">{{ fwCount }}</span>
@@ -32,7 +37,7 @@
           <span class="kpi-label">生成报告</span>
         </div>
       </div>
-      <div class="charts-row">
+      <div v-show="reportTab === 'analytics'" class="charts-row">
         <div class="chart-card">
           <h3>等级分布</h3>
           <DonutChart :items="sevItems" title="等级分布" :size="180" />
@@ -52,7 +57,7 @@
       </div>
     </div>
 
-    <div class="lib-layout">
+    <div v-show="reportTab === 'archive'" class="lib-layout report-archive">
       <!-- 左列：筛选 + 报告列表（与漏洞库同范式） -->
       <div class="lib-card list-col">
         <div class="lib-head">
@@ -72,13 +77,15 @@
             @click="filter = c"
           >{{ c }}</button>
         </div>
+        <el-input v-model="reportQuery" clearable placeholder="搜索固件或报告名称" aria-label="搜索报告" class="report-search" />
         <div class="list-scroll">
           <div
             v-for="r in visible"
             :key="r.report_id"
             class="lib-item"
             :class="{ active: r.report_id === currentId }"
-            @click="openReport(r)"
+            role="button" tabindex="0" :aria-label="'预览报告：' + fwLabel(r)" :aria-pressed="r.report_id === currentId"
+            @keydown.enter.prevent="openReport(r)" @keydown.space.prevent="openReport(r)" @click="openReport(r)"
           >
             <div class="li-top">
               <el-tag size="small"
@@ -100,7 +107,7 @@
               {{ fmtSize(r.size) }}
             </div>
           </div>
-          <el-empty v-if="!loadingList && !visible.length" description="还没有生成报告" :image-size="70" />
+          <el-empty v-if="!loadingList && !visible.length" :description="reportQuery ? '没有匹配的报告，请调整搜索内容' : '还没有生成报告'" :image-size="70" />
         </div>
       </div>
 
@@ -139,6 +146,13 @@ import DonutChart from '../components/charts/DonutChart.vue'
 import BarChart from '../components/charts/BarChart.vue'
 
 const findings = ref([])
+const firmwareNames = ref({})
+async function loadFirmwareNames () {
+  try {
+    const jobs = await api('/jobs')
+    firmwareNames.value = Object.fromEntries((Array.isArray(jobs) ? jobs : []).map(job => [job.job_id, job.firmware || job.job_id]))
+  } catch { /* Existing IDs remain a readable fallback. */ }
+}
 async function loadFindings () {
   try {
     const list = await api('/vulnagent/findings')
@@ -155,7 +169,8 @@ const SEV_META = {
 const REACH_META = {
   verified: { label: '已验证', color: '#16a34a' },
   observed: { label: '观测到', color: '#2563eb' },
-  static: { label: '静态可达', color: '#94a3b8' }
+  static: { label: '仅静态', color: '#94a3b8' },
+  unknown: { label: '其他 / 未标注', color: '#64748b' }
 }
 const findingsTotal = computed(() => findings.value.length)
 const criticalCount = computed(() => findings.value.filter((f) =>
@@ -176,7 +191,9 @@ const sevItems = computed(() => {
 const reachItems = computed(() => {
   const by = {}
   for (const f of findings.value) {
-    const key = String(f.reachability || 'static').toLowerCase()
+    const raw = String(f.reachability || '').toLowerCase()
+    const normalized = raw === 'static-only' ? 'static' : raw
+    const key = Object.hasOwn(REACH_META, normalized) ? normalized : 'unknown'
     by[key] = (by[key] || 0) + 1
   }
   return Object.keys(REACH_META).map((k) => ({
@@ -186,11 +203,11 @@ const reachItems = computed(() => {
 const fwItems = computed(() => {
   const by = {}
   for (const f of findings.value) {
-    const name = String(f.job_id || f.firmware || '未知').slice(0, 12)
-    by[name] = (by[name] || 0) + 1
+    const id = String(f.job_id || f.firmware || '未知')
+    by[id] = (by[id] || 0) + 1
   }
-  return Object.entries(by).map(([label, value]) => ({
-    key: label, label, value, color: '#5b8cff'
+  return Object.entries(by).map(([id, value]) => ({
+    key: id, label: firmwareNames.value[id] || id, value, color: '#5b8cff'
   })).sort((a, b) => b.value - a.value).slice(0, 8)
 })
 const binItems = computed(() => {
@@ -205,6 +222,7 @@ const binItems = computed(() => {
 })
 
 const reports = ref([])
+const reportTab = ref('archive')
 const currentId = ref('')
 const currentTitle = ref('')
 const html = ref('')
@@ -212,22 +230,20 @@ const loadingList = ref(false)
 const loadingText = ref(false)
 const exporting = ref('')
 const filter = ref('全部')
+const reportQuery = ref('')
 const cats = ['全部', '专项报告', '季度报告', '协议专项']
 const visible = computed(() => {
-  if (filter.value === '全部') return reports.value
+  let rows = reports.value
   if (filter.value === '季度报告') {
     const seen = new Set()
-    return reports.value.filter((r) => {
-      if (!r.quarter || seen.has(r.quarter)) return false
-      seen.add(r.quarter)
+    rows = rows.filter(report => {
+      if (!report.quarter || seen.has(report.quarter)) return false
+      seen.add(report.quarter)
       return true
-    }).map((r) => ({
-      ...r,
-      category: '季度报告',
-      title: `${r.quarter} 季度风险汇编（${r.firmware || r.title}）`
-    }))
-  }
-  return reports.value.filter((r) => (r.category || '') === filter.value)
+    }).map(report => ({ ...report, category: '季度报告', title: `${report.quarter} 季度风险汇编（${report.firmware || report.title}）` }))
+  } else if (filter.value !== '全部') rows = rows.filter(report => (report.category || '') === filter.value)
+  const query = reportQuery.value.trim().toLowerCase()
+  return query ? rows.filter(report => `${fwLabel(report)} ${report.title || ''} ${report.report_id || ''}`.toLowerCase().includes(query)) : rows
 })
 
 // 列表按时间倒序，当前筛选下的第一份打“最新”标记，解决同固件多报告难区分
@@ -340,7 +356,7 @@ async function exportFmt (fmt) {
   }
 }
 
-onMounted(() => { loadReports(); loadFindings() })
+onMounted(() => { loadReports(); loadFindings(); loadFirmwareNames() })
 </script>
 
 

@@ -872,12 +872,27 @@ def setup(app: FastAPI, require_token, require_admin) -> None:
 
     # --- dashboard -----------------------------------------------------------
 
+    _dash_cache: dict = {"at": 0.0, "payload": None, "jobs_sig": None}
+
     @app.get("/dashboard", dependencies=auth)
     def dashboard():
+        import time as _time
         from . import main as _main
         with _main._jobs_lock:
             jobs = [dict(j) for j in _main._jobs.values()]
-        return build_dashboard(jobs)
+        sig = tuple(sorted((j.get("job_id"), j.get("status"),
+                            j.get("updated_at")) for j in jobs))
+        now = _time.monotonic()
+        # build_dashboard re-reads every session/finding/trace/report on
+        # disk (~300-450 file reads, ~100ms); the UI polls every 8s.
+        # Cache 5s AND invalidate instantly when any job row changed.
+        if (_dash_cache["payload"] is not None
+                and _dash_cache["jobs_sig"] == sig
+                and now - _dash_cache["at"] < 5.0):
+            return _dash_cache["payload"]
+        payload = build_dashboard(jobs)
+        _dash_cache.update({"at": now, "payload": payload, "jobs_sig": sig})
+        return payload
 
     # --- reports -----------------------------------------------------------
 

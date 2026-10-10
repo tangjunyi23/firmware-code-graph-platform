@@ -1,0 +1,153 @@
+/* Shared console refinement. Keep layout and component behavior in their owners. */
+:root {
+  --fw-bg: #f3f6fa; --fw-bg-2: #eaf0f7;
+  --fw-surface: #fff; --fw-surface-2: #f8fafc;
+  --fw-text: #172b45; --fw-text-2: #52647b; --fw-text-3: #687b92;
+  --fw-line: #e2e9f2; --fw-line-strong: #ced9e7;
+  --fw-brand: #326fe7; --fw-brand-hover: #245cca;
+  --fw-shadow: 0 3px 16px rgba(25, 47, 78, .035);
+  --fw-sidebar-w: 224px;
+  --el-text-color-placeholder: #76869b;
+}
+html[data-fw-theme='dark'] {
+  --fw-bg: #0c1523; --fw-bg-2: #142237;
+  --fw-surface: #111e30; --fw-surface-2: #16253a;
+  --fw-sidebar: #0d1829;
+  --fw-text: #edf3fc; --fw-text-2: #a9bad1; --fw-text-3: #8b9eb9;
+  --fw-line: #223249; --fw-line-strong: #34465f;
+  --fw-brand: #79a7ff; --fw-brand-hover: #a2c1ff;
+  --fw-shadow: 0 4px 20px rgba(0, 0, 0, .1);
+  --el-text-color-placeholder: #8495ad;
+}
+body { background-image: none; }
+.app-root::before, .app-root::after, .main-col::before, .sidebar::after,
+.panel::after, .el-card::after, .ops .kpi::after { display: none; }
+.app-root .shell { background: var(--fw-bg); height: 100dvh; min-height: 100dvh; }
+.app-root .sidebar { background: var(--fw-sidebar); border-color: var(--fw-line); }
+html[data-fw-theme='light'] .app-root .sidebar { background: var(--fw-surface); }
+.app-root .topbar { height: 68px; padding: 0 26px; background: var(--fw-sidebar); border-color: var(--fw-line); backdrop-filter: none; }
+html[data-fw-theme='light'] .app-root .topbar { background: var(--fw-surface); }
+.app-root .side-brand { padding: 22px 18px; height: 82px; gap: 10px; }
+.app-root .side-brand-text { font-size: 19px; letter-spacing: -.5px; }
+.app-root .side-brand-sub { color: var(--fw-text-3); font-size: 11px; }
+.app-root .side-collapse { background: transparent; color: var(--fw-text-3); border-color: var(--fw-line); }
+.app-root .top-mark { color: #397cea; filter: none; }
+.app-root .side-nav { padding: 4px 12px; }
+.app-root .nav-section { font-size: 10px; letter-spacing: 2px; color: var(--fw-text-3); padding: 22px 12px 10px; }
+.app-root .nav-item { color: var(--fw-text-2); border: 1px solid transparent; border-radius: 9px; min-height: 42px; font-size: 13px; margin-bottom: 4px; }
+.app-root .nav-item:hover { background: var(--fw-surface-2); color: var(--fw-text); }
+.app-root .nav-item.active { color: var(--fw-brand); background: var(--fw-fill-strong); border-color: color-mix(in srgb, var(--fw-brand) 15%, transparent); box-shadow: none; }
+.app-root .nav-item.active::before { display: none; }
+.app-root .nav-item.child { font-size: 12px; min-height: 36px; }
+.app-root .mode-switch { margin: 4px 16px 8px; background: var(--fw-bg); border: 1px solid var(--fw-line); border-radius: 9px; padding: 4px; box-shadow: none; }
+.app-root .mode-switch button { border-radius: 6px; color: var(--fw-text-3); }
+.app-root .mode-switch button.on { background: var(--fw-surface-2); color: var(--fw-text); box-shadow: var(--fw-shadow); }
+.app-root .side-foot { border-color: var(--fw-line); padding: 18px; }
+.app-root .side-version { color: var(--fw-text-3); font-size: 10px; }
+.tb-location { display: flex; align-items: center; gap: 14px; min-width: 0; font-size: 12px; color: var(--fw-text-3); white-space: nowrap; }
+.tb-location strong { color: var(--fw-text); font-weight: 600; }
+.tb-separator { color: var(--fw-line-strong); }
+.tb-mode { padding: 3px 8px; border: 1px solid var(--fw-line); border-radius: 5px; font-size: 10px; }
+.app-root .tb-search { width: 218px; height: 36px; font-size: 12px; background: var(--fw-bg); border-color: var(--fw-line); }
+.app-root .tb-kbd { margin-left: auto; font-size: 9px; }
+.app-root .tb-right { gap: 9px; }
+.app-root .user-chip { margin-left: 6px; }
+.app-root .el-card, .app-root .panel, .app-root .ops .kpi { background: var(--fw-surface); box-shadow: var(--fw-shadow); }
+.el-button--primary:not(.is-link):not(.is-text):not(.is-plain),
+html[data-fw-theme='dark'] .el-button--primary:not(.is-link):not(.is-text):not(.is-plain) { background: #3679ed; border-color: #3679ed; box-shadow: none; }
+.el-button--primary:not(.is-link):not(.is-text):not(.is-plain):hover { background: #2868d6; border-color: #2868d6; }
+.el-input__wrapper { border-radius: 8px; }
+
+/* Login: a calm, self-contained illustration beside a usable sign-in form. */
+.app-root .login-wrap { position: relative; min-height: 100dvh; padding: 48px 64px 76px; display: flex; justify-content: center; align-items: center; overflow: hidden; background: var(--fw-bg); box-sizing: border-box; }
+html[data-fw-theme='dark'] .app-root .login-wrap { background: #0b1524; }
+.app-root .login-wrap::before, .app-root .login-wrap::after { display: none; }
+.login-layout { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(320px, .8fr); gap: clamp(60px, 8vw, 140px); width: 100%; max-width: 1180px; align-items: center; position: relative; }
+.login-story { min-width: 0; }
+.app-root .login-brand { display: flex; align-items: center; justify-content: flex-start; gap: 13px; margin: 0 0 64px; }
+.login-brand .brand-mark { color: #3679ed; }
+.app-root .login-title, html[data-fw-theme='dark'] .app-root .login-title { font-size: 27px; font-weight: 700; letter-spacing: -.8px; color: var(--fw-text); background: none; margin: 0; }
+.app-root .login-slogan { color: var(--fw-text-3); font-size: 12px; margin: 2px 0 0; }
+.login-eyebrow { display: block; color: var(--fw-brand); font-family: var(--fw-font-mono); font-size: 10px; letter-spacing: 2px; }
+.login-intro h2 { margin: 20px 0; font-size: clamp(36px, 3.9vw, 54px); line-height: 1.24; font-weight: 650; letter-spacing: -2px; }
+.login-intro h2 span { color: #43c9b2; }
+.login-intro > p { color: var(--fw-text-2); font-size: 14px; line-height: 1.9; margin-bottom: 28px; }
+.firmware-map { border: 1px solid #2a3e59; border-radius: 16px; background: linear-gradient(120deg, #13243c, #0d1b2f); overflow: hidden; }
+.firmware-map svg { display: block; width: 100%; height: auto; }
+.map-caption { display: flex; align-items: center; gap: 7px; padding: 17px 20px 0; color: #9db2ce; font: 9px var(--fw-font-mono); letter-spacing: 1px; }
+.map-caption > span:last-child { margin-left: auto; color: #7087a6; }
+.map-dot { width: 5px; height: 5px; border-radius: 50%; background: #54d7bf; }
+.map-footer { display: flex; gap: 14px; align-items: center; justify-content: center; padding: 0 12px 18px; font-size: 10px; color: #9eb1cd; }
+.map-footer i { color: #506d90; font-style: normal; }
+.login-capabilities { display: flex; gap: 32px; margin: 23px 0 0; }
+.login-capabilities span { display: inline-flex; align-items: center; gap: 9px; font-size: 12px; color: var(--fw-text-2); }
+.login-capabilities svg { color: var(--fw-brand); }
+.app-root .login-panel { width: 100%; max-width: 420px; padding: 0; position: relative; z-index: 1; }
+.login-panel-top { display: flex; justify-content: space-between; align-items: center; padding: 0 2px 18px; }
+.login-panel-top .login-eyebrow { color: var(--fw-text-3); font-size: 9px; letter-spacing: 1.5px; }
+.app-root .login-card, html[data-fw-theme='dark'] .app-root .login-card { background: var(--fw-surface); border: 1px solid var(--fw-line); border-radius: 20px; box-shadow: 0 20px 70px rgba(0, 0, 0, .1); animation: none; }
+.app-root .login-card .el-card__body { padding: 36px; }
+.login-card-icon { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; border: 1px solid var(--fw-line); background: var(--fw-surface-2); border-radius: 12px; color: var(--fw-brand); margin-bottom: 24px; }
+.app-root .login-card h2 { color: var(--fw-text); font-size: 25px; text-align: left; font-weight: 650; margin: 0 0 8px; letter-spacing: -.5px; }
+.app-root .login-card-sub { text-align: left; color: var(--fw-text-3); margin: 0 0 32px; font-size: 12px; }
+.login-label { display: block; font-size: 12px; font-weight: 550; margin: 0 0 9px; color: var(--fw-text-2); }
+.app-root .login-field { margin: 0 0 22px; }
+.login-card .el-input__wrapper { min-height: 46px; padding: 0 13px; background: var(--fw-bg); box-sizing: border-box; }
+.login-card .el-input__inner { font-size: 13px; }
+.app-root .login-btn { height: 46px; margin: 6px 0 18px; border-radius: 9px; font-size: 13px; font-weight: 600; }
+.login-arrow { margin-left: 8px; transform: rotate(-90deg); }
+.login-error { margin-bottom: 14px; }
+.login-card .token-collapse { border-color: var(--fw-line); margin-top: 5px; }
+.login-card .el-collapse-item__header { font-size: 11px; color: var(--fw-text-3); background: transparent; }
+.login-card .el-collapse-item__wrap { background: transparent; }
+.app-root .login-hint { margin: 24px 0 0; display: flex; align-items: center; justify-content: center; gap: 7px; color: var(--fw-text-3); font-size: 10px; }
+.login-footer { position: absolute; left: 64px; right: 64px; bottom: 26px; display: flex; justify-content: space-between; color: var(--fw-text-3); font-size: 10px; letter-spacing: .4px; }
+
+/* Workbench surfaces follow the host theme without changing its scoped token file. */
+.wb-root[data-wb-theme] { --dsw-specific-sidebar-fill: var(--fw-sidebar); --dsw-alias-label-primary: var(--fw-text); --dsw-alias-label-secondary: var(--fw-text-2); }
+.app-root .wb-root .hero-copy h1 { font-size: clamp(25px, 2.7vw, 36px); letter-spacing: -1px; background: none; color: var(--fw-text); }
+.app-root .wb-root .hero-copy p { color: var(--fw-text-3); font-size: 13px; }
+.app-root .wb-root .stage-bar { border-bottom: 1px solid var(--fw-line); padding: 16px 22px; }
+.app-root .wb-root .composer-stack .card { border-color: var(--fw-line-strong); box-shadow: var(--fw-shadow); background: var(--fw-surface); }
+.app-root .wb-root .composer-hero { max-width: 980px; }
+.app-root .wb-root .new-chat { background: #3679ed; border: 1px solid #3679ed; box-shadow: none; border-radius: 9px; }
+
+@media (max-width: 1100px) {
+  .tb-mode { display: none; }
+  .login-layout { gap: 48px; }
+  .app-root .login-wrap { padding-left: 36px; padding-right: 36px; }
+  .login-capabilities { gap: 20px; }
+}
+@media (max-width: 900px) {
+  .app-root .topbar { padding: 0 16px; height: 60px; gap: 8px; }
+  .tb-location { gap: 8px; }
+  .app-root .tb-search { width: 36px; padding: 0; justify-content: center; }
+  .tb-search-text, .tb-kbd { display: none; }
+  .app-root .sidebar.mini { width: min(300px, 84vw); }
+  .app-root .sidebar.mini .side-brand-copy { display: flex; }
+  .app-root .sidebar.mini .nav-label { display: inline; }
+  .app-root .sidebar.mini .nav-section { display: block; }
+  .app-root .sidebar.mini .mode-switch { display: flex; }
+  .app-root .sidebar.mini .side-close { display: grid; }
+  .app-root .sidebar.mini .side-brand { flex-direction: row; justify-content: flex-start; height: 82px; padding: 22px 18px; }
+  .app-root .sidebar.mini .nav-item, .app-root .sidebar.mini .nav-item.child { justify-content: flex-start; padding-left: 14px; }
+  .app-root .sidebar.mini .side-collapse { display: none; }
+  .login-layout { display: block; max-width: 420px; }
+  .login-intro, .firmware-map, .login-capabilities { display: none; }
+  .app-root .login-brand { margin: 0 0 32px; }
+  .app-root .login-wrap { padding: 36px 24px 90px; }
+  .login-footer { left: 24px; right: 24px; justify-content: center; }
+  .login-footer span:last-child { display: none; }
+}
+@media (max-width: 520px) {
+  .tb-location > span:first-child, .tb-separator, .user-meta { display: none; }
+  .app-root .tb-right { gap: 2px; }
+  .app-root .user-chip { padding-right: 0; margin-left: 0; }
+  .app-root .login-card .el-card__body { padding: 28px 24px; }
+  .app-root .login-wrap { padding: 28px 20px 72px; }
+  .app-root .login-title { font-size: 24px; }
+  .login-panel-top { padding-bottom: 10px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; }
+}

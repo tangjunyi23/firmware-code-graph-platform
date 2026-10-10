@@ -1,0 +1,31 @@
+{
+  "job_id": "60ca28d897cf",
+  "title": "httpd 预认证 Host 头堆溢出（LoginRpmHtm→getWholeHostAddr 无界 sprintf 进 0x800 堆块）",
+  "severity": "high",
+  "confidence": 0.6,
+  "vuln_class": "堆缓冲区溢出",
+  "cwe": "CWE-120",
+  "binary_md5": "9582aa23b0bc2de099b9997b09457d01",
+  "binary_path": "firmware/binwalk_extracted/firmware.extracted/0/squashfs-root/usr/bin/httpd",
+  "reachability": "static-only",
+  "summary": "TP-Link Archer C7 v2 httpd 预认证堆缓冲区溢出。任意未认证请求认证失败后进入 LoginRpmHtm，getWholeHostAddr 把攻击者可控的 Host 头原样 sprintf(\"http://%s\") 写入 malloc(0x800) 的 2048 字节堆缓冲。WAN 侧访问时 Host 值不经任何替换直通该拷贝，mud 层 128KB 接收池允许 Host 超长，可造成堆越界写，进一步可发展为远程代码执行或拒绝服务。",
+  "evidence": [
+    "LoginRpmHtm(0x45c4c4) 伪代码：v4=malloc(0x800u); memset(v4,0,0x800u); getWholeHostAddr(a1,v4) —— 2048 字节堆块",
+    "getWholeHostAddr(0x45a744) 伪代码：HttpIsAccessFromLAN(a1) 为假时 v6=v4(Host 原文，仅剥离首个冒号)，末尾 sprintf(a2,\"http://%s\",v6) 无长度约束",
+    "HttpIsAccessFromLAN(0x45a6a0)：httpClientIPGet→inet_addr→swChkSameLanSubnet，客户端 IP 不在 LAN 子网即返回 0 → WAN 侧 Host 原文直通",
+    "httpMimeHost(0x448590)：Host 值经 httpMimeHostSet/httpSetEnv 动态存储，无截断",
+    "mudCreate(0x44278c)/httpServerCreate(0x42de50)：每连接 0x20000 字节 memPool —— 请求头行可携带远超 2048 字节的 Host 值",
+    "认证失败路径：httpDispatcher 中 sub_425CB8 返回非 0 即调用 LoginRpmHtm，无需有效凭据即可到达"
+  ],
+  "session_id": "s-mv0o98ol-47f9",
+  "function_name": "getWholeHostAddr",
+  "preconditions": "请求来源 IP 不在路由器 LAN 子网（WAN 口或远程管理开启场景），或模拟环境中客户端 IP 非 LAN 网段；Host 头长度需大于约 2040 字节；无需任何凭据（认证失败即触发）。",
+  "poc": "python3 -c \"import socket;s=socket.create_connection(('192.168.0.1',80));s.send(b'GET /userRpm/Index.htm HTTP/1.1\\\\r\\\\nHost: '+'A'*4000+b'\\\\r\\\\n\\\\r\\\\n');print(s.recv(4096))\" —— 以无效/缺失凭据发起请求触发登录页，WAN 侧来源下 Host 原文被 sprintf 进 2048 字节堆块造成越界写。",
+  "call_chain": "TCP:80 Host 头 → httpMimeHost(0x448590) → httpSetEnv(\"HOST\") → httpDispatcher(0x425d08) → sub_425CB8(0x425cb8) 认证失败 → LoginRpmHtm(0x45c4c4) → malloc(0x800) → getWholeHostAddr(0x45a744) → HttpIsAccessFromLAN(0x45a6a0)==false → v6=Host 原文 → sprintf(a2,\"http://%s\",v6) 堆溢出",
+  "function_addr": "0x45a744",
+  "id": "F-mv0orz6r-fca8",
+  "status": "draft",
+  "owner": "token-admin",
+  "recorded_at": "2026-10-09T08:11:18Z",
+  "history": []
+}

@@ -15,8 +15,14 @@
       <p class="ins-sub">系统信息与平台运行参数。</p>
     </header>
 
+    <nav class="product-tabs" aria-label="系统设置视图">
+      <button type="button" :class="{ on: settingsTab === 'overview' }" :aria-pressed="settingsTab === 'overview'" @click="settingsTab = 'overview'">运行概览</button>
+      <button type="button" :class="{ on: settingsTab === 'configuration' }" :aria-pressed="settingsTab === 'configuration'" @click="settingsTab = 'configuration'">平台配置<i v-if="isDirty || llmDirty" class="unsaved-dot" aria-label="有未保存的配置" /></button>
+      <button type="button" :class="{ on: settingsTab === 'usage' }" :aria-pressed="settingsTab === 'usage'" @click="settingsTab = 'usage'">用量统计</button>
+    </nav>
+
     <!-- ===== 运行状态一览 ===== -->
-    <section class="set-tiles">
+    <section v-show="settingsTab === 'overview'" class="set-tiles">
       <div class="panel set-tile">
         <span class="tile-ico"><component :is="NAV_ICONS.Cpu" :size="16" /></span>
         <b class="tile-val mono">{{ info?.python || '—' }}</b>
@@ -43,9 +49,9 @@
       </div>
     </section>
 
-    <div class="set-grid">
+    <div class="set-grid" :data-settings-tab="settingsTab">
       <!-- ===== 左列：系统状态 ===== -->
-      <section class="panel set-card">
+      <section v-show="settingsTab === 'overview'" class="panel set-card runtime-card">
         <header class="set-card-head">
           <h2>系统状态</h2>
           <span class="head-sub">{{ healthyCount }} / {{ compList.length }} 组件在线</span>
@@ -96,7 +102,7 @@
       </section>
 
       <!-- ===== 右列：系统配置 ===== -->
-      <section class="panel set-card">
+      <section v-show="settingsTab === 'configuration'" class="panel set-card configuration-card">
         <header class="set-card-head">
           <h2>系统配置</h2>
           <span v-if="!isAdmin" class="readonly-tag"><component :is="NAV_ICONS.Lock" :size="12" />只读 · 需要管理员权限</span>
@@ -160,7 +166,7 @@
         </footer>
       </section>
 
-      <section class="panel set-card">
+      <section v-show="settingsTab === 'configuration'" class="panel set-card gateway-card">
         <header class="set-card-head">
           <h2>备用 LLM 网关</h2>
           <span class="head-sub">主网关不可达时，新会话自动切到备用</span>
@@ -194,7 +200,7 @@
         </footer>
       </section>
 
-      <section class="panel set-card">
+      <section v-show="settingsTab === 'usage'" class="panel set-card usage-card">
         <header class="set-card-head">
           <h2>Token 消耗统计</h2>
           <span class="head-sub">全部 AI 会话（漏洞挖掘 + 固件模拟）的 LLM 用量 · 60s 缓存</span>
@@ -263,6 +269,7 @@ import { componentHealth } from '../componentHealth'
 const props = defineProps({ isAdmin: { type: Boolean, default: false } })
 
 const info = ref(null)
+const settingsTab = ref('overview')
 const loadingInfo = ref(false)
 const saving = ref(false)
 

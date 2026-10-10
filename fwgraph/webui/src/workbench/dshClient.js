@@ -202,6 +202,9 @@ export function createDshSession(base = '/vulnagent') {
     rev: 0,
   })
   let _abort = null
+  let _generation = 0
+  let _retryTimer = 0
+  let _summaryLoading = false
   let _maxSeq = 0
   const _seenSeq = new Set()
   const _byKey = new Map() // block-/callId-/kind-keyed upsert index
@@ -698,35 +701,45 @@ export function createDshSession(base = '/vulnagent') {
   }
 
   async function openMux() {
+    if (!state.sid) return
+    closeMux()
+    const sid = state.sid
+    const generation = _generation
     startSummaryPolling()
     state.status = 'connecting'
-    _abort = new AbortController()
+    const controller = new AbortController()
+    _abort = controller
     try {
-      await streamSse(`${base}/sessions/${state.sid}/mux`, {
-        signal: _abort.signal,
+      await streamSse(`${base}/sessions/${sid}/mux`, {
+        signal: controller.signal,
         onFrame: (frame) => {
+          if (generation !== _generation || sid !== state.sid || controller.signal.aborted) return
           if (state.status === 'connecting') state.status = 'live'
           handleFrame(frame)
         },
       })
-      if (state.sid && state.running && !_abort?.signal.aborted) {
+      if (generation !== _generation || sid !== state.sid || controller.signal.aborted) return
+      if (state.running) {
         state.status = 'connecting'
-        setTimeout(() => { if (state.sid && state.status === 'connecting') openMux() }, 800)
+        _retryTimer = setTimeout(() => { if (generation === _generation && state.sid === sid && state.status === 'connecting') openMux() }, 800)
       } else if (state.status === 'live' || state.status === 'connecting') {
         state.status = 'closed'
         if (!state.sid) state.running = false
       }
     } catch (err) {
+      if (generation !== _generation || sid !== state.sid || controller.signal.aborted) return
       if (err?.name === 'AbortError') return
       state.status = 'error'
       state.lastError = err?.detail || err?.message || 'mux 连接失败'
       if (state.sid && state.running) {
-        setTimeout(() => { if (state.sid) openMux() }, 1200)
+        _retryTimer = setTimeout(() => { if (generation === _generation && state.sid === sid) openMux() }, 1200)
       }
     }
   }
 
   function closeMux() {
+    clearTimeout(_retryTimer)
+    _retryTimer = 0
     if (_abort) { _abort.abort(); _abort = null }
   }
 
@@ -739,10 +752,14 @@ export function createDshSession(base = '/vulnagent') {
   }
 
   async function backfill(maxMessages = 200) {
+    const sid = state.sid
+    const generation = _generation
+    if (!sid) return 0
     let value
     try {
       value = await rpc('session.history', { maxMessages })
     } catch (err) {
+      if (generation !== _generation || sid !== state.sid) return 0
       const msg = String(err?.detail || err?.message || '')
       if (/history unavailable|failed validation|SessionPersistenceCorruption|must have tool source/.test(msg)) {
         state.hasMoreHistory = false
@@ -750,7 +767,8 @@ export function createDshSession(base = '/vulnagent') {
       }
       throw err
     }
-    const entries = value.events || []
+    if (generation !== _generation || sid !== state.sid) return 0
+    const entries = value?.events || []
     state.hasMoreHistory = !!value.hasMore
     for (const entry of entries) {
       const event = entry?.event || entry
@@ -770,11 +788,15 @@ export function createDshSession(base = '/vulnagent') {
     clearTimeout(_summaryTimer)
     _summaryTimer = setTimeout(async () => {
       _summaryTimer = 0
-      if (!state.sid) return
+      if (!state.sid || _summaryLoading) return
+      const sid = state.sid
+      const generation = _generation
+      _summaryLoading = true
       try {
-        const s = await api(`${base}/sessions/${state.sid}`)
-        if (state.sid && s) applyHuntSummary(s)
+        const s = await api(`${base}/sessions/${sid}`)
+        if (generation === _generation && state.sid === sid && s) applyHuntSummary(s)
       } catch { /* offline tolerated */ }
+      finally { if (generation === _generation) _summaryLoading = false }
     }, delayMs)
   }
 
@@ -782,7 +804,7 @@ export function createDshSession(base = '/vulnagent') {
   function startSummaryPolling () {
     if (_summaryPoll) return
     _summaryPoll = setInterval(() => {
-      if (state.sid && state.huntStatus === 'running'
+      if (!document.hidden && state.sid && state.huntStatus === 'running'
           && state.status !== 'connecting') {
         scheduleSummaryRefresh(0)
       }
@@ -803,14 +825,21 @@ export function createDshSession(base = '/vulnagent') {
     // 懒加载，EmulationOfferCard / SessionEndCard 消费）
     state.awaitNote = String(summary.await_note || '')
     if (Array.isArray(summary.findings)) state.findingIds = summary.findings
+    if (Array.isArray(summary.finding_objects)) {
+      state.findings = summary.finding_objects
+      state.findingsLoaded = true
+    }
     if (state.huntStatus === 'done' && summary.findings?.length
         && !state.findingsLoaded) {
       state.findingsLoaded = true
+      const sid = state.sid
+      const generation = _generation
       api('/vulnagent/findings')
         .then((list) => {
+          if (generation !== _generation || sid !== state.sid) return
           const rows = Array.isArray(list) ? list : (list?.items || [])
           state.findings = rows.filter((f) =>
-            !f.session_id || f.session_id === state.sid)
+            f.session_id === sid || state.findingIds.includes(f.id))
           bump()
         })
         .catch(() => {})
@@ -824,6 +853,13 @@ export function createDshSession(base = '/vulnagent') {
     const node = markRaw({ id: nid('u'), kind: 'user', text, seq: 0, ts: Date.now(), local: true })
     state.nodes.push(node)
     bump()
+    return node
+  }
+
+  function removeLocalUser(node) {
+    if (!node || !node.local || node.localConfirmed) return
+    const index = state.nodes.indexOf(node)
+    if (index >= 0) { state.nodes.splice(index, 1); bump() }
   }
 
   async function prompt(text, mode = 'queue') {
@@ -853,28 +889,36 @@ export function createDshSession(base = '/vulnagent') {
   }
 
   async function resumeHunt (text) {
+    const sid = state.sid
+    const generation = _generation
     const rec = await api(`${base}/sessions/${state.sid}/resume`, {
       method: 'POST',
       body: { message: text },
     })
+    if (generation !== _generation || sid !== state.sid) return rec
     state.huntStatus = rec.status || 'running'
     state.turns = rec.turns
     state.maxTurns = rec.max_turns
     state.running = true
     bump()
+    openMux()
     return rec
   }
 
   async function continueHunt (extraTurns = 80, message) {
+    const sid = state.sid
+    const generation = _generation
     const rec = await api(`${base}/sessions/${state.sid}/continue`, {
       method: 'POST',
       body: { extra_turns: extraTurns, ...(message ? { message } : {}) },
     })
+    if (generation !== _generation || sid !== state.sid) return rec
     state.huntStatus = rec.status || 'running'
     state.turns = rec.turns
     state.maxTurns = rec.max_turns
     state.running = true
     bump()
+    openMux()
     return rec
   }
 
@@ -937,6 +981,8 @@ export function createDshSession(base = '/vulnagent') {
   }
 
   async function attach(sid, { expectRunning = false } = {}) {
+    detach()
+    const generation = _generation
     state.sid = sid
     state.nodes = []
     state.queue = []
@@ -946,6 +992,7 @@ export function createDshSession(base = '/vulnagent') {
     state.usageTotals = { calls: 0, input: 0, output: 0, cacheRead: 0,
                           cacheWrite: 0, contextTokens: 0 }
     state.lastError = null
+    state.huntStatus = ''
     state.awaitNote = ''
     state.findingIds = []
     state.findings = []
@@ -963,6 +1010,7 @@ export function createDshSession(base = '/vulnagent') {
     let summary = null
     try {
       summary = await api(`${base}/sessions/${sid}`)
+      if (generation !== _generation || state.sid !== sid) return
       applyHuntSummary(summary)
       if (summary?.status === 'error') {
         lastErr = new Error(summary.error || '会话启动失败')
@@ -971,17 +1019,19 @@ export function createDshSession(base = '/vulnagent') {
         state.running = false
       }
     } catch (err) {
+      if (generation !== _generation || state.sid !== sid) return
       lastErr = err
     }
-    if (state.sid !== sid) return
+    if (generation !== _generation || state.sid !== sid) return
     try {
       await backfill()
+      if (generation !== _generation || state.sid !== sid) return
       lastErr = null
       state.lastError = null
     } catch (err) {
       lastErr = err
     }
-    if (state.sid !== sid) return
+    if (generation !== _generation || state.sid !== sid) return
     state.loadingHistory = false
     if (summary && summary.status === 'running') state.running = true
     bump()
@@ -994,8 +1044,8 @@ export function createDshSession(base = '/vulnagent') {
         if (state.status !== 'live') state.running = false
       }
     }
-    if (state.sid !== sid) return
-    if (state.huntStatus === 'running' || expectRunning) {
+    if (generation !== _generation || state.sid !== sid) return
+    if (state.huntStatus === 'running' || (!summary && expectRunning)) {
       openMux()
     }
     for (const node of state.nodes) {
@@ -1012,6 +1062,8 @@ export function createDshSession(base = '/vulnagent') {
   }
 
   function detach() {
+    _generation += 1
+    _summaryLoading = false
     stopSummaryPolling()
     closeMux()
     for (const node of state.nodes) flushType(node)
@@ -1030,6 +1082,6 @@ export function createDshSession(base = '/vulnagent') {
     state, busy,
     attach, detach, rpc, prompt, resumeHunt, continueHunt, steerAll, cancel, fork, updateQueue,
     respond, approve, setApprovalPolicy, backfill, openMux, closeMux, foldEvent, bindStreamEl,
-    pushLocalUser,
+    pushLocalUser, removeLocalUser,
   }
 }

@@ -412,8 +412,8 @@ class TestSpaHosting:
         assert "协议逆向" not in tour
         assert "许愿模式" not in tour
         assert "ops-home" in app
-        assert "ParticleField" in app
-        # SplashOverlay 已随 2026-09 壳层精简移除（粒子背景直达主壳）
+        # 2026-10：背景粒子移除，登录插图由静态 SVG 组件渲染。
+        assert '<ParticleField' not in app
         assert 'lang="zh-CN"' in (webui_src.parent / "index.html").read_text(
             encoding="utf-8")
         theme = (webui_src / "theme.css").read_text(encoding="utf-8")

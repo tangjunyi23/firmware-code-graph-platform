@@ -36,7 +36,9 @@
         >
           <IconPanelLeftOutline16 :size="16" />
         </button>
-        <span class="stage-title">{{ firmwareLabel || 'FWGraph' }}</span>
+        <div class="workspace-context"><span class="stage-title">{{ firmwareLabel || '安全工作台' }}</span><span class="workspace-context-sub">{{ activeSid ? '当前会话 ' + activeSid : '选择固件 · 定义目标 · 验证证据' }}</span></div>
+        <span v-if="activeSid" class="workspace-status" :data-state="session.state.huntStatus">{{ session.state.loadingHistory ? '正在载入记录' : workspaceStatus }}</span>
+        <div class="stage-actions"><a v-if="currentJobId" href="?page=functions&mode=expert">代码洞察</a><a href="?page=reports&mode=expert">报告中心</a></div>
         <button
           v-if="activeSid"
           type="button"
@@ -45,7 +47,7 @@
           @click="trajectoryOpen = true"
         >
           <IconChartColumn16 :size="15" />
-          <span>统计</span>
+          <span>执行统计</span>
           <span
             v-if="tokBadge"
             class="tok-badge"
@@ -81,8 +83,9 @@
         <div ref="seatRef" class="composer-seat" data-composer-seat>
           <div class="composer-stack" :class="{ 'composer-hero': phase === 'hero' }">
             <div v-if="phase === 'hero'" class="hero-copy">
-              <h1>今天挖哪一块固件？</h1>
-              <p>选一个已完成的分析任务，直接描述入口或漏洞类型。</p>
+              <div class="workbench-badge"><component :is="NAV_ICONS.ScanSearch" :size="16" />AI 辅助安全分析</div>
+              <h1>固件安全工作台</h1>
+              <p>选择一个固件任务，让代码线索、风险发现和验证证据汇聚在同一个工作区。</p>
             </div>
             <div v-if="phase === 'hero'" class="hero-workspace-row">
               <button
@@ -121,7 +124,7 @@
               :job-id="currentJobId"
               :firmware-label="firmwareLabel"
               :running="session.state.running"
-              :locked="sending"
+              :locked="sending || session.state.loadingHistory"
               :notice="notice"
               @update:draft="draft = $event"
               @send="onSend"
@@ -129,12 +132,19 @@
               @steer="session.steerAll()"
               @request-workspace="pickerOpen = true"
             />
+            <p v-if="phase === 'hero'" class="starter-label">或从一个分析方向开始</p>
+            <div v-if="phase === 'hero'" class="starter-prompts" aria-label="分析方向建议">
+              <button type="button" @click="draft = '请梳理该固件暴露的网络入口，说明入口函数、认证方式与可达的危险调用。'"><b>梳理网络入口</b><span>查看暴露服务、认证方式与代码路径</span></button>
+              <button type="button" @click="draft = '请检查该固件的命令注入风险，跟踪外部输入到命令执行函数的数据流，并给出证据。'"><b>检查命令注入</b><span>跟踪输入到危险调用的数据流</span></button>
+              <button type="button" @click="draft = '请检查该固件是否存在硬编码凭据、隐藏账户或可疑后门逻辑，并说明触发条件和证据。'"><b>排查隐藏后门</b><span>检查凭据、账户与异常启动逻辑</span></button>
+            </div>
+            <div v-if="phase === 'hero'" class="workspace-guide"><span><b>01</b>绑定已就绪固件</span><span><b>02</b>描述分析目标</span><span><b>03</b>审阅证据与报告</span></div>
           </div>
         </div>
       </div>
     </main>
 
-    <aside class="wb-details" v-show="detailsOpen">
+    <aside class="wb-details" v-if="detailsOpen && cols.details > 0">
       <DetailsPanel :node="inspected" @close="detailsOpen = false" />
     </aside>
 
@@ -147,6 +157,7 @@
       @pointerdown="startDrag('details', $event)"
     />
     </div>
+    <el-drawer v-model="detailsOpen" v-if="cols.details === 0 && detailsOpen" append-to-body title="调用证据" size="min(580px, 90%)"><div class="wb-root workspace-detail-drawer" :data-wb-theme="theme"><DetailsPanel :node="inspected" @close="detailsOpen = false" /></div></el-drawer>
 
     <div class="overlay-layer" data-shell-overlay>
       <TrajectoryView v-if="trajectoryOpen" :session="session" @close="trajectoryOpen = false" />
@@ -179,11 +190,13 @@ import WorkspacePicker from './WorkspacePicker.vue'
 import { createDshSession } from './dshClient.js'
 import { createCatalog } from './catalog.js'
 import { api } from '../api.js'
+import { themePref, setTheme as setGlobalTheme } from '../themePrefs.js'
+import { readSelectedJob, rememberSelectedJob } from '../jobCatalog.js'
 import { t } from './locales.js'
 import {
   DEFAULT_TASK, HUNT_TURNS, pipelineFinished
 } from './pipeline.js'
-import { IconFolderClose16, IconFolderOpen16, IconChevronDownOutline14, IconPanelLeftOutline16, IconChartColumn16 } from './icons.js'
+import { NAV_ICONS, IconFolderClose16, IconFolderOpen16, IconChevronDownOutline14, IconPanelLeftOutline16, IconChartColumn16 } from './icons.js'
 
 const RAIL = 260
 
@@ -215,10 +228,9 @@ function computeColumns (viewport, details) {
   return { center: available, details: 0 }
 }
 
-const theme = ref(localStorage.getItem('fwgraph_wb_theme') || 'light')
+const theme = themePref
 function setTheme (v) {
-  theme.value = v
-  localStorage.setItem('fwgraph_wb_theme', v)
+  setGlobalTheme(v)
 }
 
 const detailsPref = ref(DETAILS_DEFAULT)
@@ -269,6 +281,8 @@ const sending = ref(false)
 const notice = ref(null)
 const sessionJobMap = reactive({})
 const showToBottom = ref(false)
+let disposed = false
+const workspaceStatus = computed(() => ({ running: session.state.running ? '正在分析' : '等待下一步', done: '已完成', error: '执行异常', interrupted: '已中断', awaiting_continue: '等待确认' }[session.state.huntStatus] || '已连接'))
 
 // token 实时徽章（dshClient usageTotals：每步 assistant/message 累加，
 // 流式过程中随事件跳动）
@@ -289,7 +303,7 @@ const tokBadge = computed(() => {
 })
 
 const readyJobs = computed(() =>
-  (catalog.state.jobs || []).filter((j) => pipelineFinished(j))
+  (catalog.state.jobs || []).filter((j) => j.status !== 'failed' && pipelineFinished(j))
 )
 const phase = computed(() => (activeSid.value ? 'active' : 'hero'))
 
@@ -322,14 +336,19 @@ function restoreSid () {
   })
 }
 
-function onSelectSession ({ sid, jobId, expectRunning = false }) {
+function onSelectSession ({ sid, jobId, expectRunning = false, created = false }) {
+  if ((sending.value && !created) || disposed) return
   railOpen.value = false
   pickerOpen.value = false
   if (jobId) {
+    rememberSelectedJob(jobId)
     currentJobId.value = jobId
     sessionJobMap[sid] = jobId
     const job = catalog.jobById(jobId)
-    if (job) firmwareLabel.value = job.firmware
+    firmwareLabel.value = job?.firmware || jobId
+  } else {
+    currentJobId.value = ''
+    firmwareLabel.value = ''
   }
   if (activeSid.value === sid) {
     if (expectRunning) session.state.running = true
@@ -337,9 +356,15 @@ function onSelectSession ({ sid, jobId, expectRunning = false }) {
     return
   }
   session.detach()
+  inspected.value = null
+  detailsOpen.value = false
+  notice.value = null
+  followTail.value = true
   activeSid.value = sid
   writeSidQuery(sid)
-  if (sid) session.attach(sid, { expectRunning })
+  if (sid) session.attach(sid, { expectRunning }).catch(err => {
+    if (activeSid.value === sid) notice.value = { level: 'error', text: err.message || '会话连接失败，请重试。' }
+  })
 }
 
 function onSelectJob (job) {
@@ -347,21 +372,24 @@ function onSelectJob (job) {
 }
 
 function onPickJob (job) {
+  if (sending.value) return
   pickerOpen.value = false
-  if (!pipelineFinished(job)) {
+  if (job.status === 'failed' || !pipelineFinished(job)) {
     notice.value = { level: 'error', text: '该分析任务尚未完成，请到「分析任务」页等待或新建。' }
     return
   }
   notice.value = null
+  if (activeSid.value && currentJobId.value !== job.job_id) onNewSession()
   currentJobId.value = job.job_id
   firmwareLabel.value = job.firmware
+  rememberSelectedJob(job.job_id)
 }
 
 function onNewSession () {
+  if (sending.value) return
   session.detach()
   activeSid.value = null
   writeSidQuery('')
-  firmwareLabel.value = ''
   draft.value = ''
   notice.value = null
   pickerOpen.value = false
@@ -385,8 +413,9 @@ async function onStopSession ({ sid }) {
 }
 
 function onInterruptCurrent () {
-  session.cancel().catch(() => {})
-  session.state.running = false
+  session.cancel().then(() => { session.state.running = false }).catch(err => {
+    notice.value = { level: 'error', text: err.message || '中断请求失败，请重试。' }
+  })
 }
 
 function onStopCurrent () {
@@ -469,7 +498,7 @@ async function startHunt (job, userText) {
   try {
     const sess = await api('/vulnagent/sessions', {
       method: 'POST',
-      body: { task, job_id: jobId, mode: 'dynamic', max_turns: HUNT_TURNS }
+      body: { task, job_id: jobId, mode: 'dynamic', max_turns: HUNT_TURNS, approval_policy: session.state.approvalPolicy }
     })
     currentJobId.value = jobId
     firmwareLabel.value = job.firmware
@@ -486,7 +515,7 @@ async function startHunt (job, userText) {
         archived: false
       })
     }
-    onSelectSession({ sid: sess.session_id, jobId, expectRunning: true })
+    onSelectSession({ sid: sess.session_id, jobId, expectRunning: true, created: true })
     catalog.refresh()
   } catch (err) {
     notice.value = { level: 'error', text: err.message || '挖掘未启动' }
@@ -504,9 +533,15 @@ async function onSend () {
   }
   notice.value = null
   if (activeSid.value && session.state.sid) {
+    if (session.state.loadingHistory) return
+    const selectedSession = catalog.state.sessions.find(s => s.session_id === activeSid.value)
+    if (selectedSession?.archived) {
+      notice.value = { level: 'error', text: '该会话已归档，请先取消归档或新建分析会话。' }
+      return
+    }
     // 乐观上屏：发送瞬间插入本地用户消息（真实事件到达后确认复用），
     // 消除"点发送后卡一下才显示"（2026-09-23 用户反馈）
-    session.pushLocalUser(text)
+    const optimistic = session.pushLocalUser(text)
     sending.value = true
     try {
       if (session.state.huntStatus === 'awaiting_continue') {
@@ -518,6 +553,7 @@ async function onSend () {
       }
       draft.value = ''
     } catch (err) {
+      session.removeLocalUser(optimistic)
       notice.value = { level: 'error', text: err.message }
       if (session.state.huntStatus === 'awaiting_continue') {
         /* banner stays */
@@ -589,6 +625,7 @@ function scrollToBottom () {
   animateScrollTo(el, el.scrollHeight)
 }
 function jumpToBottom () {
+  const el = scrollEl.value
   if (!el) return
   el.scrollTop = el.scrollHeight
   onScroll()
@@ -654,13 +691,19 @@ onMounted(() => {
     frameRo.observe(el)
   }
   onResize()
-  catalog.refresh().then(() => restoreSid())
+  catalog.refresh().then(() => {
+    if (disposed) return
+    const saved = catalog.jobById(readSelectedJob())
+    if (saved && saved.status !== 'failed' && pipelineFinished(saved)) onPickJob(saved)
+    restoreSid()
+  })
   catalogTimer = setInterval(() => {
     if (typeof document !== 'undefined' && document.hidden) return
     catalog.refresh({ silent: true })
   }, 20000)
 })
 onBeforeUnmount(() => {
+  disposed = true
   session.detach()
   if (catalogTimer) clearInterval(catalogTimer)
   if (frameRo) frameRo.disconnect()

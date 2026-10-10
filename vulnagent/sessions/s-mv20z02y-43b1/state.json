@@ -1,0 +1,20 @@
+{
+  "session_id": "s-mv20z02y-43b1",
+  "agent_id": "vuln-miner-fwgraph (dsh-web)",
+  "environment_id": "fwgraph-dsh-web",
+  "task": "编排加固回归验证：fw_search 查一个函数名，然后直接收尾总结。",
+  "status": "error",
+  "turns": 1,
+  "usage": {},
+  "findings": [],
+  "created_at": "2026-10-10T06:40:27Z",
+  "updated_at": "2026-10-10T06:40:47Z",
+  "engine": "dsh-web",
+  "mode": "dynamic",
+  "job_id": "60ca28d897cf",
+  "max_turns": 1,
+  "owner": "token-admin",
+  "approval_policy": "auto",
+  "dsh_session_id": "session-3b38046b-c41d-4d57-b78c-c0fcff645bb8",
+  "error": "turn error: 身份验证失败。"
+}

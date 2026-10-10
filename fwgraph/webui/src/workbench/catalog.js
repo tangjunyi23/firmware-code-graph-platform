@@ -1,5 +1,6 @@
 import { computed, reactive } from 'vue'
 import { api } from '../api.js'
+import { loadJobs } from '../jobCatalog.js'
 
 function sameRows (a, b, idKey) {
   if (a === b) return true
@@ -10,7 +11,11 @@ function sameRows (a, b, idKey) {
     if (!x || !y) return false
     if (x[idKey] !== y[idKey] || x.status !== y.status
         || x.turns !== y.turns || x.archived !== y.archived
-        || x.firmware !== y.firmware || x.task !== y.task) {
+        || x.firmware !== y.firmware || x.task !== y.task
+        || x.progress !== y.progress || x.error !== y.error
+        || x.await_note !== y.await_note || x.managed !== y.managed
+        || x.updated_at !== y.updated_at || x.max_turns !== y.max_turns
+        || JSON.stringify(x.findings || []) !== JSON.stringify(y.findings || [])) {
       return false
     }
   }
@@ -18,13 +23,20 @@ function sameRows (a, b, idKey) {
 }
 
 export function createCatalog () {
-  const state = reactive({ jobs: [], sessions: [], loading: false })
+  const state = reactive({ jobs: [], sessions: [], loading: false, error: '', updatedAt: null })
+  let pending = null
 
-  async function refresh ({ silent = false } = {}) {
+  function refresh ({ silent = false } = {}) {
+    if (pending) return pending
+    pending = performRefresh(silent).finally(() => { pending = null })
+    return pending
+  }
+
+  async function performRefresh(silent) {
     if (!silent) state.loading = true
     try {
       const [jobs, sessions] = await Promise.all([
-        api('/jobs'),
+        loadJobs({ force: true }),
         api('/vulnagent/sessions')
       ])
       const nextJobs = Array.isArray(jobs) ? jobs : []
@@ -33,8 +45,10 @@ export function createCatalog () {
       if (!sameRows(state.sessions, nextSessions, 'session_id')) {
         state.sessions = nextSessions
       }
+      state.error = ''
+      state.updatedAt = Date.now()
     } catch {
-      /* ignore: sidebar stays at last known list */
+      state.error = '任务列表暂时无法更新，已保留最近数据。'
     } finally {
       if (!silent) state.loading = false
     }

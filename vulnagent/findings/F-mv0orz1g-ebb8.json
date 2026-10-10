@@ -1,0 +1,32 @@
+{
+  "job_id": "60ca28d897cf",
+  "title": "httpd 预认证路径穿越任意文件读取（/help/ URL 经 httpRpmFsA 无 \"..\" 检查直读）",
+  "severity": "high",
+  "confidence": 0.68,
+  "vuln_class": "路径穿越",
+  "cwe": "CWE-22",
+  "binary_md5": "9582aa23b0bc2de099b9997b09457d01",
+  "binary_path": "firmware/binwalk_extracted/firmware.extracted/0/squashfs-root/usr/bin/httpd",
+  "reachability": "static-only",
+  "summary": "TP-Link Archer C7 v2 httpd 预认证任意文件读取。免鉴权的 /help/ 处理器 httpHelpRequestRpm 将原始 URL 直接传入 httpRpmFsA，后者先拼 \"/tmp/\"+URL 并 open，该分支缺少 httpRpmFs 同款 strstr(\"..\") 路径穿越检查，穿越成功即把任意文件内容回发给攻击者。可读取 /tmp 配置导出、账户/密钥材料，为后续认证绕过提供信息基础。",
+  "evidence": [
+    "httpRpmFsA(0x426524) 伪代码：strcpy(v4,\"/tmp/\"); strcat(v4,a2); v5=open(v4,0); if(v5>=0) goto LABEL_7 —— /tmp 分支 open 前没有任何 \"..\" 检查，文件内容随后经 stat/read/httpBlockPut 回发给请求方",
+    "对照 httpRpmFs(0x426880) 同一分支：strcat 后立即 v4=strstr(v2,\"..\")!=0 并拒绝 —— 两函数实现不一致证明 httpRpmFsA 属实现缺陷而非设计",
+    "webHelpPageRpmInit(0x489060)：httpRpmConfAdd(2, \"/help/\", httpHelpRequestRpm) —— /help/ 前缀绑定该免鉴权 handler",
+    "httpDispatcher(0x425d08) 汇编/伪代码 0x425f6c-0x425f84：v6==httpRpmFs 或 v6==httpHelpRequestRpm 时直接跳过 sub_425CB8 认证执行 handler",
+    "httpHelpRequestRpm(0x489084)：httpRpmFsA(a1, *(a1+20)) —— a1+20 即原始请求 URL，攻击者完全控制",
+    "httpd(0x45cbc0)：httpAliasConfAdd(\"/help/*\",\"/help/*\") 原样透传，URL 前缀 /help/ 即可命中",
+    "fw_read_bytes 0x5B6E10 白名单表(off_5B6E10)仅约束 httpRpmFs，httpRpmFsA 无此白名单逻辑"
+  ],
+  "session_id": "s-mv0o98ol-47f9",
+  "function_name": "httpRpmFsA",
+  "preconditions": "LAN 侧直接可达（HttpAccessPermit 默认放行 LAN）；WAN 侧需设备开启远程 WEB 管理。无需任何凭据。",
+  "poc": "原始 socket 或 curl 禁止路径规范化：curl --path-as-is http://<router>/help/../../etc/passwd ；URL 解析为 /tmp//help/../../etc/passwd = /etc/passwd，响应体即文件内容。同理可读 /tmp/ 下配置导出、任意系统文件。",
+  "call_chain": "TCP:80 → mud 接收 → httpDispatcher(0x425d08) → httpHelpRequestRpm(0x489084) → httpRpmFsA(0x426524) → strcpy(v4,\"/tmp/\")+strcat(v4,URL) → open(v4,0) 无 \"..\" 检查 → stat/read → httpBlockPut 响应客户端",
+  "function_addr": "0x426524",
+  "id": "F-mv0orz1g-ebb8",
+  "status": "draft",
+  "owner": "token-admin",
+  "recorded_at": "2026-10-09T08:11:18Z",
+  "history": []
+}

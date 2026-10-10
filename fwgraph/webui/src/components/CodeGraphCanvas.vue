@@ -63,7 +63,8 @@ function rebuild () {
   const enabled = new Set(props.types)
   visible = props.nodes.filter(n => enabled.size === 0 || enabled.has(n.label))
   for (const n of visible) nodeById.set(n.id, n)
-  dirty = true
+  selected = null
+  schedule()
 }
 
 function fit () {
@@ -80,7 +81,7 @@ function fit () {
   transform.scale = Math.min(viewW / w, viewH / h) * 0.9
   transform.ox = viewW / 2 - (minX + w / 2) * transform.scale
   transform.oy = viewH / 2 - (minY + h / 2) * transform.scale
-  dirty = true
+  schedule()
 }
 
 function toScreen (x, y) {
@@ -98,7 +99,7 @@ function render () {
   dirty = false
   ctx.save()
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-  ctx.fillStyle = '#f7f8fa'
+  ctx.fillStyle = getComputedStyle(wrap.value).getPropertyValue('--fw-surface-2').trim() || '#f7f8fa'
   ctx.fillRect(0, 0, viewW, viewH)
   ctx.fillStyle = 'rgba(19, 76, 255, 0.10)'
   const grid = 28
@@ -182,7 +183,7 @@ function schedule () {
 
 function resize () {
   if (!wrap.value || !canvas.value) return
-  dpr = window.devicePixelRatio || 1
+  dpr = Math.min(window.devicePixelRatio || 1, 2)
   viewW = wrap.value.clientWidth
   viewH = wrap.value.clientHeight
   canvas.value.width = viewW * dpr
@@ -249,16 +250,20 @@ function onClick (e) {
 }
 
 let observer = null
+let themeObserver = null
 onMounted(() => {
   ctx = canvas.value.getContext('2d')
   observer = new ResizeObserver(() => { resize(); fit() })
   observer.observe(wrap.value)
+  themeObserver = new MutationObserver(schedule)
+  themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-fw-theme'] })
   resize()
   rebuild()
   fit()
 })
 onBeforeUnmount(() => {
   if (observer) observer.disconnect()
+  if (themeObserver) themeObserver.disconnect()
   if (rafId) cancelAnimationFrame(rafId)
 })
 

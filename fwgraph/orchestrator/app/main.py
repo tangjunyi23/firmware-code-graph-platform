@@ -150,17 +150,8 @@ def require_admin(principal: dict = Depends(require_token)):
 
 
 def _can_access(principal: dict, owner) -> bool:
-    """Owner check per the accounts.can_access contract: admin, matching
-    owner, or a legacy owner-less job. Falls back to a local copy until the
-    accounts side lands the function (concurrent rollout)."""
-    fn = getattr(accounts, "can_access", None)
-    if fn is not None:
-        return bool(fn(principal, owner))
-    if principal.get("role") == "admin":
-        return True
-    if not owner:
-        return True
-    return principal.get("username") == owner
+    """Owner check (admin / matching owner / legacy owner-less job)."""
+    return bool(accounts.can_access(principal, owner))
 
 
 def _check_quota(job_id: str, kind: str):

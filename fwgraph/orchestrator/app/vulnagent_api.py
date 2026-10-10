@@ -230,11 +230,39 @@ def _effective_status(sid: str, state: dict) -> str:
     return status
 
 
-def _finding_ids_by_session() -> dict[str, list[str]]:
-    result: dict[str, list[str]] = {}
+_findings_dir_cache: tuple | None = None   # (dir_snapshot, result)
+_findings_cache_lock = threading.Lock()
+
+
+def _findings_dir_stamp() -> tuple:
+    """Cheap directory fingerprint: (n_files, max_mtime_ns, total_size)."""
     fdir = VULNAGENT_HOME / "findings"
     if not fdir.is_dir():
-        return result
+        return (0, 0, 0)
+    n = mx = total = 0
+    try:
+        for f in fdir.glob("F-*.json"):
+            st = f.stat()
+            n += 1
+            total += st.st_size
+            if st.st_mtime_ns > mx:
+                mx = st.st_mtime_ns
+    except OSError:
+        return (0, 0, 0)
+    return (n, mx, total)
+
+
+def _finding_ids_by_session() -> dict[str, list[str]]:
+    """sid -> finding ids. Cached on a cheap directory fingerprint: the
+    sessions-list endpoint polls every ~3s and used to re-read all ~60
+    finding JSONs per request."""
+    global _findings_dir_cache
+    stamp = _findings_dir_stamp()
+    with _findings_cache_lock:
+        if _findings_dir_cache and _findings_dir_cache[0] == stamp:
+            return _findings_dir_cache[1]
+    result: dict[str, list[str]] = {}
+    fdir = VULNAGENT_HOME / "findings"
     for f in sorted(fdir.glob("F-*.json")):
         try:
             doc = json.loads(f.read_text(encoding="utf-8"))
@@ -246,23 +274,14 @@ def _finding_ids_by_session() -> dict[str, list[str]]:
         fid = str(doc.get("id") or "")
         if isinstance(sid, str) and sid and _FID_RE.match(fid):
             result.setdefault(sid, []).append(fid)
+    with _findings_cache_lock:
+        _findings_dir_cache = (stamp, result)
     return result
 
 
 def _session_finding_ids(sid: str) -> list:
     """Live finding ids for a session (disk is source of truth while running)."""
-    found = []
-    fdir = VULNAGENT_HOME / "findings"
-    if not fdir.is_dir():
-        return found
-    for f in sorted(fdir.glob("F-*.json")):
-        try:
-            doc = json.loads(f.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            continue
-        if doc.get("session_id") == sid and _FID_RE.match(str(doc.get("id") or "")):
-            found.append(doc["id"])
-    return found
+    return _finding_ids_by_session().get(sid, [])
 
 
 def _session_summary(sdir: Path, finding_ids: dict[str, list[str]] | None = None) -> dict:
@@ -877,27 +896,52 @@ def _inject_node_ca(env: dict, env_file: dict) -> None:
 
 
 def _refresh_job_report(job_id: str) -> None:
-    """finding 入库后刷新任务漏洞报告（失败不影响入库）。"""
+    """finding 入库后刷新任务漏洞报告（失败不影响入库）。
+
+    Off the request thread: generate_job_report re-collects every finding
+    + session + manifest (~190 file reads) — it used to sit inside the
+    record_finding tool response. Deduplicated so a burst of findings
+    triggers at most one regeneration per job per few seconds.
+    """
     if not job_id:
         return
     try:
-        from pipeline import report as job_report
-        job_report.generate_job_report(job_id, _data_dir())
-    except Exception:
+        import threading as _th
+        with _report_refresh_lock:
+            _report_refresh_pending[job_id] = time.monotonic()
+            if _report_refresh_threads.get(job_id):
+                return  # already scheduled
+            _report_refresh_threads[job_id] = True
+
+        def _run():
+            try:
+                time.sleep(2.0)  # coalesce bursts
+                while True:
+                    with _report_refresh_lock:
+                        last = _report_refresh_pending.get(job_id)
+                        _report_refresh_pending[job_id] = 0.0
+                    if not last:
+                        break
+                    try:
+                        from pipeline import report as job_report
+                        job_report.generate_job_report(job_id, _data_dir())
+                    except Exception:  # noqa: BLE001
+                        break
+            finally:
+                with _report_refresh_lock:
+                    _report_refresh_threads.pop(job_id, None)
+
+        _th.Thread(target=_run, daemon=True,
+                   name=f"report-refresh-{job_id}").start()
+    except Exception:  # noqa: BLE001
         pass
 
 
+_report_refresh_pending: dict[str, float] = {}
+_report_refresh_threads: dict[str, bool] = {}
+_report_refresh_lock = threading.Lock()
+
 # ---------------- dsh web host（工作台多轮会话/queue/steer/审批） ----------------
-
-
-def _dsh_deepseek_base(url: str) -> str:
-    """dsh llm-deepseek（messages 协议）自行拼 /v1/messages。
-
-    LLM_BASE_URL 按老 builtin 引擎约定带尾部 /v1（它拼 {base}/messages），
-    转发给 dsh 前剥掉，避免 /v1/v1/messages 404。
-    """
-    base = (url or "").rstrip("/")
-    return base[:-3] if base.endswith("/v1") else base
 
 
 def _dsh_env(sid: str, sdir: Path, state: dict) -> dict:
@@ -1086,6 +1130,9 @@ def _journal_tail(sdir) -> list:
     autopilot 用它做完成/错误检测：零 RPC、零 host 依赖——host 已死或
     ensure 重拉窗口里也能判定（2026-09-22 实测：RPC 路径在 host 死后会
     长时间挂起，导致 turn completed 迟迟无人收尾）。
+    结果按 (mtime, size) 缓存：idle stretches between turns skip the
+    spawn+decompress entirely（autopilot 每 20s 一采，长会话 journal 可
+    达数百 KB zstd）。
     """
     import glob as _glob
     import subprocess as _sp
@@ -1095,6 +1142,12 @@ def _journal_tail(sdir) -> list:
     # 多个 session 目录（历史竞态/隔离产物）时取 mtime 最新的
     for z in sorted(_files, key=os.path.getmtime, reverse=True):
         try:
+            st = os.stat(z)
+            key = (z, st.st_mtime_ns, st.st_size)
+            with _journal_cache_lock:
+                hit = _journal_cache.get(z)
+            if hit is not None and hit[0] == key:
+                return hit[1]
             out = _sp.run(["zstdcat", z], capture_output=True, text=True,
                           timeout=30).stdout or ""
         except Exception:  # noqa: BLE001
@@ -1108,8 +1161,19 @@ def _journal_tail(sdir) -> list:
                 evs.append(json.loads(ln))
             except ValueError:
                 continue  # 单行坏数据不弃整个文件
+        with _journal_cache_lock:
+            # 只留最新 8 个 journal 的解析结果，防内存无限涨
+            if len(_journal_cache) > 8:
+                for k in sorted(_journal_cache,
+                                key=lambda k: _journal_cache[k][0][1])[:-8]:
+                    _journal_cache.pop(k, None)
+            _journal_cache[z] = (key, evs)
         return evs
     return []
+
+
+_journal_cache: dict = {}
+_journal_cache_lock = threading.Lock()
 
 
 def _autopilot(sid: str) -> None:
@@ -1723,19 +1787,24 @@ def setup(app: FastAPI, require_token) -> None:
                     return
                 await asyncio.sleep(0.3)
             while True:
+                # 同步文件读移出事件循环：首连可能读入整个 events.sse
+                # （长会话可达数十 MB），逐秒增量读也不该占住 loop。
                 try:
-                    with open(events_file, "r", encoding="utf-8",
-                              errors="replace") as fh:
-                        fh.seek(pos)
-                        chunk = fh.read()
-                        pos = fh.tell()
+                    def _read_chunk():
+                        with open(events_file, "r", encoding="utf-8",
+                                  errors="replace") as fh:
+                            fh.seek(pos)
+                            data = fh.read()
+                            return data, fh.tell()
+                    chunk, pos = await asyncio.to_thread(_read_chunk)
                 except OSError:
                     chunk = ""
                 if chunk:
                     yield chunk
                     continue
-                state = _read_state(sdir)
-                status = _effective_status(sid, state)
+                state, status = await asyncio.to_thread(
+                    lambda: (lambda s: (s, _effective_status(sid, s)))(
+                        _read_state(sdir)))
                 if not follow or status not in ("running",):
                     break
                 yield ": ping\n\n"

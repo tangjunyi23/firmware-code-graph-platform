@@ -1,0 +1,80 @@
+/* Desktop product workspace. Dashboard internals keep their original geometry. */
+.commercial-shell .workspace-pages { --desktop-space: 24px; }
+.commercial-shell .workspace-pages .page-pane { max-width: 1720px; padding: 30px 32px 40px; }
+.commercial-shell .workspace-pages:is(.chat-home,.ops-home) .page-pane { max-width: none; padding: 0; }
+.commercial-shell .workspace-pages .ins-head { margin-bottom: 24px; }
+.commercial-shell .workspace-pages .ins-head::before { font-size: 11px; margin-bottom: 10px; }
+.commercial-shell .workspace-pages .ins-title { font-size: 26px; }
+.commercial-shell .workspace-pages .ins-sub { font-size: 13px; line-height: 1.8; max-width: 1000px; }
+.commercial-shell .workspace-pages .ins-head-row { display: flex; justify-content: space-between; align-items: center; gap: 22px; }
+.commercial-shell .workspace-pages .ins-actions { display: flex; width: auto; gap: 10px; flex-wrap: wrap; }
+.commercial-shell .workspace-pages .ins-actions .job-picker { width: 310px; }
+.commercial-shell .workspace-pages :is(.el-card,.lib-card,.panel,.pane,.chart-card) { border-radius: 12px; box-shadow: 0 4px 18px rgba(10,25,48,.025); }
+.commercial-shell .workspace-pages .el-card__header { padding: 18px 22px; font-size: 14px; }
+.commercial-shell .workspace-pages .el-card__body { padding: 22px; }
+.commercial-shell .workspace-pages .el-table .el-table__cell { font-size: 13px; padding: 12px 0; }
+.commercial-shell .workspace-pages .el-table th.el-table__cell { font-size: 12px; font-weight: 600; }
+.commercial-shell .workspace-pages .el-button { font-size: 12px; min-height: 36px; padding: 8px 14px; }
+.commercial-shell .workspace-pages .el-tag { font-size: 11px; }
+.commercial-shell .workspace-pages :is(.toolbar.filters,.ins-filter) { padding: 14px 16px; gap: 12px; background: var(--fw-surface-2); }
+.commercial-shell .workspace-pages :is(.stat-chip,.lib-chip) { padding: 8px 12px; border-radius: 7px; font-size: 12px; }
+.commercial-shell .workspace-pages .ins-stats { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 18px; }
+.commercial-shell .workspace-pages .el-pagination { padding-top: 18px; }
+.commercial-shell .workspace-pages .events-page { grid-template-columns: 300px minmax(0,1fr); gap: 20px; }
+.commercial-shell .workspace-pages .events-page .col-jobs { max-height: calc(100dvh - 230px); overflow: auto; }
+.commercial-shell .workspace-pages .events-page .job-item { padding: 14px 10px; }
+.commercial-shell .workspace-pages .events-page .job-name { font-size: 13px; line-height: 1.7; }
+.commercial-shell .workspace-pages .events-page .log-pane { max-height: calc(100dvh - 300px); overflow: auto; }
+.commercial-shell .workspace-pages .prep .stage { padding: 30px 32px; }
+.commercial-shell .workspace-pages .prepare-guide p { font-size: 12px; }
+.commercial-shell .workspace-pages .prepare-note-label { font-size: 13px; }
+.commercial-shell .workspace-pages .prep .input { font-size: 14px; line-height: 1.8; min-height: 96px; }
+.commercial-shell .workspace-pages .wb-root .stage-bar { min-height: 76px; padding: 14px 24px; gap: 16px; }
+.workspace-context { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.commercial-shell .workspace-pages .wb-root .stage-title { font-size: 14px; font-weight: 600; color: var(--fw-text); max-width: 520px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.workspace-context-sub { color: var(--fw-text-3); font: 11px var(--fw-font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.workspace-status { padding: 6px 10px; border: 1px solid var(--fw-line); border-radius: 6px; color: var(--fw-text-2); font-size: 11px; white-space: nowrap; }
+.workspace-status[data-state='running'] { color: var(--fw-ok); background: color-mix(in srgb,var(--fw-ok) 7%,transparent); }
+.workspace-status[data-state='error'] { color: var(--fw-danger); }
+.stage-actions { display: flex; align-items: center; gap: 14px; margin-left: auto; flex: none; }
+.stage-actions a { text-decoration: none; font-size: 12px; color: var(--fw-text-2); }
+.stage-actions a:hover { color: var(--fw-brand); }
+.commercial-shell .workspace-pages .wb-root .traj-btn { margin-left: 0; border: 1px solid var(--fw-line); background: var(--fw-surface); border-radius: 7px; padding: 7px 10px; }
+.commercial-shell .workspace-pages .wb-root .wb-rail { background: var(--fw-sidebar); backdrop-filter: none; }
+.commercial-shell .workspace-pages .wb-root .composer-hero { max-width: 960px; width: calc(100% - 80px); }
+.commercial-shell .workspace-pages .wb-root .hero-copy { text-align: left; padding: 0 0 20px; }
+.commercial-shell .workspace-pages .wb-root .hero-copy h1 { font-size: 32px; letter-spacing: -.6px; }
+.commercial-shell .workspace-pages .wb-root .hero-copy p { font-size: 13px; line-height: 1.9; margin: 12px 0 0; max-width: 620px; text-align: left; }
+.commercial-shell .workspace-pages .wb-root .hero-workspace-row { justify-content: flex-start; margin-bottom: 12px; }
+.commercial-shell .workspace-pages .wb-root .composer-stack .card { border-radius: 12px; background: var(--fw-surface); box-shadow: 0 8px 24px rgba(0,0,0,.045); }
+.commercial-shell .workspace-pages .wb-root .composer-seat { padding-top: 10px; }
+.commercial-shell .workspace-pages .wb-root .composer-stack .input { font-size: 14px; line-height: 1.8; }
+.commercial-shell .workspace-pages .starter-prompts { gap: 12px; margin-top: 12px; }
+.commercial-shell .workspace-pages .starter-prompts button { padding: 18px; min-height: 90px; border-radius: 10px; background: var(--fw-surface); }
+.commercial-shell .workspace-pages .starter-prompts b { font-size: 13px; font-weight: 600; margin-bottom: 9px; }
+.commercial-shell .workspace-pages .starter-prompts span { font-size: 12px; line-height: 1.8; }
+.workspace-guide { display: flex; justify-content: space-between; gap: 14px; margin-top: 26px; padding: 18px 0 0; border-top: 1px solid var(--fw-line); }
+.workspace-guide span { color: var(--fw-text-3); font-size: 12px; }
+.workspace-guide b { margin-right: 8px; font: 11px var(--fw-font-mono); color: var(--fw-brand); }
+.workspace-detail-drawer { height: 100%; }
+.commercial-shell .workspace-pages .starter-label { text-align: left; font-size: 12px; margin: 18px 0 0; }
+.workspace-catalog-count { margin-left: auto; color: var(--fw-text-3); font: 11px var(--fw-font-mono); }
+.workspace-list-tabs { display: flex; gap: 3px; padding: 4px; margin: 10px 14px 14px; border: 1px solid var(--fw-line); border-radius: 7px; background: var(--fw-bg); }
+.workspace-list-tabs button { flex: 1; padding: 6px 2px; border: 0; border-radius: 4px; background: transparent; color: var(--fw-text-3); font: 11px var(--fw-font); cursor: pointer; }
+.workspace-list-tabs button.on { background: var(--fw-surface-2); color: var(--fw-text); }
+.workspace-catalog-error { margin: 0 14px 12px; color: var(--fw-warn); font-size: 11px; line-height: 1.7; }
+.workspace-catalog-error button { border: 0; background: transparent; color: var(--fw-brand); font: inherit; cursor: pointer; }
+.commercial-shell .workspace-pages .wb-root .project-row { min-height: 40px; font-size: 12px; }
+.commercial-shell .workspace-pages .wb-root .session-main { min-height: 40px; }
+.commercial-shell .workspace-pages .wb-root .search-row { min-height: 38px; }
+.commercial-shell .workspace-pages .wb-root .search-input { font-size: 12px; }
+.commercial-shell .workspace-pages .wb-root .flow-item { content-visibility: auto; contain-intrinsic-size: auto 84px; }
+.commercial-shell .workspace-pages .wb-root .flow-item:has(.caret) { content-visibility: visible; }
+.commercial-shell .workspace-pages .reports-page .report-archive { gap: 20px; }
+.commercial-shell .workspace-pages .lib-item { padding: 15px 10px; }
+.commercial-shell .workspace-pages .lib-name { font-size: 13px; }
+.commercial-shell .workspace-pages .settings .set-card-head h2 { font-size: 16px; }
+.commercial-shell .workspace-pages .settings .opt-copy small { font-size: 12px; }
+.commercial-shell .workspace-pages .graph-canvas-wrap { background: var(--fw-surface-2); border-radius: 8px; }
+@media (min-width: 1700px) { .commercial-shell .workspace-pages .wb-root .composer-hero { max-width: 1040px; } .commercial-shell .workspace-pages .page-pane { padding: 36px 40px 48px; } }
+@media (min-width: 901px) and (max-width: 1220px) { .commercial-shell .workspace-pages .wb-root .stage-bar { gap: 10px; padding: 14px 18px; } .stage-actions { gap: 10px; } .workspace-context { max-width: 300px; } .commercial-shell .workspace-pages .wb-root .composer-hero { width: calc(100% - 40px); } .workspace-guide { gap: 8px; flex-wrap: wrap; } }

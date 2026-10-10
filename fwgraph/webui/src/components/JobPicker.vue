@@ -21,8 +21,8 @@
 <script setup>
 // 代码洞察四页共用的任务选择器：
 // 固件名为主标签，状态汉化成徽章，按各页偏好状态自动选中第一个可用任务。
-import { onMounted, ref } from 'vue'
-import { api } from '../api'
+import { onMounted, ref, watch } from 'vue'
+import { loadJobs, readSelectedJob, rememberSelectedJob } from '../jobCatalog.js'
 import { STATUS_TEXT } from '../workbench/pipeline.js'
 
 const props = defineProps({
@@ -42,25 +42,29 @@ function stateOf (s) {
 }
 
 function onChange (v) {
+  rememberSelectedJob(v)
   emit('update:modelValue', v)
   emit('change', v)
 }
 
 async function refresh () {
   try {
-    const list = await api('/jobs')
+    const list = await loadJobs()
     jobs.value = Array.isArray(list) ? list : []
   } catch {
     jobs.value = []
   }
   if (!props.modelValue && props.prefer.length && jobs.value.length) {
-    const hit = jobs.value.find((j) => props.prefer.includes(j.status))
+    const saved = readSelectedJob()
+    const hit = jobs.value.find(j => j.job_id === saved && props.prefer.includes(j.status))
+      || jobs.value.find((j) => props.prefer.includes(j.status))
     const picked = hit || null
     if (picked) onChange(picked.job_id)
   }
 }
 
 onMounted(refresh)
+watch(() => props.modelValue, id => { if (id) rememberSelectedJob(id) })
 defineExpose({ refresh })
 </script>
 

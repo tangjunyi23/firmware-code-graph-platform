@@ -1,70 +1,57 @@
 <template>
   <div class="app-root">
-    <!-- 全局动态粒子背景（登录页与主壳共用，位于内容之下） -->
-    <ParticleField :density="90" />
-
-    <!-- ===== 登录页（居中卡片 + 青色氛围背景） ===== -->
     <div v-if="!token" class="login-wrap">
-      <div class="login-grid" aria-hidden="true" />
-      <div class="login-panel">
-        <div class="login-brand">
-          <span class="login-logo"><BrandMark :size="30" /></span>
-          <div>
-            <h1 class="login-title">FWGraph</h1>
-            <p class="login-slogan">固件攻击面分析平台</p>
+      <div class="login-layout">
+        <section class="login-story">
+          <div class="login-brand">
+            <BrandMark :size="40" />
+            <div><h1 class="login-title">FWGraph</h1><p class="login-slogan">固件攻击面分析平台</p></div>
           </div>
-        </div>
-        <el-card class="login-card" shadow="never">
-          <h2>欢迎回来</h2>
-          <p class="login-card-sub">使用账号登录以继续</p>
-          <el-input
-            v-model="loginForm.username"
-            placeholder="用户名"
-            class="login-field"
-            @keyup.enter="doLogin"
-          >
-            <template #prefix><span class="field-ico"><component :is="NAV_ICONS.User" :size="16" /></span></template>
-          </el-input>
-          <el-input
-            v-model="loginForm.password"
-            type="password"
-            show-password
-            placeholder="密码"
-            class="login-field"
-            @keyup.enter="doLogin"
-          >
-            <template #prefix><span class="field-ico"><component :is="NAV_ICONS.Lock" :size="16" /></span></template>
-          </el-input>
-          <el-button type="primary" class="login-btn" :loading="loginLoading" @click="doLogin">
-            登录
-          </el-button>
-          <el-alert v-if="loginError" :title="loginError" type="error" :closable="false" />
-          <el-collapse class="token-collapse">
-            <el-collapse-item title="使用访问令牌登录" name="token">
-              <el-input
-                v-model="tokenInput"
-                type="password"
-                show-password
-                placeholder="Bearer token"
-                @keyup.enter="tokenLogin"
-              />
-              <el-button class="login-btn" :loading="loginLoading" @click="tokenLogin">
-                令牌登录
-              </el-button>
-            </el-collapse-item>
-          </el-collapse>
-        </el-card>
-        <ul class="login-stats">
-          <li><b>99.8%</b><i>反编译成功率</i></li>
-          <li><b>33万+</b><i>单任务图谱节点</i></li>
-          <li><b>15+</b><i>指令集全链路</i></li>
-        </ul>
-        <p class="login-hint">解包 · 代码图谱 · 攻击面 · 智能挖掘</p>
+          <div class="login-intro">
+            <span class="login-eyebrow">FIRMWARE SECURITY WORKSPACE</span>
+            <h2>看清固件，<br />发现隐藏风险<span>。</span></h2>
+            <p>从二进制到攻击面，连接代码、线索与证据。<br />让每一次固件分析，都有清晰的路径。</p>
+          </div>
+          <FirmwareIllustration />
+          <div class="login-capabilities">
+            <span><component :is="NAV_ICONS.Cpu" :size="17" />固件解析</span>
+            <span><component :is="NAV_ICONS.Share" :size="17" />代码图谱</span>
+            <span><component :is="NAV_ICONS.ScanSearch" :size="17" />智能挖掘</span>
+          </div>
+        </section>
+        <section class="login-panel" aria-label="登录工作区">
+          <div class="login-panel-top"><span class="login-eyebrow">YOUR ANALYSIS STARTS HERE</span><button type="button" class="tb-icon" :aria-label="themePref === 'dark' ? '切换到浅色主题' : '切换到深色主题'" @click="toggleTheme"><component :is="themePref === 'dark' ? NAV_ICONS.Sun : NAV_ICONS.Moon" :size="18" /></button></div>
+          <el-card class="login-card" shadow="never">
+            <span class="login-card-icon"><component :is="NAV_ICONS.Lock" :size="21" /></span>
+            <h2>欢迎回来</h2>
+            <p class="login-card-sub">登录你的工作区，继续探索固件安全。</p>
+            <form @submit.prevent="doLogin">
+              <label class="login-label" for="fw-login-user">用户名</label>
+              <el-input id="fw-login-user" v-model="loginForm.username" placeholder="输入用户名" autocomplete="username" class="login-field" :disabled="loginLoading">
+                <template #prefix><span class="field-ico"><component :is="NAV_ICONS.User" :size="17" /></span></template>
+              </el-input>
+              <label class="login-label" for="fw-login-password">密码</label>
+              <el-input id="fw-login-password" v-model="loginForm.password" type="password" show-password placeholder="输入密码" autocomplete="current-password" class="login-field" :disabled="loginLoading">
+                <template #prefix><span class="field-ico"><component :is="NAV_ICONS.Lock" :size="17" /></span></template>
+              </el-input>
+              <el-alert v-if="loginError" :title="loginError" type="error" :closable="false" class="login-error" role="alert" />
+              <el-button type="primary" native-type="submit" class="login-btn" :loading="loginLoading">登录工作区 <component v-if="!loginLoading" :is="NAV_ICONS.ArrowDown" :size="17" class="login-arrow" /></el-button>
+            </form>
+            <el-collapse class="token-collapse">
+              <el-collapse-item title="使用访问令牌登录" name="token">
+                <el-input v-model="tokenInput" type="password" show-password placeholder="Bearer token" aria-label="访问令牌" @keyup.enter="tokenLogin" />
+                <el-button class="login-btn" :loading="loginLoading" @click="tokenLogin">令牌登录</el-button>
+              </el-collapse-item>
+            </el-collapse>
+          </el-card>
+          <p class="login-hint"><component :is="NAV_ICONS.Collection" :size="14" /> 固件分析 · 风险发现 · 证据验证</p>
+        </section>
       </div>
+      <footer class="login-footer"><span>FWGraph · Firmware Intelligence</span><span>解包 / 图谱 / 攻击面 / 智能挖掘</span></footer>
     </div>
 
     <!-- ===== 主壳 ===== -->
-    <div v-else class="shell">
+    <div v-else class="shell commercial-shell">
       <div v-if="mobileNavOpen" class="nav-mask" aria-hidden="true" @click="mobileNavOpen = false" />
 
       <aside class="sidebar" :class="{ open: mobileNavOpen, mini: sideMini }">
@@ -88,6 +75,7 @@
           </button>
         </div>
 
+        <button type="button" class="side-create" aria-label="新建固件分析" data-tour="prepare-new" @click="startNewAnalysis"><component :is="NAV_ICONS.Upload" :size="16" /><span>新建分析</span><kbd>＋</kbd></button>
         <div class="mode-switch" data-tour="mode-switch">
           <button
             type="button"
@@ -109,7 +97,7 @@
                 type="button"
                 class="nav-item nav-group-btn"
                 :data-tour="'nav-' + item.group"
-                :aria-label="item.title"
+                :aria-label="navTitle(item)"
                 :aria-expanded="isGroupOpen(item) ? 'true' : 'false'"
                 :class="{
                   active: isGroupActive(item),
@@ -118,7 +106,7 @@
                 @click.stop="onGroupClick(item)"
               >
                 <span class="nav-ico"><component :is="NAV_ICONS[item.icon] || NAV_ICONS.Menu" :size="16" /></span>
-                <span class="nav-label">{{ item.title }}</span>
+                <span class="nav-label">{{ navTitle(item) }}</span>
                 <span class="nav-chev" :class="{ flip: isGroupOpen(item) }"><component :is="NAV_ICONS.ArrowDown" :size="14" /></span>
               </button>
               <div v-show="isGroupOpen(item)" class="nav-children">
@@ -128,12 +116,12 @@
                   type="button"
                   class="nav-item child"
                   :data-tour="'nav-' + child.index"
-                  :aria-label="child.title"
+                  :aria-label="navTitle(child)"
                   :class="{ active: page === child.index }"
                   @click="go(child.index)"
                 >
                   <span class="nav-ico"><component :is="NAV_ICONS[child.icon] || NAV_ICONS.Document" :size="16" /></span>
-                  <span class="nav-label">{{ child.title }}</span>
+                  <span class="nav-label">{{ navTitle(child) }}</span>
                 </button>
               </div>
             </div>
@@ -142,12 +130,12 @@
               type="button"
               class="nav-item"
               :data-tour="'nav-' + item.index"
-              :aria-label="item.title"
+              :aria-label="navTitle(item)"
               :class="{ active: page === item.index }"
               @click="go(item.index)"
             >
               <span class="nav-ico"><component :is="NAV_ICONS[item.icon] || NAV_ICONS.Menu" :size="16" /></span>
-              <span class="nav-label">{{ item.title }}</span>
+              <span class="nav-label">{{ navTitle(item) }}</span>
             </button>
           </template>
         </nav>
@@ -162,11 +150,12 @@
         <button type="button" class="tb-icon tb-menu" aria-label="打开导航菜单" @click="mobileNavOpen = true">
           <component :is="NAV_ICONS.Menu" :size="18" />
         </button>
+        <div class="tb-location"><span>{{ page === 'dashboard' ? '工作区' : (PAGE_SECTIONS[page] || '工作区') }}</span><span class="tb-separator">/</span><strong>{{ PAGE_TITLES[page] || '概览' }}</strong><span class="tb-mode">{{ uiMode === 'expert' ? '专家模式' : '快速模式' }}</span></div>
         <div class="tb-right">
-          <button type="button" class="tb-search" @click="paletteOpen = true">
+          <button type="button" class="tb-search" aria-label="搜索页面和任务" @click="paletteOpen = true">
             <component :is="NAV_ICONS.Search" :size="14" />
-            <span class="tb-search-text">搜索</span>
-            <kbd class="tb-kbd">⌘K</kbd>
+            <span class="tb-search-text">搜索页面、任务…</span>
+            <kbd class="tb-kbd">{{ shortcutLabel }}</kbd>
           </button>
           <el-popover placement="bottom-end" :width="264" trigger="click">
             <template #reference>
@@ -218,7 +207,7 @@
         </div>
       </header>
 
-      <main class="content" :class="{ 'chat-home': isChatHome, 'ops-home': isOpsHome, 'dash-home': page === 'dashboard' }">
+      <main class="content" :data-page="page" :class="{ 'workspace-pages': page !== 'dashboard', 'chat-home': isChatHome, 'ops-home': isOpsHome, 'dash-home': page === 'dashboard' }">
             <div :key="page + ':' + wbNavSeq" class="page-pane">
               <WishView v-if="page === 'wish'" />
               <DashboardView v-else-if="page === 'dashboard'" @goto="go" />
@@ -297,7 +286,7 @@ import {
 import BrandMark from './components/BrandMark.vue'
 import OnboardingTour from './components/OnboardingTour.vue'
 import CommandPalette from './components/CommandPalette.vue'
-import ParticleField from './components/fx/ParticleField.vue'
+import FirmwareIllustration from './components/FirmwareIllustration.vue'
 import { version as APP_VERSION } from '../package.json'
 import { onboardAuto, refreshOnboardPref } from './onboardPref'
 import { readMode, writeMode } from './productMode'
@@ -351,6 +340,16 @@ const PAGE_TITLES = {
   wish: '快速挖掘', jobs: '工作台', prepare: '分析任务', decrypt: '固件解密', events: '事件流', backdoor: '后门检测', emul: '固件模拟', dashboard: '仪表盘', functions: '函数',
   attack: '攻击面', inputs: '输入面', graph: '图谱', protocol: '入口风险评估', protofuzz: '协议挖掘',
   vulnlib: '漏洞库', reports: '报告中心', users: '用户管理', logs: '日志审计', settings: '系统设置'
+}
+const PRODUCT_NAV_NAMES = { chat: '安全工作台', analysis: '代码洞察', prepare: '固件任务', tools: '固件工具', system: '平台管理' }
+const PAGE_SECTIONS = {
+  prepare: '固件分析', jobs: '固件分析', wish: '固件分析',
+  functions: '代码洞察', attack: '代码洞察', inputs: '代码洞察', graph: '代码洞察',
+  decrypt: '固件工具', backdoor: '固件工具', emul: '固件工具', protocol: '固件工具', events: '固件工具', protofuzz: '固件工具',
+  reports: '安全资产', vulnlib: '威胁知识', users: '平台管理', logs: '平台管理', settings: '平台管理'
+}
+function navTitle (item) {
+  return PRODUCT_NAV_NAMES[item.group || item.index] || item.title
 }
 const USER_PAGES = ['wish', 'jobs', 'prepare', 'decrypt', 'events', 'dashboard', 'functions', 'attack', 'inputs',
   'graph', 'protocol', 'protofuzz', 'vulnlib', 'reports', 'backdoor', 'emul']
@@ -441,8 +440,13 @@ const PAGE_ICONS = {
   graph: 'Share', protofuzz: 'Share', vulnlib: 'Collection', reports: 'Notebook',
   users: 'User', logs: 'Tickets', settings: 'Setting'
 }
+const shortcutLabel = /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘ K' : 'Ctrl K'
 const paletteOpen = ref(false)
 const wbNavSeq = ref(0)
+function startNewAnalysis () {
+  wbNavSeq.value += 1
+  go('prepare')
+}
 const palettePages = computed(() => {
   const pages = allowedPages().map((index) => ({ index, title: PAGE_TITLES[index], icon: PAGE_ICONS[index] }))
   return pages
@@ -523,7 +527,7 @@ watch(page, (p) => {
 
 // 笔记本等比缩放只作用于常规页面；仪表盘（态势大屏）有自己的断点适配
 watch(page, (p) => {
-  document.body.classList.toggle('fit', p !== 'dashboard')
+  document.body.classList.remove('fit')
 }, { immediate: true })
 function isGroupActive (item) {
   if (item.index && item.index === page.value) return true
@@ -1559,3 +1563,10 @@ html[data-fw-theme='dark'] .nav-mask { background: rgba(0, 0, 0, .55); }
 
 </style>
 
+
+<style src="./console.css"></style>
+
+<style src="./workspace-pages.css"></style>
+
+<style src="./commercial-pages.css"></style>
+<style src="./desktop-workspace.css"></style>

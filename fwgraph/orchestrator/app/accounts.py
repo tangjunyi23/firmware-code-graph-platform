@@ -137,6 +137,43 @@ def validate_password(password: str) -> str | None:
 # ---------------------------------------------------------------------------
 # users
 # ---------------------------------------------------------------------------
+# in-memory caches (single-process uvicorn; write-through / debounced)
+# 每请求读写 sessions.json 的热点路径（前端 8 个视图 2-8s 轮询全部
+# 经过这里）改为内存权威副本 + 去抖落盘：滑动续期合并写，结构性
+# 变化（登录/登出/过期清理）立即落盘。重启最多丢一次未落盘的
+# 续期滑动（TTL 7 天，无实际影响）。
+# ---------------------------------------------------------------------------
+_SESSIONS_FLUSH_INTERVAL = 60.0
+_sessions_cache: tuple | None = None      # (path, doc)
+_sessions_flush_at: float = 0.0
+_quotas_cache: tuple | None = None        # (path, doc)
+_audit_lock = threading.Lock()
+
+
+def _sessions_state() -> dict:
+    global _sessions_cache
+    if _sessions_cache is None or _sessions_cache[0] != _sessions_path():
+        _sessions_cache = (_sessions_path(), load_sessions())
+    return _sessions_cache[1]
+
+
+def _flush_sessions(force: bool = False) -> None:
+    global _sessions_flush_at
+    now = time.monotonic()
+    if force or now - _sessions_flush_at > _SESSIONS_FLUSH_INTERVAL:
+        if _sessions_cache is not None:
+            _write_json(_sessions_cache[0], _sessions_cache[1])
+        _sessions_flush_at = now
+
+
+def _quotas_state() -> dict:
+    global _quotas_cache
+    if _quotas_cache is None or _quotas_cache[0] != _quotas_path():
+        doc = _read_json(_quotas_path(), {})
+        _quotas_cache = (_quotas_path(), doc if isinstance(doc, dict) else {})
+    return _quotas_cache[1]
+
+# ---------------------------------------------------------------------------
 
 def load_users() -> dict:
     doc = _read_json(_users_path(), {"users": []})
@@ -153,12 +190,15 @@ def find_user(username: str) -> dict | None:
 
 
 def create_user(username: str, password: str, role: str = "user") -> dict:
+    # PBKDF2 (~100ms) computed OUTSIDE the lock: the auth hot path
+    # (resolve_session) must not convoy behind user mutations.
+    salt = secrets.token_hex(16)
+    hashed = hash_password(password, salt)
     with _lock:
         doc = load_users()
-        salt = secrets.token_hex(16)
         user = {
             "username": username,
-            "password_hash": hash_password(password, salt),
+            "password_hash": hashed,
             "salt": salt,
             "role": role,
             "disabled": False,
@@ -171,6 +211,11 @@ def create_user(username: str, password: str, role: str = "user") -> dict:
 
 def update_user(username: str, **fields) -> dict | None:
     """Apply role/disabled/password changes; returns the updated user."""
+    new_salt = new_hash = None
+    if fields.get("password"):
+        # PBKDF2 outside the lock (see create_user)
+        new_salt = secrets.token_hex(16)
+        new_hash = hash_password(fields["password"], new_salt)
     with _lock:
         doc = load_users()
         for user in doc["users"]:
@@ -180,10 +225,9 @@ def update_user(username: str, **fields) -> dict | None:
                 user["role"] = fields["role"]
             if fields.get("disabled") is not None:
                 user["disabled"] = bool(fields["disabled"])
-            if fields.get("password"):
-                salt = secrets.token_hex(16)
-                user["salt"] = salt
-                user["password_hash"] = hash_password(fields["password"], salt)
+            if new_hash:
+                user["salt"] = new_salt
+                user["password_hash"] = new_hash
             if fields.get("must_change_password") is not None:
                 user["must_change_password"] = bool(
                     fields["must_change_password"])
@@ -254,7 +298,7 @@ def load_sessions() -> dict:
 
 def create_session(username: str, role: str) -> str:
     with _lock:
-        sessions = load_sessions()
+        sessions = _sessions_state()
         token = _TOKEN_PREFIX + secrets.token_hex(24)
         sessions[token] = {
             "username": username,
@@ -262,7 +306,7 @@ def create_session(username: str, role: str) -> str:
             "created_at": _now(),
             "expires_at": _expires_at(),
         }
-        _write_json(_sessions_path(), sessions)
+        _flush_sessions(force=True)
         return token
 
 
@@ -275,7 +319,7 @@ def _expires_at() -> str:
 def resolve_session(token: str) -> dict | None:
     """Look up a session token; a hit slides the 7-day expiry forward."""
     with _lock:
-        sessions = load_sessions()
+        sessions = _sessions_state()
         session = sessions.get(token)
         if session is None:
             return None
@@ -288,32 +332,32 @@ def resolve_session(token: str) -> dict | None:
             expires = expires.replace(tzinfo=timezone.utc)
         if expires <= now:
             del sessions[token]
-            _write_json(_sessions_path(), sessions)
+            _flush_sessions(force=True)
             return None
         session["expires_at"] = _expires_at()
-        _write_json(_sessions_path(), sessions)
+        _flush_sessions()  # 滑动续期去抖合并（60s 内多次请求零磁盘写）
         return dict(session)
 
 
 def delete_session(token: str) -> bool:
     with _lock:
-        sessions = load_sessions()
+        sessions = _sessions_state()
         if token not in sessions:
             return False
         del sessions[token]
-        _write_json(_sessions_path(), sessions)
+        _flush_sessions(force=True)
         return True
 
 
 def revoke_user_sessions(username: str, keep_token: str | None = None) -> int:
     """Drop every session of a user (except keep_token); returns the count."""
     with _lock:
-        sessions = load_sessions()
+        sessions = _sessions_state()
         doomed = [t for t, s in sessions.items()
                   if s.get("username") == username and t != keep_token]
         for token in doomed:
             del sessions[token]
-        _write_json(_sessions_path(), sessions)
+        _flush_sessions(force=True)
         return len(doomed)
 
 
@@ -322,10 +366,14 @@ def revoke_user_sessions(username: str, keep_token: str | None = None) -> int:
 # ---------------------------------------------------------------------------
 
 def audit(user: str, action: str, detail: str = ""):
-    """Append one JSON line to data/audit.jsonl (best-effort, never raises)."""
+    """Append one JSON line to data/audit.jsonl (best-effort, never raises).
+
+    Uses its own lock: audit appends must not convoy behind auth/user
+    mutations on the shared _lock (audit fires on nearly every request).
+    """
     record = {"ts": _now(), "user": user, "action": action, "detail": detail}
     try:
-        with _lock:
+        with _audit_lock:
             path = _audit_path()
             path.parent.mkdir(parents=True, exist_ok=True)
             with open(path, "a", encoding="utf-8") as fh:
@@ -404,8 +452,8 @@ def check_quota(job_id: str, kind: str) -> None:
     """Consume one unit of the (job_id, kind, today) quota.
 
     Raises HTTPException 429 (Chinese detail with 当日已用/上限) when the
-    daily limit for this job is already exhausted; the counter is stored in
-    data/quotas.json (atomic write, corrupt file tolerated as empty).
+    daily limit for this job is already exhausted; the counter lives in an
+    in-memory dict (single process) write-through to data/quotas.json.
     """
     if kind not in _QUOTA_LIMITS:
         raise HTTPException(status_code=400,
@@ -414,9 +462,7 @@ def check_quota(job_id: str, kind: str) -> None:
     day = datetime.now(timezone.utc).date().isoformat()
     key = f"{job_id}:{kind}:{day}"
     with _lock:
-        doc = _read_json(_quotas_path(), {})
-        if not isinstance(doc, dict):
-            doc = {}
+        doc = _quotas_state()
         try:
             used = int(doc.get(key, 0))
         except (TypeError, ValueError):
@@ -427,7 +473,7 @@ def check_quota(job_id: str, kind: str) -> None:
                 detail=f"任务 {job_id} 的 {kind} 当日配额已用完"
                        f"（当日已用 {used}/{limit}，次日重置）")
         doc[key] = used + 1
-        _write_json(_quotas_path(), doc)
+        _write_json(_quotas_path(), doc)  # 配额写透：宁可多写不超卖
 
 
 # ---------------------------------------------------------------------------

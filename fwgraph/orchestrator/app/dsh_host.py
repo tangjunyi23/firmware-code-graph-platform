@@ -43,6 +43,10 @@ BOOT_TIMEOUT = float(os.getenv("DSH_HOST_BOOT_TIMEOUT", "90"))
 IDLE_SECONDS = float(os.getenv("DSH_HOST_IDLE_SECONDS", "1800"))
 RPC_TIMEOUT = float(os.getenv("DSH_HOST_RPC_TIMEOUT", "30"))
 
+# Module-level client: every RPC used to pay a fresh TCP connection
+# (httpx.post). Thread-safe for concurrent request() calls.
+_http = httpx.Client(timeout=RPC_TIMEOUT)
+
 # 前端允许透传的 harness RPC 方法（其余如 workspace.*/settings.* 不开放）
 RPC_ALLOWLIST = frozenset({
     "host.describe",
@@ -706,8 +710,7 @@ class DshHostManager:
                     "method": method, "payload": {"args": payload or {}}}
         headers = {"Cookie": host.cookie} if host.cookie else None
         try:
-            resp = httpx.post(url, json=envelope, headers=headers,
-                              timeout=RPC_TIMEOUT)
+            resp = _http.post(url, json=envelope, headers=headers)
         except httpx.HTTPError as exc:
             raise DshHostError(f"dsh rpc {method} transport: {exc}",
                                code="upstream") from exc
@@ -942,8 +945,7 @@ class DshHostManager:
         url = f"http://127.0.0.1:{host.port}/api/$events/result"
         headers = {"Cookie": host.cookie} if host.cookie else None
         try:
-            resp = httpx.post(url, json=envelope, headers=headers,
-                              timeout=RPC_TIMEOUT)
+            resp = _http.post(url, json=envelope, headers=headers)
         except httpx.HTTPError as exc:
             raise DshHostError(f"dsh respond transport: {exc}",
                                code="upstream") from exc

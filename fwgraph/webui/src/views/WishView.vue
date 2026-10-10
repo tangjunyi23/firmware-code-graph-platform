@@ -37,7 +37,8 @@
               @dragover.prevent="dragOver = true"
               @dragleave.prevent="dragOver = false"
               @drop.prevent="onDrop"
-              @click="fileInput.click()"
+              role="button" tabindex="0" aria-label="选择固件文件"
+        @keydown.enter.prevent="fileInput.click()" @keydown.space.prevent="fileInput.click()" @click="fileInput.click()"
             >
               <input ref="fileInput" type="file" class="hidden" :accept="FW_ACCEPT" @change="onPick" />
               <strong>{{ file ? file.name : '将固件镜像拖拽至此，或点击选择文件' }}</strong>

@@ -10,7 +10,7 @@
           </el-radio-group>
         </div>
       </div>
-      <p class="ins-sub">已知漏洞检索：CVE / CNVD / 厂商通告。</p>
+      <p class="ins-sub">关联已知漏洞与固件发现，沉淀可检索的风险知识。</p>
     </header>
 
     <div v-if="viewMode === 'lib'" class="lib-layout">
@@ -47,11 +47,15 @@
             <el-option value="low" label="低危" />
             <el-option value="info" label="提示" />
           </el-select>
-          <el-input v-model="vendor" clearable placeholder="厂商" class="w-src" @keyup.enter="runSearch" />
-          <el-input v-model="product" clearable placeholder="产品" class="w-src" @keyup.enter="runSearch" />
-          <el-input v-model="cwe" clearable placeholder="CWE" class="w-cwe" @keyup.enter="runSearch" />
           <el-button type="primary" :loading="loading" @click="runSearch">查询</el-button>
           <el-button :loading="ndayLoading" @click="runNday">查 N-day</el-button>
+          <button type="button" class="lib-filter-toggle" :aria-expanded="showFilters" aria-controls="library-extra-filters" @click="showFilters = !showFilters"><span>更多筛选 · 厂商 / 产品 / CWE</span><span>{{ showFilters ? '收起 −' : '展开 +' }}</span></button>
+          <div v-show="showFilters" id="library-extra-filters" class="lib-extra">
+            <el-input v-model="vendor" clearable placeholder="厂商" aria-label="筛选厂商" class="w-src" @keyup.enter="runSearch" />
+            <el-input v-model="product" clearable placeholder="产品" aria-label="筛选产品" class="w-src" @keyup.enter="runSearch" />
+            <el-input v-model="cwe" clearable placeholder="CWE" aria-label="筛选 CWE" class="w-cwe" @keyup.enter="runSearch" />
+            <el-button size="small" @click="resetFilters">清空筛选</el-button>
+          </div>
         </div>
         <div class="lib-stats">
           <span>库内 <b>{{ stats.total || 0 }}</b> 条</span>
@@ -72,7 +76,8 @@
             :key="row.id"
             class="lib-item"
             :class="{ active: row.id === currentId }"
-            @click="open(row)"
+            role="button" tabindex="0" :aria-label="'查看漏洞：' + row.id + ' ' + row.title" :aria-pressed="row.id === currentId"
+            @keydown.enter.prevent="open(row)" @keydown.space.prevent="open(row)" @click="open(row)"
           >
             <div class="li-top">
               <span class="li-id">{{ row.id }}</span>
@@ -91,7 +96,7 @@
       <!-- 右列：条目详情 -->
       <div class="lib-card detail-col">
         <div class="lib-head">
-          <h2 class="viewer-title">{{ current?.id || '条目详情' }}</h2>
+          <h2 class="viewer-title">{{ current?.id || '漏洞详情' }}</h2>
           <div class="lib-actions">
             <el-button
               v-if="isAdmin && currentId"
@@ -102,7 +107,7 @@
             >删除</el-button>
           </div>
         </div>
-        <el-empty v-if="!current" description="从左侧选一条，或先导入 CVE/CNVD JSON" :image-size="80" />
+        <el-empty v-if="!current" description="选择一个漏洞，查看影响范围、触发条件与参考资料" :image-size="80" />
         <template v-else>
           <h2 class="title">{{ current.title }}</h2>
           <el-descriptions :column="2" border size="small">
@@ -158,7 +163,8 @@
             :key="j.job_id"
             class="lib-item"
             :class="{ active: fwSel === j.job_id }"
-            @click="pickFw(j.job_id)"
+            role="button" tabindex="0" :aria-label="'查看固件：' + fwLabel(j)" :aria-pressed="fwSel === j.job_id"
+            @keydown.enter.prevent="pickFw(j.job_id)" @keydown.space.prevent="pickFw(j.job_id)" @click="pickFw(j.job_id)"
           >
             <div class="li-top">
               <span class="li-id">{{ fwLabel(j) }}</span>
@@ -337,6 +343,7 @@ const SAMPLE = [
 const principal = inject('wbAccount', ref(null))
 const isAdmin = computed(() => principal.value?.role === 'admin')
 
+const showFilters = ref(false)
 const q = ref('')
 const source = ref('')
 const severity = ref('')
@@ -450,6 +457,11 @@ async function loadJobs () {
   } catch {
     jobs.value = []
   }
+}
+
+function resetFilters () {
+  q.value = ''; source.value = ''; severity.value = ''; vendor.value = ''; product.value = ''; cwe.value = ''
+  runSearch()
 }
 
 async function runSearch () {

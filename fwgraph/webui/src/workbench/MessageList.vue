@@ -160,7 +160,7 @@
 </template>
 
 <script setup>
-import { computed, inject, reactive, ref } from 'vue'
+import { computed, inject, reactive, ref, watch } from 'vue'
 import MarkdownText from './MarkdownText.vue'
 import {
   IconChevronDownOutline14, IconInspectOutline12, IconBranchOutline16
@@ -185,14 +185,7 @@ function fmtTime (ts) {
 }
 // turn-end 分隔线上的轮数：第几个 completed 回合
 function turnNo (node) {
-  const nodes = allNodes.value
-  let n = 0
-  for (const x of nodes) {
-    if (x.kind !== 'turn-end') continue
-    n++
-    if (x.id === node.id) break
-  }
-  return n
+  return turnNumbers.value.get(node.id) || ''
 }
 
 function turnError (node) {
@@ -209,6 +202,16 @@ const showAll = computed(() => reveal.value >= 9999)
 const allNodes = computed(() => {
   void session.state.rev
   return session.state.loadingHistory ? [] : session.state.nodes
+})
+const turnNumbers = computed(() => {
+  const map = new Map()
+  let count = 0
+  for (const node of allNodes.value) if (node.kind === 'turn-end') map.set(node.id, ++count)
+  return map
+})
+watch(() => session.state.sid, () => {
+  reveal.value = 0
+  for (const id of Object.keys(open)) delete open[id]
 })
 const visibleCount = computed(() => BATCH + reveal.value * BATCH)
 const hiddenCount = computed(() => {

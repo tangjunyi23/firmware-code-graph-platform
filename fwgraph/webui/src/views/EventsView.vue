@@ -19,7 +19,8 @@
         :key="j.job_id"
         class="job-item"
         :class="{ on: j.job_id === jobId }"
-        @click="selectJob(j)"
+        role="button" tabindex="0" :aria-label="'查看任务事件：' + j.firmware" :aria-pressed="j.job_id === jobId"
+        @keydown.enter.prevent="selectJob(j)" @keydown.space.prevent="selectJob(j)" @click="selectJob(j)"
       >
         <div class="job-name">{{ j.firmware }}</div>
         <div class="job-meta">
@@ -27,7 +28,7 @@
           <span class="mono muted">{{ j.job_id }}</span>
         </div>
       </div>
-      <el-empty v-if="!jobs.length" description="还没有任务，先去工作台上传固件" :image-size="70" />
+      <el-empty v-if="!jobs.length" description="暂无分析任务，请先通过「新建分析」上传固件" :image-size="70" />
     </el-card>
 
     <el-card class="col-stream" shadow="never">
@@ -51,7 +52,7 @@
       </div>
       <p v-if="job && job.error" class="fail">{{ job.error }}</p>
 
-      <div ref="logPane" class="log-pane">
+      <div ref="logPane" class="log-pane" @scroll="onLogScroll">
         <div
           v-for="(row, i) in viewLines"
           :key="i"
@@ -73,6 +74,7 @@
 import { NAV_ICONS } from '../workbench/icons.js'
 import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 import { api } from '../api'
+import { loadJobs as fetchJobs } from '../jobCatalog.js'
 
 const STORE_JOB = 'fwgraph_events_job'
 const PIPE = ['解密', '解包', '解析', '反编译', '图谱', '攻击路径', '路由', '输入', '攻击面']
@@ -97,6 +99,14 @@ const job = ref(null)
 const logLines = ref([])
 const logPane = ref(null)
 let pollTimer = null
+let disposed = false
+let revision = 0
+let refreshing = false
+let followLogs = true
+function onLogScroll() {
+  const el = logPane.value
+  if (el) followLogs = el.scrollHeight - el.scrollTop - el.clientHeight < 48
+}
 
 const running = computed(() => job.value && RUNNING.has(job.value.status))
 
@@ -159,26 +169,35 @@ function miniState (i) {
 }
 
 async function loadJobs () {
-  try { jobs.value = await api('/jobs') } catch { jobs.value = [] }
+  try { const rows = await fetchJobs({ force: true }); if (!disposed) jobs.value = rows } catch { /* retain latest data */ }
 }
 
 async function selectJob (row) {
   jobId.value = row.job_id
+  revision += 1
+  job.value = row
+  logLines.value = []
+  followLogs = true
   try { localStorage.setItem(STORE_JOB, row.job_id) } catch { /* ignore */ }
   await refreshJob()
 }
 
 async function refreshJob () {
   if (!jobId.value) return
+  const id = jobId.value
+  const token = revision
   try {
-    job.value = await api(`/jobs/${jobId.value}`)
+    const next = await api(`/jobs/${id}`)
+    if (disposed || token !== revision || jobId.value !== id) return
+    job.value = next
   } catch { return }
   try {
-    const logs = await api(`/jobs/${jobId.value}/logs?lines=400`)
+    const logs = await api(`/jobs/${id}/logs?lines=400`)
+    if (disposed || token !== revision || jobId.value !== id) return
     logLines.value = logs.lines || []
     nextTick(() => {
       const el = logPane.value
-      if (el) el.scrollTop = el.scrollHeight
+      if (el && followLogs) el.scrollTop = el.scrollHeight
     })
   } catch { /* ignore */ }
 }
@@ -189,11 +208,15 @@ onMounted(async () => {
   const pick = jobs.value.find((j) => j.job_id === saved) || jobs.value[0]
   if (pick) await selectJob(pick)
   pollTimer = setInterval(async () => {
-    await loadJobs()
-    await refreshJob()
-  }, 2000)
+    if (disposed || document.hidden || refreshing) return
+    refreshing = true
+    try { await loadJobs(); if (!disposed) await refreshJob() }
+    finally { refreshing = false }
+  }, 6000)
 })
 onUnmounted(() => {
+  disposed = true
+  revision += 1
   if (pollTimer) clearInterval(pollTimer)
 })
 </script>

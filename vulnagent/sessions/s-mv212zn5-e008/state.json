@@ -1,0 +1,22 @@
+{
+  "session_id": "s-mv212zn5-e008",
+  "agent_id": "vuln-miner-fwgraph (dsh-web)",
+  "environment_id": "fwgraph-dsh-web",
+  "task": "新 key 回归验证：fw_search 查一个函数名，然后直接收尾总结。",
+  "status": "awaiting_continue",
+  "turns": 1,
+  "usage": {},
+  "findings": [],
+  "created_at": "2026-10-10T06:43:34Z",
+  "updated_at": "2026-10-10T06:44:34Z",
+  "engine": "dsh-web",
+  "mode": "dynamic",
+  "job_id": "60ca28d897cf",
+  "max_turns": 1,
+  "owner": "token-admin",
+  "approval_policy": "auto",
+  "dsh_session_id": "session-cf59dcd6-495f-4555-967d-bd738a362726",
+  "emulation_offered": true,
+  "emulation_declined": false,
+  "await_note": "挖掘完成，等待用户确认是否进行固件模拟真实测试"
+}
