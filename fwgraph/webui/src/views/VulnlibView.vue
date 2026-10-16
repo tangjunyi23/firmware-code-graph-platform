@@ -10,7 +10,6 @@
           </el-radio-group>
         </div>
       </div>
-      <p class="ins-sub">关联已知漏洞与固件发现，沉淀可检索的风险知识。</p>
     </header>
 
     <div v-if="viewMode === 'lib'" class="lib-layout">

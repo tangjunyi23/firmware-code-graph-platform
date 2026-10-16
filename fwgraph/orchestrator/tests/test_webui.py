@@ -405,9 +405,10 @@ class TestSpaHosting:
             encoding="utf-8")
         assert "fwgraph_onboard_v2" in tour
         assert "固件解密" in tour
-        # 2026-09 教程改版：九步看板/上传/回工作台选任务；协议逆向、
-        # 许愿模式步骤已随导航精简移除
-        assert "九步看板" in tour
+        # Validate the workflow step and its target independently of editorial copy.
+        assert "id: 'prepare-board'" in tour
+        assert """target: '[data-tour="prepare-board"]'""" in tour
+        assert "id: 'prepare-start'" in tour
         assert "入口风险评估" in tour
         assert "协议逆向" not in tour
         assert "许愿模式" not in tour
@@ -486,7 +487,8 @@ class TestSpaHosting:
             encoding="utf-8")
         card = (webui_src / "workbench" / "PipelineCard.vue").read_text(
             encoding="utf-8")
-        assert "进度播报" in card
+        assert 'v-for="line in lines"' in card
+        assert "{{ line.text }}" in card
         assert "stepPct" in card
         assert "固件解密" in pipe
         assert "STEP_TALK" in pipe

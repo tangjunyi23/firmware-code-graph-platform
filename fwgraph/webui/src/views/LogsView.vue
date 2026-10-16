@@ -4,7 +4,6 @@
       <div class="ins-head-row">
         <h1 class="ins-title"><span class="ins-ico"><component :is="NAV_ICONS.Tickets" :size="18" /></span>日志审计</h1>
       </div>
-      <p class="ins-sub">运行与服务日志检索、实时跟踪。</p>
     </header>
 
     <el-card shadow="never" class="block">
@@ -36,7 +35,7 @@
             v-if="auditUnavailable"
             type="info"
             :closable="false"
-            title="审计日志读取接口暂未在后端开放"
+            title="审计日志暂不可用"
             style="margin-bottom: 10px"
           />
           <el-table v-else :data="auditRows" size="small" v-loading="loadingAudit" max-height="460">

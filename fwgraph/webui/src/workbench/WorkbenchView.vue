@@ -26,7 +26,7 @@
       />
     </aside>
     <main class="wb-main">
-      <header class="stage-bar">
+      <header v-if="phase === 'active' || isNarrow" class="stage-bar">
         <button
           v-if="isNarrow"
           type="button"
@@ -36,9 +36,9 @@
         >
           <IconPanelLeftOutline16 :size="16" />
         </button>
-        <div class="workspace-context"><span class="stage-title">{{ firmwareLabel || '安全工作台' }}</span><span class="workspace-context-sub">{{ activeSid ? '当前会话 ' + activeSid : '选择固件 · 定义目标 · 验证证据' }}</span></div>
+        <div class="workspace-context"><span class="stage-title">{{ firmwareLabel || '安全工作台' }}</span><span v-if="activeSid" class="workspace-context-sub">{{ activeSid }}</span></div>
         <span v-if="activeSid" class="workspace-status" :data-state="session.state.huntStatus">{{ session.state.loadingHistory ? '正在载入记录' : workspaceStatus }}</span>
-        <div class="stage-actions"><a v-if="currentJobId" href="?page=functions&mode=expert">代码洞察</a><a href="?page=reports&mode=expert">报告中心</a></div>
+        <div class="stage-actions"><a v-if="currentJobId" href="?page=functions&mode=expert">代码分析</a><a href="?page=reports&mode=expert">报告中心</a></div>
         <button
           v-if="activeSid"
           type="button"
@@ -81,11 +81,10 @@
           </button>
         </div>
         <div ref="seatRef" class="composer-seat" data-composer-seat>
+          <WorkspaceOverview :active="phase === 'active'" :jobs="catalog.state.jobs" :all-sessions="catalog.state.sessions" :loading="catalog.state.loading" :error="catalog.state.error" @select="onSelectSession" @refresh="catalog.refresh()">
           <div class="composer-stack" :class="{ 'composer-hero': phase === 'hero' }">
             <div v-if="phase === 'hero'" class="hero-copy">
-              <div class="workbench-badge"><component :is="NAV_ICONS.ScanSearch" :size="16" />AI 辅助安全分析</div>
-              <h1>固件安全工作台</h1>
-              <p>选择一个固件任务，让代码线索、风险发现和验证证据汇聚在同一个工作区。</p>
+              <h2><component :is="NAV_ICONS.ScanSearch" :size="17" />发起分析</h2>
             </div>
             <div v-if="phase === 'hero'" class="hero-workspace-row">
               <button
@@ -132,14 +131,13 @@
               @steer="session.steerAll()"
               @request-workspace="pickerOpen = true"
             />
-            <p v-if="phase === 'hero'" class="starter-label">或从一个分析方向开始</p>
             <div v-if="phase === 'hero'" class="starter-prompts" aria-label="分析方向建议">
-              <button type="button" @click="draft = '请梳理该固件暴露的网络入口，说明入口函数、认证方式与可达的危险调用。'"><b>梳理网络入口</b><span>查看暴露服务、认证方式与代码路径</span></button>
-              <button type="button" @click="draft = '请检查该固件的命令注入风险，跟踪外部输入到命令执行函数的数据流，并给出证据。'"><b>检查命令注入</b><span>跟踪输入到危险调用的数据流</span></button>
-              <button type="button" @click="draft = '请检查该固件是否存在硬编码凭据、隐藏账户或可疑后门逻辑，并说明触发条件和证据。'"><b>排查隐藏后门</b><span>检查凭据、账户与异常启动逻辑</span></button>
+              <button type="button" @click="draft = '请梳理该固件暴露的网络入口，说明入口函数、认证方式与可达的危险调用。'"><b>网络入口</b></button>
+              <button type="button" @click="draft = '请检查该固件的命令注入风险，跟踪外部输入到命令执行函数的数据流，并给出证据。'"><b>命令注入</b></button>
+              <button type="button" @click="draft = '请检查该固件是否存在硬编码凭据、隐藏账户或可疑后门逻辑，并说明触发条件和证据。'"><b>后门排查</b></button>
             </div>
-            <div v-if="phase === 'hero'" class="workspace-guide"><span><b>01</b>绑定已就绪固件</span><span><b>02</b>描述分析目标</span><span><b>03</b>审阅证据与报告</span></div>
           </div>
+          </WorkspaceOverview>
         </div>
       </div>
     </main>
@@ -176,6 +174,7 @@
 import { computed, inject, nextTick, onBeforeUnmount, onMounted, provide, reactive, ref, watch } from 'vue'
 import './tokens.css'
 import SidebarJobs from './SidebarJobs.vue'
+import WorkspaceOverview from './WorkspaceOverview.vue'
 import MessageList from './MessageList.vue'
 import Composer from './Composer.vue'
 import QueueDock from './QueueDock.vue'
@@ -888,7 +887,7 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
 }
-.conv[data-phase='hero'] { justify-content: center; }
+.conv[data-phase='hero'] { justify-content: flex-start; overflow-y: auto; overflow-x: hidden; }
 .conv[data-phase='active'] { overflow: hidden; }
 
 .composer-seat {

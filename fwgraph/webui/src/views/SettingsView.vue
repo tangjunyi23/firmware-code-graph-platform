@@ -12,7 +12,6 @@
           </button>
         </div>
       </div>
-      <p class="ins-sub">系统信息与平台运行参数。</p>
     </header>
 
     <nav class="product-tabs" aria-label="系统设置视图">
@@ -111,15 +110,15 @@
         </header>
 
         <div class="readonly-banner" v-if="!isAdmin">
-          以下配置当前为只读视图，如需调整请联系管理员。
+          仅管理员可修改。
         </div>
 
         <el-form label-position="top" :disabled="!isAdmin" class="cfg-form">
           <h3 class="sec-title">界面</h3>
           <div class="opt-row">
             <div class="opt-copy">
-              <b>登录后自动弹出新手教程</b>
-              <small>关闭后登录不再自动走教程；头像菜单里的「新手教程」仍可手动打开。</small>
+              <b>登录后显示教程</b>
+              <small>可从账号菜单重新打开。</small>
             </div>
             <el-switch v-model="uiOnboardTour" inline-prompt active-text="开" inactive-text="关" />
           </div>
@@ -158,7 +157,7 @@
         </el-form>
 
         <footer v-if="isAdmin" class="save-bar">
-          <span class="save-hint" :class="{ show: isDirty }">配置尚未保存，离开前记得点「保存配置」</span>
+          <span class="save-hint" :class="{ show: isDirty }">有未保存的更改</span>
           <div class="save-actions">
             <button type="button" class="ghost-btn" :disabled="!isDirty || saving" @click="resetForm">放弃更改</button>
             <el-button type="primary" :loading="saving" :disabled="!isDirty" @click="save">保存配置</el-button>
@@ -203,7 +202,7 @@
       <section v-show="settingsTab === 'usage'" class="panel set-card usage-card">
         <header class="set-card-head">
           <h2>Token 消耗统计</h2>
-          <span class="head-sub">全部 AI 会话（漏洞挖掘 + 固件模拟）的 LLM 用量 · 60s 缓存</span>
+          <span class="head-sub">漏洞挖掘与固件模拟 · 每分钟更新</span>
         </header>
         <div v-if="usage" class="usage">
           <div class="usage-kpis">
@@ -252,7 +251,7 @@
           </div>
         </div>
         <p v-else-if="usageDenied" class="head-sub">Token 用量统计仅管理员可见。</p>
-        <p v-else class="head-sub">暂无用量数据（尚无 AI 会话完成过调用）。</p>
+        <p v-else class="head-sub">暂无用量数据</p>
       </section>
     </div>
   </div>
@@ -281,8 +280,8 @@ const autoRows = [
   { key: 'AUTO_ROUTES', title: '自动路由识别', desc: '自动恢复 (字符串, handler) 静态路由表' },
   { key: 'AUTO_SURFACES', title: '自动攻击面导出', desc: '每个外部输入导出独立攻击面文件（AS-xxx）' },
   { key: 'AUTO_GRAPHEXT', title: '自动图谱扩展', desc: '图谱构建时同步导出 CFG / AST 扩展结构' },
-  { key: 'AUTO_ATTACK_AI', title: '攻击路径 AI 分诊', desc: 'LLM 对 Top-N 攻击路径做优先级分诊' },
-  { key: 'AUTO_FULL', title: '全自动分析链', desc: '上传固件即跑完整链：解包→反编译→图谱→攻击面，占用大量资源' }
+  { key: 'AUTO_ATTACK_AI', title: '模型辅助路径排序', desc: '使用模型评估高分路径优先级' },
+  { key: 'AUTO_FULL', title: '自动完成全部阶段', desc: '上传后连续执行解包、反编译、建图和攻击面分析，资源占用较高。' }
 ]
 const autoFlags = reactive({})
 const uiOnboardTour = ref(true)
@@ -449,7 +448,7 @@ async function onAutoChange (key, value) {
   try {
     await ElMessageBox.confirm(
       '全自动链开启后，每次上传固件都会自动跑完解包、反编译、图谱与攻击面，占用大量计算资源。确定开启？',
-      '开启全自动分析链',
+      '开启自动完成全部阶段',
       { type: 'warning', confirmButtonText: '确定开启', cancelButtonText: '暂不开启' }
     )
   } catch {

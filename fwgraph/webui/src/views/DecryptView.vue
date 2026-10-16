@@ -2,9 +2,8 @@
   <div class="dec">
     <header class="hero">
       <div>
-        <p class="kicker">固件解密</p>
-        <h1>上传即解密 · 进度实时可见</h1>
-        <p>在「分析任务」或「快速挖掘」上传固件后会自动开始。这里只剥离已知厂商容器和压缩包装，不会去猜未知密钥。</p>
+        <h1>固件解密</h1>
+        <p>支持已知厂商容器与压缩包装，不支持未知密钥解密。</p>
       </div>
       <div class="hero-side">
         <span class="live"><i />{{ current && current.status === 'running' ? '解密进行中' : '自动监视' }}</span>
@@ -39,7 +38,7 @@
             </li>
           </ol>
         </div>
-        <p v-else class="empty">还没有解密任务。在「分析任务」或「快速挖掘」上传固件后会自动开始。</p>
+        <p v-else class="empty">暂无解密任务。上传固件后自动开始。</p>
       </article>
       <article class="panel">
         <header>
@@ -87,7 +86,7 @@
             <td>{{ row.stage_label || '—' }}</td>
           </tr>
           <tr v-if="!filtered.length">
-            <td colspan="5" class="empty">还没有上传过固件。</td>
+            <td colspan="5" class="empty">暂无固件</td>
           </tr>
         </tbody>
       </table>

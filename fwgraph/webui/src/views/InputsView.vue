@@ -1,6 +1,6 @@
 <template>
-  <div>
-    <header class="ins-head">
+  <div class="inputs-page">
+    <header class="ins-head inputs-header">
       <div class="ins-head-row">
         <h1 class="ins-title">
           <span class="ins-ico"><component :is="NAV_ICONS.Download" :size="18" /></span>
@@ -9,21 +9,16 @@
         <div class="ins-actions">
           <JobPicker v-model="jobId" :prefer="['surfaced', 'identified', 'routed', 'attacked', 'graphed', 'done']" @change="loadAll" />
           <el-button :icon="RefreshCw" :loading="loading" @click="loadAll">刷新</el-button>
-          <el-button :icon="Radar" :loading="rerunningInputs" :disabled="!jobId" @click="rerunInputs">重新识别</el-button>
-          <el-button :icon="Route" :loading="rerunningSurfaces" :disabled="!jobId" @click="rerunSurfaces">重新导出攻击面</el-button>
+          <el-button :icon="Radar" :loading="rerunningInputs" :disabled="!jobId || rerunningSurfaces" @click="rerunInputs">重新识别</el-button>
+          <el-button :icon="Route" :loading="rerunningSurfaces" :disabled="!jobId || rerunningInputs" @click="rerunSurfaces">导出攻击面</el-button>
         </div>
       </div>
-      <p class="ins-sub">公网可达的外部输入识别：处理链、分发链与逐输入攻击面文档。</p>
-      <div v-if="meta || surfSummary" class="ins-stats">
-        <span v-if="meta" class="stat-chip accent">外部输入 <b>{{ meta.total_inputs }}</b></span>
-        <span v-if="surfSummary" class="stat-chip">攻击面 <b>{{ surfSummary.surfaces }}</b></span>
-        <span v-if="surfSummary" class="stat-chip">授权链 <b>{{ surfSummary.auth_chains }}</b></span>
-        <span v-if="surfSummary" class="stat-chip">仅静态 <b>{{ surfSummary.static_only }}</b></span>
+      <div v-if="gateNotes.length" class="input-evidence-note">
       <el-popover v-if="gateNotes.length" placement="bottom-start" :width="520" trigger="click">
         <template #reference>
           <button type="button" class="gate-chip" :class="{ err: hasGateErrors }">
             <component :is="NAV_ICONS.Collection" :size="13" />
-            {{ gateNotes.length }} 条证据可信度提示
+            {{ gateNotes.length }} 条证据提示
             <span class="gate-chip-act">查看</span>
           </button>
         </template>
@@ -36,45 +31,41 @@
 
     </header>
 
+    <section class="inputs-metrics" aria-label="输入面统计">
+      <article><span class="input-metric-icon"><Network :size="18" /></span><div><span>识别输入</span><strong>{{ loading ? '—' : inputs.length }}</strong></div></article>
+      <article><span class="input-metric-icon cyan"><Layers :size="18" /></span><div><span>攻击面文档</span><strong>{{ surfSummary?.surfaces ?? '—' }}</strong></div></article>
+      <article><span class="input-metric-icon purple"><Shield :size="18" /></span><div><span>授权链</span><strong>{{ surfSummary?.auth_chains ?? '—' }}</strong></div></article>
+      <article><span class="input-metric-icon amber"><FileCode :size="18" /></span><div><span>仅静态</span><strong>{{ surfSummary?.static_only ?? '—' }}</strong></div></article>
+    </section>
+
     <div class="inputs-layout">
       <!-- left: input list -->
       <el-card class="side-card" shadow="never">
         <template #header>
           <div class="row-between">
-            <span>输入列表</span>
-            <span class="muted">{{ inputs.length }} 个输入</span>
+            <span class="panel-label"><Server :size="16" />输入列表</span>
+            <span class="muted">{{ filteredInputs.length }} / {{ inputs.length }}</span>
           </div>
         </template>
         <div v-loading="loading">
           <el-empty v-if="identMissing" description="尚未运行输入识别，可点击上方「重新识别」" :image-size="80" />
           <el-empty v-else-if="!loading && !inputs.length" description="无输入数据" :image-size="80" />
-          <el-table v-else :data="inputs" size="small" highlight-current-row
-                    @row-click="select" row-class-name="clickable">
-            <el-table-column prop="id" label="ID" width="80">
-              <template #default="{ row }"><span class="mono">{{ row.id }}</span></template>
-            </el-table-column>
-            <el-table-column prop="service" label="服务" min-width="110" show-overflow-tooltip />
-            <el-table-column prop="protocol" label="协议" width="100" show-overflow-tooltip />
-            <el-table-column label="地址" min-width="150">
-              <template #default="{ row }">
-                <span class="mono">{{ row.address }}:{{ row.port }}/{{ row.transport }}</span>
-              </template>
-            </el-table-column>
-            <el-table-column label="类型" width="70" align="center">
-              <template #default="{ row }">
-                <el-badge v-if="(row.input_types || []).length" :value="row.input_types.length" type="primary" />
-                <span v-else class="muted">—</span>
-              </template>
-            </el-table-column>
-            <el-table-column label="" width="70" align="center">
-              <template #default="{ row }">
-                <el-tag v-if="surfaceByInput[row.id]" size="small" type="success" effect="plain">
-                  {{ surfaceByInput[row.id].surface_id }}
-                </el-tag>
-                <el-tag v-else-if="row.public" size="small" type="info" effect="plain">公网</el-tag>
-              </template>
-            </el-table-column>
-          </el-table>
+          <template v-else>
+            <label class="input-search"><Search :size="15" /><input v-model="inputQuery" aria-label="搜索输入" placeholder="搜索服务、协议、端口" /><button v-if="inputQuery" type="button" aria-label="清空输入搜索" @click="inputQuery = ''"><X :size="13" /></button></label>
+            <div class="input-protocols" aria-label="协议筛选">
+              <button type="button" :class="{ active: !protocolFilter }" :aria-pressed="!protocolFilter" @click="protocolFilter = ''">全部<span>{{ inputs.length }}</span></button>
+              <button v-for="item in protocolOptions" :key="item" type="button" :class="{ active: protocolFilter === item }" :aria-pressed="protocolFilter === item" @click="protocolFilter = item">{{ item.toUpperCase() }}</button>
+            </div>
+            <div class="input-service-list">
+              <button v-for="row in filteredInputs" :key="row.id" type="button" class="input-service" :class="{ selected: current?.id === row.id }" :aria-pressed="current?.id === row.id" @click="select(row)">
+                <span class="service-glyph"><component :is="serviceIcon(row)" :size="17" /></span>
+                <span class="service-copy"><strong>{{ row.service || row.id }}</strong><span><b>{{ (row.protocol || row.transport || '未知').toUpperCase() }}</b><span class="service-port">{{ endpoint(row) }}</span></span></span>
+                <span class="service-tail"><span class="service-input-id">{{ row.id }}</span><span class="surface-indicator" :class="{ present: surfaceByInput[row.id] }">{{ surfaceByInput[row.id] ? surfaceByInput[row.id].surface_id : '未导出' }}</span></span>
+                <ChevronRight :size="14" class="service-chevron" />
+              </button>
+              <div v-if="!filteredInputs.length" class="input-list-empty"><Search :size="22" /><span>无匹配输入</span><button type="button" @click="inputQuery = ''; protocolFilter = ''">清空筛选</button></div>
+            </div>
+          </template>
 
           <el-collapse v-if="(meta?.excluded || []).length || (meta?.unreadable || []).length" class="meta-collapse">
             <el-collapse-item v-if="(meta?.excluded || []).length" :title="`排除项（${meta.excluded.length}）`" name="excluded">
@@ -91,29 +82,37 @@
       <el-card class="main-card" shadow="never">
         <template #header>
           <div class="row-between">
-            <span>输入详情 <span v-if="current" class="mono muted">{{ current.id }}</span></span>
+            <span class="panel-label"><FileCode :size="16" />输入详情 <span v-if="current" class="input-detail-id">{{ current.id }}</span></span>
             <el-tag v-if="surface" size="small" type="success">{{ surface.surface_id }}</el-tag>
           </div>
         </template>
         <el-empty v-if="!current" description="从左侧列表选择一个输入" :image-size="80" />
         <div v-else class="detail">
+          <div class="input-detail-identity">
+            <span class="identity-glyph"><component :is="serviceIcon(current)" :size="25" /></span>
+            <div><h2>{{ current.service || current.id }}</h2><span class="identity-endpoint">{{ endpoint(current) }}<span class="identity-protocol">{{ (current.protocol || current.transport || '未知').toUpperCase() }}</span></span></div>
+            <span class="input-exposure" :class="{ public: current.public }"><i />{{ current.public ? '公网标记' : '内部输入' }}</span>
+          </div>
+          <nav class="input-detail-tabs" aria-label="输入详情视图">
+            <button type="button" :class="{ active: detailTab === 'overview' }" :aria-pressed="detailTab === 'overview'" @click="detailTab = 'overview'">基本信息</button>
+            <button type="button" :class="{ active: detailTab === 'surface' }" :aria-pressed="detailTab === 'surface'" @click="detailTab = 'surface'">攻击面<span v-if="surface">{{ surface.surface_id }}</span></button>
+          </nav>
+          <section v-show="detailTab === 'overview'" class="input-overview-section">
           <!-- 基本信息 -->
-          <h4>基本信息</h4>
-          <el-descriptions :column="isNarrow ? 2 : 3" border size="small">
+          <el-descriptions :column="2" size="default" class="input-facts">
             <el-descriptions-item label="服务">{{ current.service }}</el-descriptions-item>
             <el-descriptions-item label="协议">{{ current.protocol }}</el-descriptions-item>
-            <el-descriptions-item label="地址">
-              <span class="mono">{{ current.address }}:{{ current.port }}/{{ current.transport }}</span>
-            </el-descriptions-item>
-            <el-descriptions-item label="公网可达">
+            <el-descriptions-item label="地址"><span class="mono">{{ endpoint(current) }}</span></el-descriptions-item>
+            <el-descriptions-item label="公网标记">
               <el-tag size="small" :type="current.public ? 'success' : 'info'" effect="plain">
                 {{ current.public ? '是' : '否' }}
               </el-tag>
             </el-descriptions-item>
-            <el-descriptions-item label="输入类型" :span="isNarrow ? 2 : 2">
-              <el-tag v-for="t in current.input_types || []" :key="t" size="small" effect="plain" class="tag-gap">{{ t }}</el-tag>
-              <span v-if="!(current.input_types || []).length" class="muted">—</span>
+            <el-descriptions-item label="输入类型" :span="2">
+              <el-tag v-for="t in visibleInputTypes" :key="t" size="small" effect="plain" class="tag-gap">{{ t }}</el-tag>
+              <span v-if="!visibleInputTypes.length" class="muted">—</span>
             </el-descriptions-item>
+            <el-descriptions-item v-if="binaryFingerprint" label="二进制 MD5" :span="2"><code class="input-fingerprint mono">{{ binaryFingerprint }}</code></el-descriptions-item>
           </el-descriptions>
           <div class="sub-block">
             <div class="sub-title muted">入口文件</div>
@@ -136,21 +135,22 @@
             </div>
           </template>
 
+          </section>
+          <section v-show="detailTab === 'surface'" class="input-surface-section">
           <!-- 攻击面文档 -->
-          <h4>攻击面</h4>
           <template v-if="surface">
             <!-- 路由链 timeline -->
             <div class="sub-title muted">路由链</div>
             <div class="chain-v">
               <div v-for="(hop, index) in surface.routing_path || []" :key="index" class="step">
                 <div class="rail">
-                  <div class="dot" :style="{ background: stageColor(hop.stage), boxShadow: `0 0 8px ${stageColor(hop.stage)}` }" />
+                  <div class="dot" :style="{ background: stageColor(hop.stage) }" />
                   <div v-if="index < surface.routing_path.length - 1" class="line" />
                 </div>
                 <div class="node-card">
                   <div class="node-head">
-                    <el-tag size="small" effect="dark" class="stage-tag"
-                            :color="stageColor(hop.stage)">{{ hop.stage }}</el-tag>
+                    <el-tag size="small" effect="plain" class="stage-tag"
+                            :style="{ '--hop-color': stageColor(hop.stage) }">{{ hop.stage }}</el-tag>
                     <span v-if="hop.function" class="mono node-name">{{ hop.function }}</span>
                     <span class="mono muted file-ref" :title="hop.file">{{ baseName(hop.file) }}</span>
                   </div>
@@ -159,9 +159,9 @@
               </div>
             </div>
 
-            <!-- 终点 handler -->
+            <!-- 处理函数 -->
             <div v-if="surface.final_handler" class="sub-block">
-              <div class="sub-title muted">终点 handler</div>
+              <div class="sub-title muted">处理函数</div>
               <div class="handler-card">
                 <div class="node-head">
                   <span class="mono node-name">{{ surface.final_handler.function || '（未定位函数）' }}</span>
@@ -212,13 +212,13 @@
                   <div class="chain-v">
                     <div v-for="(hop, index) in authDoc.chain || []" :key="index" class="step">
                       <div class="rail">
-                        <div class="dot" :style="{ background: stageColor(hop.stage), boxShadow: `0 0 8px ${stageColor(hop.stage)}` }" />
+                        <div class="dot" :style="{ background: stageColor(hop.stage) }" />
                         <div v-if="index < authDoc.chain.length - 1" class="line" />
                       </div>
                       <div class="node-card">
                         <div class="node-head">
-                          <el-tag size="small" effect="dark" class="stage-tag"
-                                  :color="stageColor(hop.stage)">{{ hop.stage }}</el-tag>
+                          <el-tag size="small" effect="plain" class="stage-tag"
+                                  :style="{ '--hop-color': stageColor(hop.stage) }">{{ hop.stage }}</el-tag>
                           <span v-if="hop.function" class="mono node-name">{{ hop.function }}</span>
                           <span class="mono muted file-ref" :title="hop.file">{{ baseName(hop.file) }}</span>
                         </div>
@@ -235,8 +235,9 @@
 
             <p v-if="surface.evidence" class="muted evidence">证据：{{ surface.evidence }}</p>
           </template>
-          <el-empty v-else :description="surfMissing ? '尚未导出攻击面，可点击上方「重新导出攻击面」' : '该输入暂无攻击面文档'"
+          <el-empty v-else :description="surfMissing ? '尚未导出攻击面，可点击上方「导出攻击面」' : '该输入暂无攻击面文档'"
                     :image-size="70" />
+          </section>
         </div>
       </el-card>
     </div>
@@ -244,17 +245,36 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Radar, RefreshCw, Route } from '@lucide/vue'
+import { Radar, RefreshCw, Route, Network, Layers, Shield, FileCode, Server, Search, ChevronRight, X, Globe } from '@lucide/vue'
 import { api } from '../api'
 import JobPicker from '../components/JobPicker.vue'
 import { NAV_ICONS } from '../workbench/icons.js'
-import { useNarrowViewport } from '../useNarrowViewport'
-
-const isNarrow = useNarrowViewport()
 
 const jobId = ref('')
+const inputQuery = ref('')
+const protocolFilter = ref('')
+const detailTab = ref('overview')
+let requestVersion = 0
+let loadController = null
+let disposed = false
+
+function endpoint(row) {
+  const address = row?.address == null || row.address === '' ? '' : String(row.address)
+  const port = row?.port == null ? '' : String(row.port)
+  const transport = row?.transport || ''
+  return address ? address + (port ? ':' + port : '') : port ? port + (transport ? ' / ' + transport.toUpperCase() : '') : '端口未确定'
+}
+function serviceIcon(row) {
+  return /http|web|hnap/i.test(row?.protocol || row?.service || '') ? Globe : Server
+}
+const protocolOptions = computed(() => [...new Set(inputs.value.map(row => String(row.protocol || row.transport || '').toLowerCase()).filter(Boolean))].sort())
+const filteredInputs = computed(() => {
+  const query = inputQuery.value.trim().toLowerCase()
+  return inputs.value.filter(row => (!protocolFilter.value || String(row.protocol || row.transport || '').toLowerCase() === protocolFilter.value)
+    && (!query || [row.service, row.id, row.protocol, row.port, row.address, ...(row.entry_files || [])].join(' ').toLowerCase().includes(query)))
+})
 const loading = ref(false)
 const rerunningInputs = ref(false)
 const rerunningSurfaces = ref(false)
@@ -287,6 +307,8 @@ const surfaces = ref([]) // non-AUTH surface docs
 const surfMissing = ref(false)
 
 const current = ref(null)
+const visibleInputTypes = computed(() => (current.value?.input_types || []).filter(value => !String(value).startsWith('binary_md5=')))
+const binaryFingerprint = computed(() => current.value?.binary_md5 || (current.value?.input_types || []).find(value => String(value).startsWith('binary_md5='))?.slice(11) || '')
 
 // auth chain docs (lazy loaded)
 const authDocs = ref({})
@@ -294,9 +316,9 @@ const authLoading = ref(false)
 const expandedAuth = ref('')
 
 const STAGE_COLORS = {
-  listen: 'var(--fw-brand)', accept: 'var(--fw-brand)', parse: '#b45309',
-  normalize: '#16a34a', dispatch: '#7c3aed', handler: '#dc2626',
-  'permission-check': '#ea580c'
+  listen: 'var(--fw-brand)', accept: 'var(--fw-brand)', parse: 'var(--fw-warn)',
+  normalize: 'var(--fw-ok)', dispatch: 'var(--fw-brand)', handler: 'var(--fw-danger)',
+  'permission-check': 'var(--fw-warn)'
 }
 
 function stageColor (stage) { return STAGE_COLORS[stage] || 'var(--fw-text-3)' }
@@ -319,9 +341,9 @@ const hasActors = computed(() => {
 const actorGroups = computed(() => {
   const s = surface.value || {}
   return [
-    { label: 'dispatchers', items: s.dispatchers || [] },
-    { label: 'parsers', items: s.parsers || [] },
-    { label: 'normalizers', items: s.normalizers || [] }
+    { label: '分发函数', items: s.dispatchers || [] },
+    { label: '解析函数', items: s.parsers || [] },
+    { label: '规范化函数', items: s.normalizers || [] }
   ].filter(g => g.items.length)
 })
 
@@ -334,18 +356,37 @@ function select (row) {
 
 async function loadAll () {
   if (!jobId.value) return
+  loadController?.abort()
+  const controller = new AbortController()
+  loadController = controller
+  const version = ++requestVersion
+  const id = jobId.value
+  const options = { signal: controller.signal }
+  const stale = () => disposed || version !== requestVersion || controller.signal.aborted
   loading.value = true
+  inputQuery.value = ''
+  protocolFilter.value = ''
+  detailTab.value = 'overview'
+  inputs.value = []
+  meta.value = null
+  surfaces.value = []
+  surfSummary.value = null
+  identMissing.value = false
+  surfMissing.value = false
   current.value = null
   expandedAuth.value = ''
   authDocs.value = {}
+  authLoading.value = false
   // identification
   try {
-    const ident = await api(`/jobs/${jobId.value}/identification`)
+    const ident = await api(`/jobs/${id}/identification`, options)
+    if (stale()) return
     meta.value = ident.metadata || null
     inputs.value = ident.inputs || []
     identMissing.value = false
     if (inputs.value.length) current.value = inputs.value[0]
   } catch (e) {
+    if (stale()) return
     meta.value = null
     inputs.value = []
     identMissing.value = e.status === 404
@@ -356,19 +397,22 @@ async function loadAll () {
   surfSummary.value = null
   surfMissing.value = false
   try {
-    const idx = await api(`/jobs/${jobId.value}/surfaces`)
+    const idx = await api(`/jobs/${id}/surfaces`, options)
+    if (stale()) return
     surfSummary.value = idx.summary || null
     const names = (idx.files || [])
       .map(f => String(f).replace(/\.json$/, ''))
       .filter(id => id.startsWith('AS-') && !id.startsWith('AS-AUTH-'))
-    const docs = await Promise.all(names.map(id =>
-      api(`/jobs/${jobId.value}/surfaces/${id}`).catch(() => null)))
+    const docs = await Promise.all(names.map(surfaceId =>
+      api(`/jobs/${id}/surfaces/${surfaceId}`, options).catch(() => null)))
+    if (stale()) return
     surfaces.value = docs.filter(Boolean)
   } catch (e) {
+    if (stale()) return
     surfMissing.value = e.status === 404
     if (e.status !== 404) ElMessage.error('攻击面加载失败: ' + e.message)
   }
-  loading.value = false
+  if (!stale()) loading.value = false
 }
 
 async function toggleAuth (ref) {
@@ -378,13 +422,16 @@ async function toggleAuth (ref) {
   }
   expandedAuth.value = ref
   if (authDocs.value[ref]) return
+  const version = requestVersion
   authLoading.value = true
   try {
-    authDocs.value = { ...authDocs.value, [ref]: await api(`/jobs/${jobId.value}/surfaces/${ref}`) }
+    const doc = await api(`/jobs/${jobId.value}/surfaces/${ref}`)
+    if (!disposed && version === requestVersion) authDocs.value = { ...authDocs.value, [ref]: doc }
   } catch (e) {
+    if (disposed || version !== requestVersion) return
     ElMessage.error(`授权链 ${ref} 加载失败: ` + e.message)
   } finally {
-    authLoading.value = false
+    if (version === requestVersion) authLoading.value = false
   }
 }
 
@@ -429,6 +476,7 @@ async function rerunSurfaces () {
 }
 
 // 任务选择与自动选中由 JobPicker 完成
+onBeforeUnmount(() => { disposed = true; requestVersion += 1; loadController?.abort() })
 </script>
 
 <style scoped>

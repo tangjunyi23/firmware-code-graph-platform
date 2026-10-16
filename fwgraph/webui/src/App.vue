@@ -7,24 +7,13 @@
             <BrandMark :size="40" />
             <div><h1 class="login-title">FWGraph</h1><p class="login-slogan">固件攻击面分析平台</p></div>
           </div>
-          <div class="login-intro">
-            <span class="login-eyebrow">FIRMWARE SECURITY WORKSPACE</span>
-            <h2>看清固件，<br />发现隐藏风险<span>。</span></h2>
-            <p>从二进制到攻击面，连接代码、线索与证据。<br />让每一次固件分析，都有清晰的路径。</p>
-          </div>
           <FirmwareIllustration />
-          <div class="login-capabilities">
-            <span><component :is="NAV_ICONS.Cpu" :size="17" />固件解析</span>
-            <span><component :is="NAV_ICONS.Share" :size="17" />代码图谱</span>
-            <span><component :is="NAV_ICONS.ScanSearch" :size="17" />智能挖掘</span>
-          </div>
         </section>
         <section class="login-panel" aria-label="登录工作区">
-          <div class="login-panel-top"><span class="login-eyebrow">YOUR ANALYSIS STARTS HERE</span><button type="button" class="tb-icon" :aria-label="themePref === 'dark' ? '切换到浅色主题' : '切换到深色主题'" @click="toggleTheme"><component :is="themePref === 'dark' ? NAV_ICONS.Sun : NAV_ICONS.Moon" :size="18" /></button></div>
+          <div class="login-panel-top"><button type="button" class="tb-icon" :aria-label="themePref === 'dark' ? '切换到浅色主题' : '切换到深色主题'" @click="toggleTheme"><component :is="themePref === 'dark' ? NAV_ICONS.Sun : NAV_ICONS.Moon" :size="18" /></button></div>
           <el-card class="login-card" shadow="never">
             <span class="login-card-icon"><component :is="NAV_ICONS.Lock" :size="21" /></span>
-            <h2>欢迎回来</h2>
-            <p class="login-card-sub">登录你的工作区，继续探索固件安全。</p>
+            <h2>登录</h2>
             <form @submit.prevent="doLogin">
               <label class="login-label" for="fw-login-user">用户名</label>
               <el-input id="fw-login-user" v-model="loginForm.username" placeholder="输入用户名" autocomplete="username" class="login-field" :disabled="loginLoading">
@@ -35,7 +24,7 @@
                 <template #prefix><span class="field-ico"><component :is="NAV_ICONS.Lock" :size="17" /></span></template>
               </el-input>
               <el-alert v-if="loginError" :title="loginError" type="error" :closable="false" class="login-error" role="alert" />
-              <el-button type="primary" native-type="submit" class="login-btn" :loading="loginLoading">登录工作区 <component v-if="!loginLoading" :is="NAV_ICONS.ArrowDown" :size="17" class="login-arrow" /></el-button>
+              <el-button type="primary" native-type="submit" class="login-btn" :loading="loginLoading">登录 <component v-if="!loginLoading" :is="NAV_ICONS.ArrowDown" :size="17" class="login-arrow" /></el-button>
             </form>
             <el-collapse class="token-collapse">
               <el-collapse-item title="使用访问令牌登录" name="token">
@@ -44,10 +33,9 @@
               </el-collapse-item>
             </el-collapse>
           </el-card>
-          <p class="login-hint"><component :is="NAV_ICONS.Collection" :size="14" /> 固件分析 · 风险发现 · 证据验证</p>
         </section>
       </div>
-      <footer class="login-footer"><span>FWGraph · Firmware Intelligence</span><span>解包 / 图谱 / 攻击面 / 智能挖掘</span></footer>
+      <footer class="login-footer">FWGraph</footer>
     </div>
 
     <!-- ===== 主壳 ===== -->
@@ -97,7 +85,7 @@
                 type="button"
                 class="nav-item nav-group-btn"
                 :data-tour="'nav-' + item.group"
-                :aria-label="navTitle(item)"
+                :aria-label="navTitle(item)" :title="sideMini ? navTitle(item) : undefined"
                 :aria-expanded="isGroupOpen(item) ? 'true' : 'false'"
                 :class="{
                   active: isGroupActive(item),
@@ -116,7 +104,7 @@
                   type="button"
                   class="nav-item child"
                   :data-tour="'nav-' + child.index"
-                  :aria-label="navTitle(child)"
+                  :aria-label="navTitle(child)" :title="sideMini ? navTitle(child) : undefined" :aria-current="page === child.index ? 'page' : undefined"
                   :class="{ active: page === child.index }"
                   @click="go(child.index)"
                 >
@@ -130,8 +118,8 @@
               type="button"
               class="nav-item"
               :data-tour="'nav-' + item.index"
-              :aria-label="navTitle(item)"
-              :class="{ active: page === item.index }"
+              :aria-label="navTitle(item)" :title="sideMini ? navTitle(item) : undefined"
+              :class="{ active: page === item.index }" :aria-current="page === item.index ? 'page' : undefined"
               @click="go(item.index)"
             >
               <span class="nav-ico"><component :is="NAV_ICONS[item.icon] || NAV_ICONS.Menu" :size="16" /></span>
@@ -337,14 +325,14 @@ if (qsToken) {
 const ALL_PAGES = ['wish', 'jobs', 'prepare', 'decrypt', 'events', 'dashboard', 'functions', 'attack', 'inputs',
   'graph', 'protocol', 'protofuzz', 'vulnlib', 'reports', 'users', 'logs', 'settings', 'backdoor', 'emul']
 const PAGE_TITLES = {
-  wish: '快速挖掘', jobs: '工作台', prepare: '分析任务', decrypt: '固件解密', events: '事件流', backdoor: '后门检测', emul: '固件模拟', dashboard: '仪表盘', functions: '函数',
+  wish: '快速挖掘', jobs: '安全工作台', prepare: '固件任务', decrypt: '固件解密', events: '事件流', backdoor: '后门检测', emul: '固件模拟', dashboard: '仪表盘', functions: '函数',
   attack: '攻击面', inputs: '输入面', graph: '图谱', protocol: '入口风险评估', protofuzz: '协议挖掘',
   vulnlib: '漏洞库', reports: '报告中心', users: '用户管理', logs: '日志审计', settings: '系统设置'
 }
-const PRODUCT_NAV_NAMES = { chat: '安全工作台', analysis: '代码洞察', prepare: '固件任务', tools: '固件工具', system: '平台管理' }
+const PRODUCT_NAV_NAMES = { chat: '安全工作台', analysis: '代码分析', prepare: '固件任务', tools: '固件工具', system: '平台管理' }
 const PAGE_SECTIONS = {
   prepare: '固件分析', jobs: '固件分析', wish: '固件分析',
-  functions: '代码洞察', attack: '代码洞察', inputs: '代码洞察', graph: '代码洞察',
+  functions: '代码分析', attack: '代码分析', inputs: '代码分析', graph: '代码分析',
   decrypt: '固件工具', backdoor: '固件工具', emul: '固件工具', protocol: '固件工具', events: '固件工具', protofuzz: '固件工具',
   reports: '安全资产', vulnlib: '威胁知识', users: '平台管理', logs: '平台管理', settings: '平台管理'
 }
@@ -397,7 +385,7 @@ const MENUS = {
       ]
     },
     {
-      group: 'analysis', title: '代码洞察', icon: 'Search',
+      group: 'analysis', title: '代码分析', icon: 'Search',
       children: [
         { index: 'functions', title: '函数', icon: 'Document' },
         { index: 'attack', title: '攻击面', icon: 'Aim' },
@@ -1570,3 +1558,6 @@ html[data-fw-theme='dark'] .nav-mask { background: rgba(0, 0, 0, .55); }
 
 <style src="./commercial-pages.css"></style>
 <style src="./desktop-workspace.css"></style>
+<style src="./visual-system.css"></style>
+
+<style src="./product-workspace.css"></style>

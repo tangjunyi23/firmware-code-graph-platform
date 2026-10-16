@@ -4,7 +4,6 @@
       <div class="ins-head-row">
         <h1 class="ins-title"><span class="ins-ico"><component :is="NAV_ICONS.Notebook" :size="18" /></span>报告中心</h1>
       </div>
-      <p class="ins-sub">集中管理风险报告，查看分析证据并导出交付文档。</p>
     </header>
 
     <nav class="product-tabs" aria-label="报告中心视图">

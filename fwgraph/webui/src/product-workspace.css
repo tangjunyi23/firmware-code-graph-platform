@@ -1,0 +1,131 @@
+/* Desktop workspaces. Dashboard content and geometry are intentionally excluded. */
+.app-root .commercial-shell .workspace-pages .wb-root {
+  --dsw-alias-bg-base: var(--ui-page);
+  --dsw-alias-bg-layer-1: var(--ui-surface);
+  --dsw-alias-bg-layer-2: var(--ui-subtle);
+  --dsw-alias-bg-layer-3: var(--ui-surface);
+  --dsw-alias-label-primary: var(--ui-text);
+  --dsw-alias-label-secondary: var(--ui-secondary);
+  --dsw-alias-label-tertiary: var(--ui-muted);
+  --dsw-alias-label-caption: var(--ui-muted);
+  --dsw-alias-border-l1: var(--ui-border);
+  --dsw-alias-border-l2: var(--ui-border);
+  --dsw-alias-border-l2-darkmode-thin: var(--ui-border);
+  --dsw-alias-border-l3: var(--ui-border-strong);
+  --dsw-alias-border-l4: var(--ui-border-strong);
+  --dsw-alias-interactive-bg-hover: var(--ui-subtle);
+  --dsw-alias-interactive-bg-active: var(--ui-accent-fill);
+  --dsw-specific-sidebar-fill: var(--ui-rail);
+  --dsw-specific-input-bg: var(--ui-surface);
+  --dsw-font-family: var(--fw-font);
+}
+.app-root .commercial-shell .workspace-pages .wb-root .wb-rail { backdrop-filter: none; }
+.app-root .commercial-shell .workspace-pages .wb-root .rail { background: transparent; }
+.app-root .commercial-shell .workspace-pages .wb-root .conv[data-phase='hero'] { height: auto; flex: 1; min-height: 0; }
+.app-root .commercial-shell .workspace-pages .wb-root .conv[data-phase='hero'] .composer-seat { width: 100%; }
+.app-root .commercial-shell .workspace-pages .wb-root .workspace-overview .composer-hero {
+  display: grid; grid-template-columns: minmax(0,1fr) auto;
+  width: 100%; max-width: none; margin: 0; padding: 20px 22px 16px;
+  border: 1px solid var(--ui-border); border-radius: 10px;
+  background: var(--ui-surface); box-sizing: border-box; gap: 0;
+}
+.app-root .commercial-shell .workspace-pages .wb-root .workspace-overview .hero-copy { padding: 0; align-self: center; }
+.app-root .commercial-shell .workspace-pages .wb-root .hero-copy h2 { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 14px; font-weight: 600; }
+.app-root .commercial-shell .workspace-pages .wb-root .hero-copy h2 svg { color: var(--ui-accent); }
+.app-root .commercial-shell .workspace-pages .wb-root .workspace-overview .hero-workspace-row { margin: 0; padding: 0; justify-self: end; max-width: 360px; }
+.app-root .commercial-shell .workspace-pages .wb-root .workspace-overview .workspace { min-height: 32px; border-radius: 6px; border: 1px solid var(--ui-border); padding: 5px 10px; background: var(--ui-subtle); font-size: 11px; }
+.app-root .commercial-shell .workspace-pages .wb-root .workspace-overview .workspace:focus-visible { outline-offset: 2px; }
+.app-root .commercial-shell .workspace-pages .wb-root .workspace-overview .composer-stack > :is(.root,.queue-dock,.approval-panel,.end-cards-row,.starter-prompts) { grid-column: 1 / -1; }
+.app-root .commercial-shell .workspace-pages .wb-root .workspace-overview .composer-stack > .root { margin-top: 17px; }
+.app-root .commercial-shell .workspace-pages .wb-root .workspace-overview .composer-stack .card {
+  margin: 0; width: 100%; max-width: none; background: var(--ui-subtle);
+  border: 1px solid var(--ui-border-strong); border-radius: 8px; box-shadow: none;
+}
+.app-root .commercial-shell .workspace-pages .wb-root .workspace-overview .composer-stack .card:focus-within { border-color: var(--ui-accent); box-shadow: 0 0 0 3px color-mix(in srgb,var(--ui-accent) 8%,transparent); }
+.app-root .commercial-shell .workspace-pages .wb-root .workspace-overview .composer-stack .card.trigger { border-style: dashed; }
+.app-root .commercial-shell .workspace-pages .wb-root .workspace-overview .composer-stack .card.trigger::after { display: none; }
+.app-root .commercial-shell .workspace-pages .wb-root .workspace-overview .composer-stack .card .input { min-height: 67px; font-size: 13px; padding: 14px 15px 8px; }
+.app-root .commercial-shell .workspace-pages .wb-root .workspace-overview .starter-prompts { margin: 12px 0 0; }
+.app-root .commercial-shell .workspace-pages .wb-root .workspace-overview .starter-prompts button { padding: 4px 9px; min-height: 27px; color: var(--ui-secondary); background: transparent; font-size: 10px; }
+.app-root .commercial-shell .workspace-pages .wb-root .workspace-overview .starter-prompts b { font-size: 10px; }
+.app-root .commercial-shell .workspace-pages .wb-root .policy { border-radius: 6px; }
+.app-root .commercial-shell .workspace-pages .wb-root .policy-btn { border-radius: 4px; font-size: 10px; padding-inline: 8px; }
+.app-root .commercial-shell .workspace-pages .wb-root .primary { border-radius: 7px; }
+.app-root .commercial-shell .workspace-pages .wb-root .conv[data-phase='active'] .composer-stack .card { border-radius: 10px; box-shadow: none; }
+.app-root .commercial-shell .workspace-pages .wb-root .section-label { color: var(--ui-secondary); font-size: 11px; }
+.app-root .commercial-shell .workspace-pages .wb-root .project-row { font-weight: 500; }
+.app-root .commercial-shell .workspace-pages .wb-root .folder + .folder { margin-top: 3px; }
+.app-root .commercial-shell .workspace-pages .wb-root .stage-bar { min-height: 60px; height: 60px; }
+
+/* Solid task state, a compact history rail, and a single upload form. */
+.prepare-overview { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 12px; margin-bottom: 26px; }
+.prepare-overview button { display: flex; position: relative; flex-direction: column; gap: 14px; min-width: 0; padding: 17px 19px; text-align: left; border: 1px solid var(--ui-border); border-radius: 9px; background: var(--ui-surface); color: var(--ui-text); cursor: pointer; font: inherit; }
+.prepare-overview button > span { font-size: 11px; color: var(--ui-secondary); }
+.prepare-overview button strong { font-size: 26px; font-weight: 550; font-variant-numeric: tabular-nums; line-height: 1; letter-spacing: -.6px; }
+.prepare-overview button i { position: absolute; right: 18px; top: 20px; width: 6px; height: 6px; border-radius: 50%; background: var(--ui-muted); }
+.prepare-overview button i[data-status='ready'] { background: var(--ui-accent); }
+.prepare-overview button i[data-status='running'] { background: var(--ui-green); }
+.prepare-overview button i[data-status='failed'] { background: var(--ui-red); }
+.prepare-overview button.on { border-color: color-mix(in srgb,var(--ui-accent) 50%,var(--ui-border)); }
+.prepare-overview button:hover { background: var(--ui-subtle); }
+.app-root .commercial-shell .workspace-pages .prep .stage.create-stage { grid-template-areas: 'summary' 'head' 'form' 'notice'; grid-template-rows: repeat(4,max-content); gap: 0; }
+.app-root .commercial-shell .workspace-pages .prep .create-stage .prepare-overview { grid-area: summary; }
+.app-root .commercial-shell .workspace-pages .prep .create-stage .head { grid-area: head; }
+.app-root .commercial-shell .workspace-pages .prep .create-stage .composer-wrap { grid-area: form; }
+.app-root .commercial-shell .workspace-pages .prep .create-stage .notice { grid-area: notice; }
+.app-root .commercial-shell .workspace-pages .prep .head { align-items: center; margin-bottom: 20px; }
+.app-root .commercial-shell .workspace-pages .prep .head > div:first-child { min-width: 0; }
+.app-root .commercial-shell .workspace-pages .prep .head h1 { font-size: 23px; overflow-wrap: anywhere; }
+.app-root .commercial-shell .workspace-pages .prep .head p { font-size: 11px; margin-top: 7px; }
+.app-root .commercial-shell .workspace-pages .prep .create-stage .composer-wrap { max-width: none; margin-top: 0; border-radius: 10px; padding: 24px; }
+.prepare-head-actions { display: flex; align-items: center; gap: 14px; flex: none; }
+.prepare-reset { display: inline-flex; align-items: center; gap: 7px; border: 1px solid var(--ui-border-strong); border-radius: 7px; padding: 8px 12px; background: var(--ui-surface); color: var(--ui-secondary); font: inherit; font-size: 11px; cursor: pointer; }
+.prepare-reset:hover { border-color: var(--ui-accent); color: var(--ui-accent); }
+.app-root .commercial-shell .workspace-pages .prepare-upload { min-height: 174px; background: var(--ui-subtle); }
+.app-root .commercial-shell .workspace-pages .prepare-upload:hover { border-color: var(--ui-accent); background: var(--ui-accent-fill); }
+.app-root .commercial-shell .workspace-pages .prepare-upload small { font-size: 10px; }
+.app-root .commercial-shell .workspace-pages .prepare-note-label { margin-top: 24px; font-size: 12px; }
+.app-root .commercial-shell .workspace-pages .prep .input { min-height: 94px; background: var(--ui-subtle); font-size: 12px; }
+.app-root .commercial-shell .workspace-pages .prep .input:focus-visible { outline-offset: 2px; }
+.app-root .commercial-shell .workspace-pages .prep .actions { border-top: 1px solid var(--ui-border); margin-top: 22px; padding-top: 18px; }
+.app-root .commercial-shell .workspace-pages .prep .send { min-width: 115px; font-size: 12px; }
+.app-root .commercial-shell .workspace-pages .task-status-tabs { gap: 1px; padding: 3px; }
+.app-root .commercial-shell .workspace-pages .task-status-tabs button { gap: 3px; font-size: 10px; }
+.app-root .commercial-shell .workspace-pages .prep > .rail { padding: 25px 16px 18px; }
+.app-root .commercial-shell .workspace-pages .prep .row { padding: 11px 10px; height: 66px; border: 1px solid transparent; }
+.app-root .commercial-shell .workspace-pages .prep .row.on { border-color: color-mix(in srgb,var(--ui-accent) 20%,transparent); }
+.prepare-selected-file { display: flex; align-items: center; gap: 13px; padding: 18px; border: 1px solid var(--ui-border); border-radius: 8px; background: var(--ui-subtle); }
+.prepare-selected-file > div { display: flex; flex-direction: column; gap: 7px; min-width: 0; flex: 1; }
+.prepare-selected-file strong { color: var(--ui-text); font-size: 13px; font-weight: 500; overflow-wrap: anywhere; }
+.prepare-selected-file small { color: var(--ui-muted); font-size: 11px; }
+.prepare-selected-file button { border: 1px solid var(--ui-border); border-radius: 5px; width: 26px; height: 26px; background: var(--ui-surface); color: var(--ui-muted); cursor: pointer; }
+
+/* Reports: document header and persistent, clearly separated export actions. */
+.app-root .commercial-shell .workspace-pages .reports-page .product-tabs { margin-bottom: 22px; }
+.app-root .commercial-shell .workspace-pages .reports-page .kpi-row { display: grid; grid-template-columns: repeat(5,minmax(0,1fr)); gap: 0; border-radius: 9px; }
+.app-root .commercial-shell .workspace-pages .reports-page .kpi { border: 0; border-right: 1px solid var(--ui-border); border-radius: 0; padding: 20px 22px; gap: 8px; }
+.app-root .commercial-shell .workspace-pages .reports-page .kpi:last-child { border-right: 0; }
+.app-root .commercial-shell .workspace-pages .reports-page .kpi-num { font-size: 27px; }
+.app-root .commercial-shell .workspace-pages .reports-page .kpi-label { opacity: 1; font-size: 11px; color: var(--ui-muted); }
+.app-root .commercial-shell .workspace-pages .reports-page .kpi.hot .kpi-num { color: var(--ui-red); }
+.app-root .commercial-shell .workspace-pages .reports-page .report-archive { margin-top: 22px; grid-template-columns: minmax(270px,.72fr) minmax(0,1.7fr); gap: 20px; }
+.app-root .commercial-shell .workspace-pages .reports-page .lib-head { min-height: 62px; padding: 16px 18px; border-bottom: 1px solid var(--ui-border); }
+.app-root .commercial-shell .workspace-pages .reports-page .list-col { padding: 0; overflow: hidden; }
+.app-root .commercial-shell .workspace-pages .reports-page .lib-toolbar { padding: 14px 16px 3px; margin: 0; }
+.app-root .commercial-shell .workspace-pages .reports-page .report-search { margin: 10px 16px 12px; width: calc(100% - 32px); }
+.app-root .commercial-shell .workspace-pages .reports-page .list-scroll { padding: 0 8px 8px; }
+.app-root .commercial-shell .workspace-pages .reports-page .lib-item { margin: 3px 0; padding: 16px 12px; border: 1px solid transparent; border-radius: 7px; }
+.app-root .commercial-shell .workspace-pages .reports-page .lib-item.active { border-color: color-mix(in srgb,var(--ui-accent) 20%,transparent); background: var(--ui-accent-fill); }
+.app-root .commercial-shell .workspace-pages .reports-page .detail-col { padding: 0; overflow: hidden; }
+.app-root .commercial-shell .workspace-pages .reports-page .viewer-body { padding: 26px 30px; background: var(--ui-surface); }
+.app-root .commercial-shell .workspace-pages .reports-page .viewer-title { font-size: 13px; }
+.app-root .commercial-shell .workspace-pages .reports-page .lib-actions { gap: 6px; }
+.app-root .commercial-shell .workspace-pages .reports-page .lib-actions .el-button { min-height: 30px; padding: 5px 9px; font-size: 10px; margin-left: 0; }
+.app-root .commercial-shell .workspace-pages .reports-page .lib-actions .el-button:first-child { border-color: var(--ui-accent); color: var(--ui-accent); }
+.app-root .commercial-shell .workspace-pages .reports-page .md-body { font-size: 13px; line-height: 1.9; }
+.app-root .commercial-shell .workspace-pages .reports-page .md-body h1 { font-size: 23px; line-height: 1.5; padding-bottom: 18px; border-bottom: 1px solid var(--ui-border); }
+.app-root .commercial-shell .workspace-pages .reports-page .md-body h2 { font-size: 17px; margin-top: 28px; }
+
+@media (min-width: 1700px) {
+  .app-root .commercial-shell .workspace-pages .wb-root .workspace-overview .composer-hero { max-width: none; }
+}

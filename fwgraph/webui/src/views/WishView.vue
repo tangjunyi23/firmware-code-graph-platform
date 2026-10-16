@@ -1,9 +1,7 @@
 <template>
   <div class="wish wb-root" :data-wb-theme="themePref">
     <section v-if="!armed" class="hero">
-      <p class="kicker">快速模式</p>
-      <h1>三步发起自动化漏洞挖掘</h1>
-      <p class="lead">依次完成固件选择、目标设定与任务确认，平台自动执行解密、解包、代码图谱与攻击面分析，再按所选方向开展自动化挖掘。</p>
+      <h1>快速挖掘</h1>
 
       <!-- 步骤卡片：一次只显示一步，选择后动画前进 -->
       <div class="wiz-card">
@@ -29,7 +27,7 @@
           <!-- 第 1 步：选固件 -->
           <div v-if="step === 1" key="s1" class="wz-step">
             <h2 class="wz-q">选择目标固件</h2>
-            <p class="wz-sub">上传固件镜像，或复用已完成前置分析的任务</p>
+            <p class="wz-sub">上传固件或选择已有任务</p>
             <div
               class="drop"
               :class="{ over: dragOver, ready: !!file }"
@@ -41,7 +39,7 @@
         @keydown.enter.prevent="fileInput.click()" @keydown.space.prevent="fileInput.click()" @click="fileInput.click()"
             >
               <input ref="fileInput" type="file" class="hidden" :accept="FW_ACCEPT" @change="onPick" />
-              <strong>{{ file ? file.name : '将固件镜像拖拽至此，或点击选择文件' }}</strong>
+              <strong>{{ file ? file.name : '拖入固件或选择文件' }}</strong>
               <span v-if="uploadPct != null">正在上传 {{ uploadPct }}%</span>
               <span v-else>{{ file ? fmtSize(file.size) : '支持 bin / img / tar / zip / trx 等常见固件格式' }}</span>
               <i v-if="uploadPct != null" class="drop-bar" :style="{ width: uploadPct + '%' }" />
@@ -51,7 +49,7 @@
               <button type="button" class="ghost" @click="file = null">重选</button>
             </div>
             <template v-if="readyJobs.length">
-              <p class="reuse-lead">或复用已完成前置分析的任务</p>
+              <p class="reuse-lead">已有任务</p>
               <div class="reuse">
                 <button
                   v-for="item in readyJobs"
@@ -67,7 +65,6 @@
           <!-- 第 2 步：选目标（单选，选中即前进） -->
           <div v-else-if="step === 2" key="s2" class="wz-step">
             <h2 class="wz-q">选择检测目标</h2>
-            <p class="wz-sub">选择重点漏洞类型，确认前可返回调整或补充说明</p>
             <div class="chips">
               <button
                 v-for="opt in WISH_OPTIONS"
@@ -91,7 +88,6 @@
           <!-- 第 3 步：确认出发 -->
           <div v-else key="s3" class="wz-step">
             <h2 class="wz-q">确认并启动</h2>
-            <p class="wz-sub">请核对以下配置，确认无误后启动挖掘</p>
             <ul class="sum">
               <li @click="goStep(1)">
                 <span>固件</span>
@@ -123,7 +119,7 @@
     <section v-else class="run">
       <header class="run-head">
         <div>
-          <p class="kicker">全自动挖掘</p>
+          <p class="kicker">挖掘任务</p>
           <h1>{{ job?.firmware || '固件任务' }}</h1>
           <p class="tags">
             <span v-for="id in selected" :key="id">{{ wishLabel(id) }}</span>

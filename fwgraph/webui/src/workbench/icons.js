@@ -7,7 +7,7 @@ import {
   Square, Ellipsis, User, Lock, MessageSquare, Upload, Cpu, Unlock,
   Share2, ListTree, LayoutDashboard, Code, Crosshair, Download, Network,
   ShieldAlert, NotebookText, Users, ScrollText, LogOut, KeyRound, Compass,
-  ArrowDown, Sun, Moon, ChartColumn
+  ArrowDown, ArrowRight, Activity, Clock3, RefreshCw, Sun, Moon, ChartColumn
 } from '@lucide/vue'
 
 function wrap (Icon, defaultSize = 16) {
@@ -43,6 +43,7 @@ export const IconStop = wrap(Square)
 export const IconMore = wrap(Ellipsis)
 
 export const NAV_ICONS = {
+  ArrowRight: wrap(ArrowRight), Activity: wrap(Activity), Clock: wrap(Clock3), Refresh: wrap(RefreshCw),
   Monitor: wrap(Monitor),
   ChatDotRound: wrap(MessageSquare),
   Upload: wrap(Upload),

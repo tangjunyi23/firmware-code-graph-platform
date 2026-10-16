@@ -11,7 +11,6 @@
           <el-button :icon="RefreshCw" :loading="layoutLoading" @click="loadLayout">刷新图谱</el-button>
         </div>
       </div>
-      <p class="ins-sub">调用链追踪、敏感调用点与攻击路径检索，配合关系图可视化定位风险函数。</p>
     </header>
 
     <el-card shadow="never" class="block">

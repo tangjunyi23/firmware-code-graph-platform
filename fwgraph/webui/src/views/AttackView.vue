@@ -13,7 +13,6 @@
           <el-button :icon="Route" :loading="runningRoutes" @click="rerunRoutes">扫描路由</el-button>
         </div>
       </div>
-      <p class="ins-sub">source → sink 候选路径评分与动态覆盖交叉验证，点行展开完整调用链。</p>
       <div v-if="attackSummary" class="ins-stats">
         <span class="stat-chip">输入源 <b>{{ attackSummary.sources }}</b></span>
         <span class="stat-chip">候选汇 <b>{{ attackSummary.sinks }}</b></span>
@@ -77,7 +76,7 @@
           </template>
         </el-table-column>
         <el-table-column label="跳数" prop="edge_count" width="70" align="right" />
-        <el-table-column label="AI 分诊" width="100">
+        <el-table-column label="模型评分" width="100">
           <template #default="{ row }">
             <el-tag v-if="row.ai_review && row.ai_review.priority"
                     size="small" :type="priorityType(row.ai_review.priority)"

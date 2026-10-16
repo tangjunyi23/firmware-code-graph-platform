@@ -3,7 +3,6 @@
 .commercial-shell .workspace-pages .page-pane { max-width: 1720px; padding: 30px 32px 40px; }
 .commercial-shell .workspace-pages:is(.chat-home,.ops-home) .page-pane { max-width: none; padding: 0; }
 .commercial-shell .workspace-pages .ins-head { margin-bottom: 24px; }
-.commercial-shell .workspace-pages .ins-head::before { font-size: 11px; margin-bottom: 10px; }
 .commercial-shell .workspace-pages .ins-title { font-size: 26px; }
 .commercial-shell .workspace-pages .ins-sub { font-size: 13px; line-height: 1.8; max-width: 1000px; }
 .commercial-shell .workspace-pages .ins-head-row { display: flex; justify-content: space-between; align-items: center; gap: 22px; }
@@ -78,3 +77,26 @@
 .commercial-shell .workspace-pages .graph-canvas-wrap { background: var(--fw-surface-2); border-radius: 8px; }
 @media (min-width: 1700px) { .commercial-shell .workspace-pages .wb-root .composer-hero { max-width: 1040px; } .commercial-shell .workspace-pages .page-pane { padding: 36px 40px 48px; } }
 @media (min-width: 901px) and (max-width: 1220px) { .commercial-shell .workspace-pages .wb-root .stage-bar { gap: 10px; padding: 14px 18px; } .stage-actions { gap: 10px; } .workspace-context { max-width: 300px; } .commercial-shell .workspace-pages .wb-root .composer-hero { width: calc(100% - 40px); } .workspace-guide { gap: 8px; flex-wrap: wrap; } }
+
+
+/* Reduced copy: the form and current data take precedence over onboarding prose. */
+.commercial-shell .workspace-pages .prep .stage.create-stage {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas: 'head' 'form' 'notice';
+  grid-template-rows: repeat(3, max-content);
+  gap: 20px;
+}
+.commercial-shell .workspace-pages .prep .create-stage .composer-wrap { max-width: 960px; width: 100%; }
+.commercial-shell .workspace-pages .prep .create-stage .actions { justify-content: flex-end; }
+.commercial-shell .workspace-pages .wb-root .composer-hero { max-width: 800px; }
+.commercial-shell .workspace-pages .wb-root .hero-copy { padding-bottom: 16px; }
+.commercial-shell .workspace-pages .wb-root .hero-copy h1 { font-size: 26px; margin: 0; }
+.commercial-shell .workspace-pages .starter-prompts { display: flex; gap: 10px; margin-top: 14px; }
+.commercial-shell .workspace-pages .starter-prompts button { min-height: 36px; padding: 8px 14px; border-radius: 7px; }
+.commercial-shell .workspace-pages .starter-prompts b { font-size: 12px; font-weight: 500; margin: 0; }
+.commercial-shell .workspace-pages .ins-head-row .ins-actions { margin-left: auto; }
+.app-root .login-story { display: flex; flex-direction: column; justify-content: center; gap: 34px; }
+.app-root .login-panel-top { justify-content: flex-end; }
+.app-root .login-card h2 { margin-bottom: 26px; }
+.commercial-shell .workspace-pages .emul .empty-state { min-height: 260px; }
+.commercial-shell .workspace-pages .emul .metric-card { min-height: 82px; }

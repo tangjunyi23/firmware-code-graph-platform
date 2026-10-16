@@ -2,12 +2,9 @@
   <div class="emul wb-root" :data-wb-theme="themePref">
     <header class="emul-heading">
       <div>
-        <p class="kicker">固件工具 / 动态验证</p>
         <div class="heading-row">
           <h1>固件模拟</h1>
-          <span class="readonly-badge"><Monitor :size="13" />运行观察台</span>
         </div>
-        <p class="sub">从环境构建到服务验证，集中查看固件模拟的运行状态与执行证据。</p>
       </div>
       <div class="heading-actions">
         <span class="refresh-note"><span class="refresh-dot" :class="{ offline: refreshError }" />{{ refreshError ? '同步暂不可用' : lastUpdated ? '更新于 ' + formatTime(lastUpdated) : '同步中…' }}</span>
@@ -16,18 +13,17 @@
     </header>
     <p v-if="refreshError" class="sync-notice" role="status">{{ refreshError }}<button type="button" @click="refreshAll()">重试</button></p>
 
-    <section v-if="loading" class="empty-state pane" role="status"><RefreshCw :size="26" class="spinning" /><h2>正在同步模拟任务</h2><p>读取会话、环境与执行状态…</p></section>
+    <section v-if="loading" class="empty-state pane" role="status"><RefreshCw :size="26" class="spinning" /><h2>加载中…</h2></section>
     <section v-else-if="!hasActivity" class="empty-state pane" aria-label="暂无模拟任务">
-      <div class="empty-icon"><Monitor :size="28" /></div><h2>准备好验证真实固件行为</h2>
-      <p>在安全工作台完成漏洞挖掘并确认模拟测试后，这里会展示环境构建、服务探活与执行证据。</p>
+      <div class="empty-icon"><Monitor :size="28" /></div><h2>暂无模拟任务</h2>
+      <p>在安全工作台发起模拟测试。</p>
       <a href="?page=jobs&mode=expert" class="empty-link">前往安全工作台<ArrowRight :size="14" /></a>
-      <div class="empty-process"><span>构建环境</span><ArrowRight :size="12" /><span>启动服务</span><ArrowRight :size="12" /><span>验证与发布</span></div>
     </section>
 
     <template v-else>
       <section class="overview pane" aria-label="模拟运行总览">
         <div class="overview-main">
-          <div class="overview-label">{{ selectedSession ? '当前会话 · ' + chipStatus(selectedSession) : '模拟任务总览' }}</div>
+          <div class="overview-label">{{ selectedSession ? '当前会话' : '任务总览' }}</div>
           <div class="overview-status" :data-status="selectedSession ? chipTone(selectedSession) : 'idle'"><span class="status-orb" :data-live="selectedSession?.status === 'running' && !isZombie(selectedSession) || undefined" /><strong>{{ overviewTitle }}</strong></div>
           <details v-if="currentGoal" class="goal-detail"><summary><span>验证目标</span><ChevronDown :size="14" /></summary><p>{{ currentGoal }}</p></details>
           <ol class="hero-steps"><li v-for="(s, i) in STEPS" :key="s" :data-st="heroStepState(i)"><i class="pt" /><span>{{ s }}</span></li></ol>
@@ -36,14 +32,14 @@
       </section>
 
       <section class="metric-grid" aria-label="模拟指标">
-        <article class="metric-card"><span class="metric-icon blue"><Activity :size="18" /></span><div><small>运行中会话</small><b>{{ runningSessions.length }}</b><em>{{ runningSessions.length ? '正在执行动态验证' : '当前无运行会话' }}</em></div></article>
-        <article class="metric-card"><span class="metric-icon amber"><Clock3 :size="18" /></span><div><small>待处理请求</small><b>{{ queuedRequests.length }}</b><em>{{ queuedRequests.length ? '等待模拟执行' : '队列为空' }}</em></div></article>
-        <article class="metric-card"><span class="metric-icon green"><CheckCircle2 :size="18" /></span><div><small>就绪环境</small><b>{{ readyEnvs.length }}</b><em>全部会话的可用环境</em></div></article>
+        <article class="metric-card"><span class="metric-icon blue"><Activity :size="18" /></span><div><small>运行中会话</small><b>{{ runningSessions.length }}</b></div></article>
+        <article class="metric-card"><span class="metric-icon amber"><Clock3 :size="18" /></span><div><small>待处理请求</small><b>{{ queuedRequests.length }}</b></div></article>
+        <article class="metric-card"><span class="metric-icon green"><CheckCircle2 :size="18" /></span><div><small>就绪环境</small><b>{{ readyEnvs.length }}</b></div></article>
         <article class="metric-card"><span class="metric-icon violet"><History :size="18" /></span><div><small>历史会话</small><b>{{ completedSessions.length }}</b><em>其中 {{ errorSessions.length }} 个异常会话</em></div></article>
       </section>
 
       <section class="session-section" aria-label="模拟会话">
-        <div class="section-head"><div><h2>模拟会话</h2><p class="section-description">选择会话，查看对应环境与执行证据。</p></div><span class="section-count">{{ filteredSessions.length }} / {{ chipSessions.length }} 个会话</span></div>
+        <div class="section-head"><div><h2>模拟会话</h2></div><span class="section-count">{{ filteredSessions.length }} / {{ chipSessions.length }} 个会话</span></div>
         <div class="session-toolbar">
           <div class="session-filters" aria-label="会话状态筛选"><button v-for="option in SESSION_FILTERS" :key="option.value" type="button" :class="{ on: sessionFilter === option.value }" :aria-pressed="sessionFilter === option.value" @click="sessionFilter = option.value">{{ option.label }}</button></div>
           <label class="session-search"><Search :size="15" /><input v-model="sessionSearch" aria-label="搜索模拟会话" placeholder="搜索验证目标、固件或会话编号" /><button v-if="sessionSearch" type="button" aria-label="清空会话搜索" @click="sessionSearch = ''"><X :size="14" /></button></label>
@@ -60,10 +56,10 @@
         <div v-if="!filteredSessions.length" class="filter-empty"><Search :size="22" /><span>{{ chipSessions.length ? '没有符合条件的会话' : '请求已进入队列，等待创建模拟会话' }}</span><button v-if="sessionSearch || sessionFilter !== 'all'" type="button" class="quiet-button" @click="sessionSearch = ''; sessionFilter = 'all'">清空筛选</button></div>
       </section>
 
-      <div v-if="selected" class="detail-shell"><div class="detail-titlebar"><div><span class="section-eyebrow">执行与证据</span><h2>{{ chipLabel(selectedSession || {}) }}</h2></div><span class="live-pill" :data-status="selectedSession ? chipTone(selectedSession) : 'idle'" :data-running="selectedSession?.status === 'running' && !isZombie(selectedSession) || undefined"><i />{{ selectedSession ? chipStatus(selectedSession) : '会话' }}</span></div>
-        <div class="detail-grid"><section ref="flowEl" class="pane flow"><header class="pane-h"><div><span class="pane-eyebrow">执行轨迹</span><h2>AI 执行流</h2></div><span class="pane-hint">{{ selectedSession?.status === 'running' ? '实时更新' : '历史回放' }}</span></header><p v-if="dsh.state.lastError" class="empty" role="status">执行记录暂不可用：{{ dsh.state.lastError }}</p><MessageList :session="dsh" @inspect="onInspect" /></section>
-          <aside class="rail"><section class="pane service-pane"><header class="pane-h"><div><span class="pane-eyebrow">端口与健康状态</span><h2>运行服务</h2></div><span class="pane-hint">{{ activeEnv?.services?.length || 0 }} 项</span></header><ul v-if="activeEnv?.services?.length" class="svc-rows"><li v-for="sv in activeEnv.services" :key="sv.name"><button type="button" :class="{ on: logService === sv.name }" :aria-pressed="logService === sv.name" :title="logService === sv.name ? '点击取消过滤' : '点击查看该服务日志'" @click="logService = logService === sv.name ? '' : sv.name"><span><b class="service-name mono">{{ sv.name }}</b><small class="mono dim">{{ sv.guest_port ?? '—' }} → {{ sv.host_port ?? '—' }}</small></span><strong :data-st="sv.status"><i />{{ svcText(sv.status) }}</strong></button></li></ul><p v-else class="empty">{{ activeEnv ? '当前环境尚未启动服务' : '尚无运行环境' }}</p></section>
-            <section class="pane log-pane"><header class="pane-h"><div><span class="pane-eyebrow">控制台输出</span><h2>服务日志</h2></div><button v-if="logService" type="button" class="filter-pill" aria-label="取消服务日志筛选" @click="logService = ''">{{ logService }}<X :size="12" /></button></header><p v-if="consoleError" class="empty" role="status">{{ consoleError }}</p><pre ref="consoleEl" class="console" @scroll="onConsoleScroll">{{ consoleText || (activeEnv ? '暂无服务输出' : '等待运行环境创建…') }}</pre></section></aside>
+      <div v-if="selected" class="detail-shell"><div class="detail-titlebar"><div><h2>{{ chipLabel(selectedSession || {}) }}</h2></div><span class="live-pill" :data-status="selectedSession ? chipTone(selectedSession) : 'idle'" :data-running="selectedSession?.status === 'running' && !isZombie(selectedSession) || undefined"><i />{{ selectedSession ? chipStatus(selectedSession) : '会话' }}</span></div>
+        <div class="detail-grid"><section ref="flowEl" class="pane flow"><header class="pane-h"><div><h2>执行记录</h2></div><span class="pane-hint">{{ selectedSession?.status === 'running' ? '实时更新' : '历史回放' }}</span></header><p v-if="dsh.state.lastError" class="empty" role="status">执行记录暂不可用：{{ dsh.state.lastError }}</p><MessageList :session="dsh" @inspect="onInspect" /></section>
+          <aside class="rail"><section class="pane service-pane"><header class="pane-h"><div><h2>运行服务</h2></div><span class="pane-hint">{{ activeEnv?.services?.length || 0 }} 项</span></header><ul v-if="activeEnv?.services?.length" class="svc-rows"><li v-for="sv in activeEnv.services" :key="sv.name"><button type="button" :class="{ on: logService === sv.name }" :aria-pressed="logService === sv.name" :title="logService === sv.name ? '点击取消过滤' : '点击查看该服务日志'" @click="logService = logService === sv.name ? '' : sv.name"><span><b class="service-name mono">{{ sv.name }}</b><small class="mono dim">{{ sv.guest_port ?? '—' }} → {{ sv.host_port ?? '—' }}</small></span><strong :data-st="sv.status"><i />{{ svcText(sv.status) }}</strong></button></li></ul><p v-else class="empty">{{ activeEnv ? '当前环境尚未启动服务' : '尚无运行环境' }}</p></section>
+            <section class="pane log-pane"><header class="pane-h"><div><h2>服务日志</h2></div><button v-if="logService" type="button" class="filter-pill" aria-label="取消服务日志筛选" @click="logService = ''">{{ logService }}<X :size="12" /></button></header><p v-if="consoleError" class="empty" role="status">{{ consoleError }}</p><pre ref="consoleEl" class="console" @scroll="onConsoleScroll">{{ consoleText || (activeEnv ? '暂无服务输出' : '等待运行环境创建…') }}</pre></section></aside>
         </div>
       </div>
 

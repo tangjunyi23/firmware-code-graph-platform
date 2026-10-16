@@ -3,22 +3,20 @@
     <div v-if="visible" class="end-card">
       <div class="end-inner">
         <div class="end-head">
-          <span class="end-ico">📄</span>
           <div class="end-title">
-            <b>本轮挖掘报告已生成</b>
+            <b>报告已生成</b>
             <span>
               <template v-if="count > 0">{{ count }} 项发现已入库（{{ sevLine }}）。</template>
-              <template v-else>本轮未记录发现，报告含完整过程与排除项。</template>
-              完整调用链、PoC 与验证记录请前往报告中心查看。
+              <template v-else>本轮无发现。</template>
             </span>
           </div>
         </div>
         <div class="end-actions">
           <button type="button" class="end-btn primary" @click="goReports">
-            查看完整报告
+            查看报告
           </button>
           <button type="button" class="end-btn ghost" @click="newHunt">
-            新一轮挖掘
+            新建分析
           </button>
         </div>
       </div>

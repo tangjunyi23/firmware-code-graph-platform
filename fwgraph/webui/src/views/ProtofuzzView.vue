@@ -4,7 +4,6 @@
       <div class="ins-head-row">
         <h1 class="ins-title"><span class="ins-ico"><component :is="NAV_ICONS.Share" :size="18" /></span>协议模糊测试</h1>
       </div>
-      <p class="ins-sub">面向协议实现的主动模糊测试。</p>
     </header>
 
     <div class="pf-layout">

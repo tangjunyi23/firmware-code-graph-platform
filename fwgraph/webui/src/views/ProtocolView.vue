@@ -2,9 +2,8 @@
   <div class="proto">
     <header class="hero">
       <div>
-        <p class="kicker">入口风险评估</p>
-        <h1>固件对外入口风险综合评估</h1>
-        <p>对选中固件任务的对外服务入口（监听端口 / 协议 / 暴露面）做综合风险排序，只读取已解包产物。</p>
+        <h1>入口风险评估</h1>
+        <p>仅分析已解包产物。</p>
       </div>
       <div class="hero-side">
         <el-select v-model="jobId" placeholder="选择固件任务" class="job" filterable @change="loadReport">
@@ -28,7 +27,7 @@
     </section>
 
     <p v-if="err" class="banner bad">{{ err }}</p>
-    <p v-if="missing.length" class="banner">尚未生成：{{ missing.join('、') }}。已有产物仍会展示。</p>
+    <p v-if="missing.length" class="banner">尚未生成：{{ missing.join('、') }}。</p>
 
     <!-- 攻击面评估 -->
     <section class="row split">

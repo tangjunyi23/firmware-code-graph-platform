@@ -54,12 +54,6 @@ html[data-fw-theme='light'] .commercial-shell {
 .commercial-shell .workspace-pages .page-pane { max-width: 1500px; padding: 32px 36px 44px; }
 .commercial-shell .workspace-pages.chat-home .page-pane, .commercial-shell .workspace-pages.ops-home .page-pane { max-width: none; padding: 0; }
 .commercial-shell .workspace-pages .ins-head { padding: 0; border: 0; margin: 0 0 26px; }
-.commercial-shell .workspace-pages .ins-head::before { content: '工作区'; display: block; color: var(--fw-text-3); font-size: 10px; font-weight: 500; letter-spacing: .5px; margin-bottom: 12px; }
-.commercial-shell .workspace-pages[data-page='reports'] .ins-head::before { content: '安全资产 / 报告与交付'; }
-.commercial-shell .workspace-pages[data-page='vulnlib'] .ins-head::before { content: '威胁知识 / 漏洞与证据'; }
-.commercial-shell .workspace-pages:is([data-page='functions'],[data-page='graph'],[data-page='attack'],[data-page='inputs']) .ins-head::before { content: '代码洞察'; }
-.commercial-shell .workspace-pages:is([data-page='backdoor'],[data-page='emul'],[data-page='events']) .ins-head::before { content: '固件工具'; }
-.commercial-shell .workspace-pages:is([data-page='users'],[data-page='logs'],[data-page='settings']) .ins-head::before { content: '平台管理'; }
 .commercial-shell .workspace-pages .ins-title { gap: 10px; font-size: 28px; font-weight: 600; letter-spacing: -.6px; }
 .commercial-shell .workspace-pages .ins-ico { width: 34px; height: 34px; border: 0; border-radius: 9px; background: var(--fw-fill); }
 .commercial-shell .workspace-pages .ins-sub { font-size: 12px; line-height: 1.7; margin-top: 12px; }

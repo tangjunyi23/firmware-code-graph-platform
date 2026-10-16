@@ -11,7 +11,6 @@
           <el-button :icon="RefreshCw" :loading="loading" @click="jobId && loadJob(jobId)">刷新</el-button>
         </div>
       </div>
-      <p class="ins-sub">反编译函数检索：按名称、语义标签、domain 与 libc 等价过滤，点行查看伪代码。</p>
     </header>
 
     <el-card shadow="never">

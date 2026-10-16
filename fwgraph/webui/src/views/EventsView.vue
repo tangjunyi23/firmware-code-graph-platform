@@ -4,7 +4,6 @@
       <div class="ins-head-row">
         <h1 class="ins-title"><span class="ins-ico"><component :is="NAV_ICONS.Tickets" :size="18" /></span>事件流</h1>
       </div>
-      <p class="ins-sub">固件任务与挖掘会话的事件时间线。</p>
     </header>
 
     <el-card class="col-jobs" shadow="never">

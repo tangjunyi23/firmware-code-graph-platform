@@ -2,10 +2,9 @@
   <Transition name="pipe-in">
     <div v-if="visible" class="emu-card">
       <div class="emu-head">
-        <span class="emu-ico">🧪</span>
         <div class="emu-title">
-          <b>挖掘完成 · 固件模拟真实测试</b>
-          <span>静态与动态验证已闭环，可在真实服务环境中验证 PoC 落地。</span>
+          <b>固件模拟测试</b>
+          <span>是否启动模拟环境验证 PoC？</span>
         </div>
       </div>
       <div class="emu-actions">
@@ -14,13 +13,13 @@
           class="emu-btn primary"
           :disabled="busy"
           @click="accept"
-        >{{ busy ? '正在发起…' : '发起模拟测试' }}</button>
+        >{{ busy ? '正在发起…' : '开始测试' }}</button>
         <button
           type="button"
           class="emu-btn ghost"
           :disabled="busy"
           @click="decline"
-        >跳过模拟</button>
+        >跳过</button>
       </div>
       <p v-if="error" class="emu-err">{{ error }}</p>
     </div>

@@ -1,6 +1,5 @@
 <template>
   <div class="firmware-map" aria-hidden="true">
-    <div class="map-caption"><span class="map-dot" /> FIRMWARE INTELLIGENCE <span>01 — 04</span></div>
     <svg viewBox="0 0 560 280" fill="none">
       <defs>
         <pattern id="fw-map-grid" width="24" height="24" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r="1" fill="#748ba8" opacity=".18" /></pattern>
@@ -28,7 +27,7 @@
         <path d="M470 128 482 133V142C482 149 470 154 470 154S458 149 458 142V133L470 128ZM465 141 469 145 476 137" stroke="#52d7c1" />
       </g>
       <g fill="#b8cce9" font-family="system-ui, sans-serif" font-size="10" text-anchor="middle">
-        <text x="280" y="162" font-size="14" font-weight="600" fill="#edf4ff">代码知识图谱</text>
+        <text x="280" y="162" font-size="14" font-weight="600" fill="#edf4ff">代码图谱</text>
         <text x="140" y="99">函数</text><text x="420" y="99">入口</text>
         <text x="140" y="191">调用链</text><text x="420" y="191">风险</text>
         <text x="90" y="219">固件文件</text><text x="470" y="219">安全发现</text>

@@ -2,7 +2,7 @@
   <div>
     <header class="ins-head">
       <div class="ins-head-row">
-        <h1 class="ins-title">
+        <h1 class="ins-title" title="规则检测：隐藏账户、密钥、启动项、计划任务、WebShell 和硬编码口令">
           <span class="ins-ico"><component :is="NAV_ICONS.ScanSearch" :size="18" /></span>
           后门检测
         </h1>
@@ -10,10 +10,6 @@
           <JobPicker v-model="jobId" :prefer="preferStatuses" />
         </div>
       </div>
-      <p class="ins-sub">
-        隐藏账户 · 植入密钥 · 启动链后门 · 可疑计划任务 · webshell ·
-        已知蠕虫植入物 · 硬编码口令等专项规则检测。
-      </p>
     </header>
 
     <el-card shadow="never" class="block">

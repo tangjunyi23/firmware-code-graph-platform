@@ -57,24 +57,24 @@ const STEPS = [
     id: 'welcome',
     page: 'jobs',
     kicker: '新手教程',
-    title: '欢迎使用 FWGraph',
-    body: '这是固件攻击面分析平台。左侧大项是功能，小项收在里面：安全工作台用于交互分析，固件任务用于管理上传和分析进度，代码洞察含函数和攻击面。漏洞库收录 CVE/CNVD 并可查 N-day。快速模式把解密到挖掘串成一条龙。按 Esc 可随时退出教程。'
+    title: '使用说明',
+    body: '上传固件后，在安全工作台开始分析。按 Esc 退出教程。'
   },
   {
     id: 'mode',
     page: 'jobs',
     target: '[data-tour="mode-switch"]',
     kicker: '模式',
-    title: '专家 / 快速',
-    body: '专家自己管分析任务和对话。快速模式把解密、解包到挖掘串成一条龙。随时可以来回切。'
+    title: '分析模式',
+    body: '专家模式分别管理任务和会话；快速模式按步骤创建任务。'
   },
   {
     id: 'nav',
     page: 'jobs',
     target: '[data-tour="nav-main"]',
     kicker: '功能栏',
-    title: '大功能在外，小功能在里',
-    body: '进入「安全工作台」开展漏洞分析。上传固件时点击「新建分析」，或进入「固件任务」。CVE/CNVD 在「漏洞库」。解密、协议、代码洞察页同样收在对应大项下。'
+    title: '功能导航',
+    body: '固件任务管理上传与分析进度，安全工作台用于交互分析，漏洞库查询已知漏洞。'
   },
   {
     id: 'prepare-nav',
@@ -82,8 +82,8 @@ const STEPS = [
     target: '[data-tour="nav-prepare"]',
     fallback: '[data-tour="nav-chat"]',
     kicker: '前置分析',
-    title: '从固件任务开始',
-    body: '挖掘依赖解密、解包、反编译和攻击面。还没有完成的任务时，点击「新建分析」上传固件，在「固件任务」中查看进度。'
+    title: '固件任务',
+    body: '上传固件并完成前置分析后，才能开始挖掘。'
   },
   {
     id: 'prepare-board',
@@ -91,8 +91,8 @@ const STEPS = [
     target: '[data-tour="prepare-board"]',
     fallback: '[data-tour="prepare-new"]',
     kicker: '前置分析',
-    title: '九步看板会实时播报',
-    body: '固件解密 → 解包 → 解析 → 反编译 → 图谱 → 攻击路径 → 路由 → 输入 → 攻击面。完成打勾，当前步有动画，右侧是中文进度播报。'
+    title: '分析进度',
+    body: '查看各阶段的状态与日志；失败阶段可重试。'
   },
   {
     id: 'prepare-start',
@@ -100,8 +100,8 @@ const STEPS = [
     target: '[data-tour="prepare-send"]',
     fallback: '[data-tour="prepare-upload"]',
     kicker: '前置分析',
-    title: '上传固件并开始',
-    body: '点击「选择固件文件」选镜像，再点「创建并开始分析」。解密和解包会自动跑，进度在这块看板上更新。'
+    title: '上传固件',
+    body: '选择固件文件，填写分析要求，点击「开始分析」。'
   },
   {
     id: 'decrypt',
@@ -109,7 +109,7 @@ const STEPS = [
     target: '[data-tour="nav-decrypt"]',
     kicker: '解密',
     title: '固件解密',
-    body: '上传后会自动解密。这一页看总进度、步骤和日志。把 IDA 放到投放目录也会在后续反编译里被识别。'
+    body: '查看解密进度、结果和日志。'
   },
   {
     id: 'protocol',
@@ -117,7 +117,7 @@ const STEPS = [
     target: '[data-tour="nav-protocol"]',
     kicker: '协议',
     title: '入口风险评估',
-    body: '对固件对外服务入口（监听端口 / 协议 / 暴露面）做综合风险排序，快速定位最该优先处理的入口。'
+    body: '按风险查看服务入口、端口和协议。'
   },
   {
     id: 'workspace',
@@ -125,8 +125,8 @@ const STEPS = [
     target: '[data-tour="wb-workspace"]',
     fallback: '[data-tour="wb-new"]',
     kicker: '挖掘',
-    title: '回工作台选任务',
-    body: '前置完成后打开「工作台」，点「选择已完成的分析任务」。没选中任务时发送会被拦住。'
+    title: '选择任务',
+    body: '在工作台选择已完成前置分析的固件任务。'
   },
   {
     id: 'composer',
@@ -134,8 +134,8 @@ const STEPS = [
     target: '[data-tour="wb-composer"]',
     fallback: '[data-tour="wb-new"]',
     kicker: '挖掘',
-    title: '写下目标并发送',
-    body: '写清范围，例如「优先看 httpd 的命令注入」。回车或点发送开始。左下角可选「全部同意」自动放行工具。'
+    title: '发送分析目标',
+    body: '输入目标后发送。审批策略决定工具调用是否需要确认。'
   },
   {
     id: 'dashboard',
@@ -143,7 +143,7 @@ const STEPS = [
     target: '[data-tour="nav-dashboard"]',
     kicker: '态势',
     title: '仪表盘',
-    body: '看 AI 命中率、进行中任务、威胁雷达、厂商排行和中文扫描日志。点 KPI 可跳到对应模块。'
+    body: '查看任务与风险统计。点击指标进入对应模块。'
   },
   {
     id: 'reports',
@@ -151,7 +151,7 @@ const STEPS = [
     target: '[data-tour="nav-reports"]',
     kicker: '结果',
     title: '报告中心',
-    body: '入库结果按固件命名，分专项 / 季度 / 协议。可预览并导出。教程结束，头像菜单里可重看。'
+    body: '预览报告，或导出 DOCX、PDF、Markdown。'
   }
 ]
 

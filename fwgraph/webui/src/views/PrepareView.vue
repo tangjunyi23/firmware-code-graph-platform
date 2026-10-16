@@ -22,25 +22,20 @@
           <span class="title" :title="job.firmware">{{ job.firmware }}</span>
           <span class="meta">{{ STATUS_TEXT[job.status] || job.status }}</span>
         </button>
-        <p v-if="jobs.length && !filteredJobs.length" class="empty">没有匹配的任务，请调整搜索内容。</p>
+        <p v-if="jobs.length && !filteredJobs.length" class="empty">无匹配任务</p>
       </div>
     </aside>
     <main class="stage" :class="{ 'create-stage': !current }">
+      <div class="prepare-overview" aria-label="固件任务统计">
+        <button v-for="item in taskFilters" :key="item.key" type="button" :class="{ on: taskFilter === item.key }" :aria-pressed="taskFilter === item.key" @click="taskFilter = item.key"><span>{{ item.key === 'all' ? '固件任务' : item.label }}</span><strong>{{ item.count }}</strong><i :data-status="item.key" /></button>
+      </div>
       <header class="head">
         <div>
-          <p class="kicker">分析任务</p>
           <h1>{{ current ? (current.firmware || '固件任务') : '新建固件分析' }}</h1>
-          <p>{{ current ? (STATUS_TEXT[current.status] || current.status) : '上传目标固件，建立代码图谱，持续跟踪安全风险。' }}</p>
+          <p v-if="current">{{ STATUS_TEXT[current.status] || current.status }}</p>
         </div>
-        <span v-if="current && RUNNING.has(current.status)" class="live"><i />分析进行中</span>
+        <div class="prepare-head-actions"><span v-if="current && RUNNING.has(current.status)" class="live"><i />分析进行中</span><button v-if="current" type="button" class="prepare-reset" @click="reset"><component :is="NAV_ICONS.Upload" :size="14" />新建任务</button></div>
       </header>
-
-      <div v-if="!current" class="prepare-guide" aria-label="固件分析流程">
-        <header class="prepare-guide-head"><span>分析流程</span><b>从固件到证据</b></header>
-        <article><span>01</span><h2>选择目标固件</h2><p>上传固件镜像，或从左侧继续已有的分析任务。</p></article>
-        <article><span>02</span><h2>自动解析与建图</h2><p>完成解密、解包、反编译与攻击面分析，实时查看进度。</p></article>
-        <article><span>03</span><h2>进入安全工作台</h2><p>描述分析目标，沿代码调用链寻找风险与证据。</p></article>
-      </div>
 
       <PipelineCard
         v-if="current"
@@ -54,20 +49,19 @@
         @retry="retryFailed"
       />
 
-      <p v-if="current && current.task" class="task">前置提示词：{{ current.task }}</p>
+      <p v-if="current && current.task" class="task">分析要求：{{ current.task }}</p>
       <p v-if="current && pipelineFinished(current)" class="hint">
-        分析任务已保存。到「安全工作台」选中该任务即可开始漏洞挖掘。
+        <a href="?page=jobs&mode=expert">进入安全工作台</a>
       </p>
       <p v-if="notice" class="notice" :class="{ error: notice.level === 'error' }">{{ notice.text }}</p>
 
       <div v-if="!current || !pipelineFinished(current)" class="composer-wrap">
-        <div v-if="!current" class="prepare-form-head"><h2>目标与分析范围</h2><p>选择文件，补充需要重点关注的入口或风险类型。</p></div>
-        <button v-if="!current && !file" type="button" class="prepare-upload" @click="fileInput.click()">
-          <span class="prepare-file-icon"><component :is="NAV_ICONS.Upload" :size="26" /></span><span><b>选择固件文件</b><small>支持 BIN、IMG、TRX、CHK 等固件镜像；选择后可补充分析方向。</small></span>
+        <button v-if="!current && !file" type="button" class="prepare-upload" data-tour="prepare-upload" @click="fileInput.click()">
+          <span class="prepare-file-icon"><component :is="NAV_ICONS.Upload" :size="26" /></span><span><b>选择固件文件</b><small>BIN、IMG、TRX、CHK 等固件镜像</small></span>
         </button>
-        <div v-if="file" class="chip">
-          <span>{{ file.name }}</span>
-          <button type="button" @click="file = null">×</button>
+        <div v-if="file" class="prepare-selected-file">
+          <span class="prepare-file-icon"><component :is="NAV_ICONS.Cpu" :size="22" /></span><div><strong>{{ file.name }}</strong><small>{{ fmtSize(file.size) }}</small></div>
+          <button type="button" aria-label="移除固件文件" @click="file = null">×</button>
         </div>
         <label for="prepare-analysis-note" class="prepare-note-label">分析方向 <span class="muted">· 可选</span></label>
         <textarea id="prepare-analysis-note"
@@ -79,16 +73,13 @@
         />
         <div class="actions">
           <input ref="fileInput" type="file" class="hidden" :accept="FW_ACCEPT" @change="onPick" />
-          <button type="button" class="add" data-tour="prepare-upload" :disabled="busy" @click="fileInput.click()">
-            {{ t('input.upload') }}
-          </button>
           <button
             type="button"
             class="send"
             data-tour="prepare-send"
             :disabled="busy || (!file && !current)"
             @click="onSend"
-          >创建并开始分析</button>
+          >开始分析</button>
         </div>
       </div>
       <div v-if="uploadPct !== null" class="toast">正在上传固件… {{ uploadPct }}%</div>
@@ -105,7 +96,7 @@ import { t } from '../workbench/locales.js'
 import { NAV_ICONS } from '../workbench/icons.js'
 import {
   DEFAULT_PREPARE_TASK, FW_ACCEPT, RUNNING, STATUS_TEXT, pipelineFinished,
-  announceSteps, failedStep, failedStepLabel, RETRYABLE_STEPS
+  announceSteps, failedStep, failedStepLabel, RETRYABLE_STEPS, fmtSize
 } from '../workbench/pipeline.js'
 
 const jobs = ref([])
@@ -114,11 +105,12 @@ const taskFilter = ref('all')
 const taskFilters = computed(() => [
   { key: 'all', label: '全部', count: jobs.value.length },
   { key: 'ready', label: '已就绪', count: jobs.value.filter(job => job.status !== 'failed' && pipelineFinished(job)).length },
-  { key: 'running', label: '进行中', count: jobs.value.filter(job => RUNNING.has(job.status)).length }
+  { key: 'running', label: '进行中', count: jobs.value.filter(job => RUNNING.has(job.status)).length },
+  { key: 'failed', label: '失败', count: jobs.value.filter(job => job.status === 'failed').length }
 ])
 const filteredJobs = computed(() => {
   const query = taskQuery.value.trim().toLowerCase()
-  const rows = jobs.value.filter(job => taskFilter.value === 'all' || (taskFilter.value === 'ready' ? job.status !== 'failed' && pipelineFinished(job) : RUNNING.has(job.status)))
+  const rows = jobs.value.filter(job => taskFilter.value === 'all' || (taskFilter.value === 'ready' ? job.status !== 'failed' && pipelineFinished(job) : taskFilter.value === 'failed' ? job.status === 'failed' : RUNNING.has(job.status)))
   return query ? rows.filter(job => `${job.firmware || ''} ${job.job_id || ''} ${STATUS_TEXT[job.status] || job.status}`.toLowerCase().includes(query)) : rows
 })
 const current = ref(null)
@@ -258,6 +250,8 @@ function reset () {
 
 function openJob (job) {
   rememberSelectedJob(job.job_id)
+  file.value = null
+  draft.value = ''
   feed.value = []
   seenDecrypt = 0
   lastJob = null

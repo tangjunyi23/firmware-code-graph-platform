@@ -48,7 +48,7 @@
 
     <aside class="radio">
       <header>
-        <h2>进度播报</h2>
+        <h2>阶段日志</h2>
         <span class="live"><i />实时</span>
       </header>
       <ul ref="feedEl" class="feed">
@@ -56,7 +56,7 @@
           <time>{{ fmt(line.ts) }}</time>
           <span>{{ line.text }}</span>
         </li>
-        <li v-if="!lines.length" class="empty">上传固件后，这里会逐条播报九步进度。</li>
+        <li v-if="!lines.length" class="empty">暂无日志</li>
       </ul>
     </aside>
 
@@ -76,7 +76,7 @@
         >{{ retrying ? '正在重试…' : '重试本阶段' }}</button>
       </div>
       <p class="fail-msg">{{ failMsg }}</p>
-      <p v-if="!retryable" class="fail-hint">此阶段在上传固件后自动执行，无法单独重试；请处理后重新上传固件。</p>
+      <p v-if="!retryable" class="fail-hint">此阶段不支持单独重试，请处理后重新上传固件。</p>
       <button v-if="logTail && logTail.length" type="button" class="fail-log-toggle" @click="logOpen = !logOpen">
         {{ logOpen ? '收起任务日志' : `展开任务日志（最近 ${logTail.length} 行）` }}
       </button>

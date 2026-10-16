@@ -8,7 +8,6 @@
           <el-button type="primary" @click="openCreate">新建用户</el-button>
         </div>
       </div>
-      <p class="ins-sub">平台账号与角色权限管理。</p>
     </header>
 
     <section class="account-summary" aria-label="账号概览">
